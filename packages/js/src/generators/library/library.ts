@@ -14,6 +14,7 @@ import {
   updateJson,
 } from '@nrwl/devkit';
 import { jestProjectGenerator } from '@nrwl/jest';
+import { findRootJestPreset } from '@nrwl/jest/src/utils/config/find-root-jest-files';
 import { Linter, lintProjectGenerator } from '@nrwl/linter';
 import { runTasksInSerial } from '@nrwl/workspace/src/utilities/run-tasks-in-serial';
 import {
@@ -21,6 +22,7 @@ import {
   getRootTsConfigPathInTree,
 } from '@nrwl/workspace/src/utilities/typescript';
 import { join } from 'path';
+import { addMinimalPublishScript } from '../../utils/minimal-publish-script';
 import { LibraryGeneratorSchema } from '../../utils/schema';
 import { addSwcConfig } from '../../utils/swc/add-swc-config';
 import { addSwcDependencies } from '../../utils/swc/add-swc-dependencies';
@@ -91,12 +93,13 @@ function addProject(
     tags: options.parsedTags,
   };
 
-  if (options.buildable && options.config != 'npm-scripts') {
+  if (options.buildable && options.config !== 'npm-scripts') {
+    const outputPath = `dist/${destinationDir}/${options.projectDirectory}`;
     projectConfiguration.targets.build = {
       executor: `@nrwl/js:${options.compiler}`,
       outputs: ['{options.outputPath}'],
       options: {
-        outputPath: `dist/${destinationDir}/${options.projectDirectory}`,
+        outputPath,
         main: `${options.projectRoot}/src/index` + (options.js ? '.js' : '.ts'),
         tsConfig: `${options.projectRoot}/tsconfig.lib.json`,
         assets: [`${options.projectRoot}/*.md`],
@@ -105,6 +108,18 @@ function addProject(
 
     if (options.compiler === 'swc' && options.skipTypeCheck) {
       projectConfiguration.targets.build.options.skipTypeCheck = true;
+    }
+
+    if (options.publishable) {
+      const publishScriptPath = addMinimalPublishScript(tree);
+
+      projectConfiguration.targets.publish = {
+        executor: '@nrwl/workspace:run-commands',
+        options: {
+          command: `node ${publishScriptPath} ${options.name} {args.ver} {args.tag}`,
+        },
+        dependsOn: [{ projects: 'self', target: 'build' }],
+      };
     }
   }
 
@@ -220,6 +235,7 @@ async function addJest(
   options: NormalizedSchema
 ): Promise<GeneratorCallback> {
   return await jestProjectGenerator(tree, {
+    ...options,
     project: options.name,
     setupFile: 'none',
     supportTsx: false,
@@ -235,12 +251,10 @@ function replaceJestConfig(
   options: NormalizedSchema,
   filesDir: string
 ) {
-  // remove the generated jest config by Jest generator
-  tree.delete(join(options.projectRoot, 'jest.config.js'));
-
   // replace with JS:SWC specific jest config
   generateFiles(tree, filesDir, options.projectRoot, {
     tmpl: '',
+    ext: findRootJestPreset(tree) === 'jest.preset.js' ? 'js' : 'ts',
     project: options.name,
     offsetFromRoot: offsetFromRoot(options.projectRoot),
     projectRoot: options.projectRoot,

@@ -1,16 +1,14 @@
 const path = require('path');
 
 module.exports = {
-  mode: 'jit',
-  purge: [
+  content: [
     path.join(__dirname, 'src/**/*.{js,ts,jsx,tsx,html}'),
     // ...createGlobPatternsForDependencies(__dirname),
   ],
-  darkMode: false, // or 'media' or 'class'
+  darkMode: 'class', // or 'media' or 'class'
   theme: {
     extend: {
       colors: {
-        black: 'hsla(0, 0%, 13%, 1)',
         blue: {
           'nx-dark': 'hsla(214, 61%, 11%, 1)',
           'nx-base': 'hsla(214, 62%, 21%, 1)',

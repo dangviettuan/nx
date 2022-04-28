@@ -4,19 +4,19 @@ import {
   shareWorkspaceLibraries,
 } from './mfe-webpack';
 import {
+  workspaceRoot,
   createProjectGraphAsync,
+  ProjectGraph,
   readCachedProjectGraph,
-} from '@nrwl/workspace/src/core/project-graph';
-import { readWorkspaceJson } from '@nrwl/workspace/src/core/file-utils';
-import { joinPathFragments, ProjectGraph } from '@nrwl/devkit';
-import ModuleFederationPlugin = require('webpack/lib/container/ModuleFederationPlugin');
-import { Workspaces } from 'nx/src/shared/workspace';
-import { appRootPath } from 'nx/src/utils/app-root';
+  Workspaces,
+} from '@nrwl/devkit';
 import {
   getRootTsConfigPath,
   readTsConfig,
 } from '@nrwl/workspace/src/utilities/typescript';
 import { ParsedCommandLine } from 'typescript';
+import { readWorkspaceJson } from 'nx/src/project-graph/file-utils';
+import ModuleFederationPlugin = require('webpack/lib/container/ModuleFederationPlugin');
 
 export type MFERemotes = string[] | [remoteName: string, remoteUrl: string][];
 
@@ -30,38 +30,40 @@ export interface MFEConfig {
   ) => SharedLibraryConfig | false;
 }
 
-function recursivelyResolveWorkspaceDependents(
-  projectGraph: ProjectGraph<any>,
-  target: string,
-  seenTargets: Set<string> = new Set()
-) {
-  if (seenTargets.has(target)) {
-    return [];
+function collectDependencies(
+  projectGraph: ProjectGraph,
+  name: string,
+  dependencies = {
+    workspaceLibraries: new Set<string>(),
+    npmPackages: new Set<string>(),
+  },
+  seen: Set<string> = new Set()
+): {
+  workspaceLibraries: Set<string>;
+  npmPackages: Set<string>;
+} {
+  if (seen.has(name)) {
+    return dependencies;
   }
-  let dependencies = [target];
-  seenTargets.add(target);
+  seen.add(name);
 
-  const workspaceDependencies = (
-    projectGraph.dependencies[target] ?? []
-  ).filter((dep) => !dep.target.startsWith('npm:'));
-  if (workspaceDependencies.length > 0) {
-    for (const dep of workspaceDependencies) {
-      dependencies = [
-        ...dependencies,
-        ...recursivelyResolveWorkspaceDependents(
-          projectGraph,
-          dep.target,
-          seenTargets
-        ),
-      ];
+  (projectGraph.dependencies[name] ?? []).forEach((dependency) => {
+    if (dependency.target.startsWith('npm:')) {
+      dependencies.npmPackages.add(dependency.target.replace('npm:', ''));
+    } else {
+      dependencies.workspaceLibraries.add(dependency.target);
+      collectDependencies(projectGraph, dependency.target, dependencies, seen);
     }
-  }
+  });
 
   return dependencies;
 }
 
 function mapWorkspaceLibrariesToTsConfigImport(workspaceLibraries: string[]) {
-  const { projects } = new Workspaces(appRootPath).readWorkspaceConfiguration();
+  const { projects } = new Workspaces(
+    workspaceRoot
+  ).readWorkspaceConfiguration();
+
   const tsConfigPath = process.env.NX_TSCONFIG_PATH ?? getRootTsConfigPath();
   const tsConfig: ParsedCommandLine = readTsConfig(tsConfigPath);
 
@@ -100,41 +102,17 @@ async function getDependentPackagesForProject(name: string) {
     projectGraph = await createProjectGraphAsync();
   }
 
-  const deps = projectGraph.dependencies[name].reduce(
-    (dependencies, dependency) => {
-      const workspaceLibraries = new Set(dependencies.workspaceLibraries);
-      const npmPackages = new Set(dependencies.npmPackages);
-
-      if (dependency.target.startsWith('npm:')) {
-        npmPackages.add(dependency.target.replace('npm:', ''));
-      } else {
-        workspaceLibraries.add(dependency.target);
-      }
-
-      return {
-        workspaceLibraries: [...workspaceLibraries],
-        npmPackages: [...npmPackages],
-      };
-    },
-    { workspaceLibraries: [], npmPackages: [] }
-  );
-  const seenWorkspaceLibraries = new Set<string>();
-  deps.workspaceLibraries = deps.workspaceLibraries.reduce(
-    (workspaceLibraryDeps, workspaceLibrary) => [
-      ...workspaceLibraryDeps,
-      ...recursivelyResolveWorkspaceDependents(
-        projectGraph,
-        workspaceLibrary,
-        seenWorkspaceLibraries
-      ),
-    ],
-    []
+  const { npmPackages, workspaceLibraries } = collectDependencies(
+    projectGraph,
+    name
   );
 
-  deps.workspaceLibraries = mapWorkspaceLibrariesToTsConfigImport(
-    deps.workspaceLibraries
-  );
-  return deps;
+  return {
+    workspaceLibraries: mapWorkspaceLibrariesToTsConfigImport([
+      ...workspaceLibraries,
+    ]),
+    npmPackages: [...npmPackages],
+  };
 }
 
 function determineRemoteUrl(remote: string) {
@@ -148,7 +126,9 @@ function determineRemoteUrl(remote: string) {
       You can also use the tuple syntax in your webpack config to configure your remotes. e.g. \`remotes: [['remote1', 'http://localhost:4201']]\``
     );
   }
-  return joinPathFragments(publicHost, 'remoteEntry.mjs');
+  return `${
+    publicHost.endsWith('/') ? publicHost.slice(0, -1) : publicHost
+  }/remoteEntry.mjs`;
 }
 
 function mapRemotes(remotes: MFERemotes) {
@@ -156,7 +136,12 @@ function mapRemotes(remotes: MFERemotes) {
 
   for (const remote of remotes) {
     if (Array.isArray(remote)) {
-      mappedRemotes[remote[0]] = remote[1];
+      const remoteLocation = remote[1].match(/remoteEntry\.(js|mjs)/)
+        ? remote[1]
+        : `${
+            remote[1].endsWith('/') ? remote[1].slice(0, -1) : remote[1]
+          }/remoteEntry.mjs`;
+      mappedRemotes[remote[0]] = remoteLocation;
     } else if (typeof remote === 'string') {
       mappedRemotes[remote] = determineRemoteUrl(remote);
     }

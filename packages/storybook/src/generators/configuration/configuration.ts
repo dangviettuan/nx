@@ -22,7 +22,6 @@ import { join } from 'path';
 import {
   isFramework,
   readCurrentWorkspaceStorybookVersionFromGenerator,
-  showStorybookV5Warning,
   TsConfig,
 } from '../../utils/utilities';
 import { cypressProjectGenerator } from '../cypress-project/cypress-project';
@@ -30,7 +29,10 @@ import { StorybookConfigureSchema } from './schema';
 import { initGenerator } from '../init/init';
 import { checkAndCleanWithSemver } from '@nrwl/workspace/src/utilities/version-utils';
 import { gte } from 'semver';
-import { findStorybookAndBuildTargets } from '../../executors/utils';
+import {
+  customProjectBuildConfigIsValid,
+  findStorybookAndBuildTargets,
+} from '../../executors/utils';
 import { getRootTsConfigPathInTree } from '@nrwl/workspace/src/utilities/typescript';
 
 export async function configurationGenerator(
@@ -41,8 +43,6 @@ export async function configurationGenerator(
 
   const tasks: GeneratorCallback[] = [];
 
-  const workspaceStorybookVersion = getCurrentWorkspaceStorybookVersion(tree);
-
   const { projectType, targets } = readProjectConfiguration(tree, schema.name);
 
   const { buildTarget } = findStorybookAndBuildTargets(targets);
@@ -52,18 +52,18 @@ export async function configurationGenerator(
   });
   tasks.push(initTask);
 
-  createRootStorybookDir(tree, schema.js, workspaceStorybookVersion);
-  createProjectStorybookDir(
-    tree,
-    schema.name,
-    schema.uiFramework,
-    schema.js,
-    workspaceStorybookVersion
-  );
+  createRootStorybookDir(tree, schema.js);
+  createProjectStorybookDir(tree, schema.name, schema.uiFramework, schema.js);
   configureTsProjectConfig(tree, schema);
   configureTsSolutionConfig(tree, schema);
   updateLintConfig(tree, schema);
-  addStorybookTask(tree, schema.name, schema.uiFramework, buildTarget);
+  addStorybookTask(
+    tree,
+    schema.name,
+    schema.uiFramework,
+    buildTarget,
+    schema.projectBuildConfig
+  );
   if (schema.configureCypress) {
     if (projectType !== 'application') {
       const cypressTask = await cypressProjectGenerator(tree, {
@@ -77,10 +77,6 @@ export async function configurationGenerator(
     } else {
       logger.warn('There is already an e2e project setup');
     }
-  }
-
-  if (workspaceStorybookVersion !== '6') {
-    showStorybookV5Warning(rawSchema.uiFramework);
   }
 
   await formatFiles(tree);
@@ -102,26 +98,16 @@ function normalizeSchema(
   };
 }
 
-function createRootStorybookDir(
-  tree: Tree,
-  js: boolean,
-  workspaceStorybookVersion: string
-) {
+function createRootStorybookDir(tree: Tree, js: boolean) {
   if (tree.exists('.storybook')) {
     logger.warn(
       `.storybook folder already exists at root! Skipping generating files in it.`
     );
     return;
   }
-  logger.debug(
-    `adding .storybook folder to the root directory - 
-     based on the Storybook version installed (v${workspaceStorybookVersion}), we'll bootstrap a scaffold for that particular version.`
-  );
+  logger.debug(`adding .storybook folder to the root directory`);
 
-  const templatePath = join(
-    __dirname,
-    workspaceStorybookVersion === '6' ? './root-files' : './root-files-5'
-  );
+  const templatePath = join(__dirname, './root-files');
   generateFiles(tree, templatePath, '', {
     rootTsConfigPath: getRootTsConfigPathInTree(tree),
   });
@@ -135,16 +121,8 @@ function createProjectStorybookDir(
   tree: Tree,
   projectName: string,
   uiFramework: StorybookConfigureSchema['uiFramework'],
-  js: boolean,
-  workspaceStorybookVersion: string
+  js: boolean
 ) {
-  /**
-   * Here, same as above
-   * Check storybook version
-   * and use the correct folder
-   * lib-files-5 or lib-files-6
-   */
-
   const { root, projectType } = readProjectConfiguration(tree, projectName);
   const projectDirectory = projectType === 'application' ? 'app' : 'lib';
 
@@ -157,13 +135,8 @@ function createProjectStorybookDir(
     return;
   }
 
-  logger.debug(
-    `adding .storybook folder to ${projectDirectory} - using Storybook version ${workspaceStorybookVersion}`
-  );
-  const templatePath = join(
-    __dirname,
-    workspaceStorybookVersion === '6' ? './project-files' : './project-files-5'
-  );
+  logger.debug(`adding .storybook folder to ${projectDirectory}`);
+  const templatePath = join(__dirname, './project-files');
 
   generateFiles(tree, templatePath, root, {
     tmpl: '',
@@ -222,8 +195,8 @@ function configureTsProjectConfig(
   }
 
   if (
-    !tsConfigContent.exclude.includes('**/*.stories.ts') &&
-    !tsConfigContent.exclude.includes('**/*.stories.js')
+    !tsConfigContent?.exclude?.includes('**/*.stories.ts') &&
+    !tsConfigContent?.exclude?.includes('**/*.stories.js')
   ) {
     tsConfigContent.exclude = [
       ...(tsConfigContent.exclude || []),
@@ -249,9 +222,9 @@ function configureTsSolutionConfig(
   const tsConfigContent = readJson<TsConfig>(tree, tsConfigPath);
 
   if (
-    !tsConfigContent.references
-      .map((reference) => reference.path)
-      .includes('./.storybook/tsconfig.json')
+    !tsConfigContent?.references
+      ?.map((reference) => reference.path)
+      ?.includes('./.storybook/tsconfig.json')
   ) {
     tsConfigContent.references = [
       ...(tsConfigContent.references || []),
@@ -326,7 +299,8 @@ function addStorybookTask(
   tree: Tree,
   projectName: string,
   uiFramework: string,
-  buildTargetForAngularProjects: string
+  buildTargetForAngularProjects: string,
+  customProjectBuildConfig?: string
 ) {
   if (uiFramework === '@storybook/react-native') {
     return;
@@ -342,7 +316,10 @@ function addStorybookTask(
       },
       projectBuildConfig:
         uiFramework === '@storybook/angular'
-          ? buildTargetForAngularProjects
+          ? customProjectBuildConfig &&
+            customProjectBuildConfigIsValid(tree, customProjectBuildConfig)
+            ? customProjectBuildConfig
+            : buildTargetForAngularProjects
             ? projectName
             : `${projectName}:build-storybook`
           : undefined,
@@ -364,7 +341,10 @@ function addStorybookTask(
       },
       projectBuildConfig:
         uiFramework === '@storybook/angular'
-          ? buildTargetForAngularProjects
+          ? customProjectBuildConfig &&
+            customProjectBuildConfigIsValid(tree, customProjectBuildConfig)
+            ? customProjectBuildConfig
+            : buildTargetForAngularProjects
             ? projectName
             : `${projectName}:build-storybook`
           : undefined,

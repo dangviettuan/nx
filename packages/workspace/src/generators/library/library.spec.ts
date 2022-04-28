@@ -9,7 +9,6 @@ import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 
 import { libraryGenerator } from './library';
 import { Schema } from './schema.d';
-import { toNewFormat } from 'nx/src/shared/workspace';
 
 describe('lib', () => {
   let tree: Tree;
@@ -59,28 +58,28 @@ describe('lib', () => {
     });
   });
 
-  describe('workspace v1', () => {
-    beforeEach(() => {
-      tree = createTreeWithEmptyWorkspace(1);
-    });
-
-    it('should default to inline project for first project', async () => {
-      await libraryGenerator(tree, { ...defaultOptions, name: 'my-lib' });
-      const workspaceJsonEntry = toNewFormat(readJson(tree, 'workspace.json'))
-        .projects['my-lib'];
-      const projectConfig = readProjectConfiguration(tree, 'my-lib');
-      expect(projectConfig.root).toEqual('libs/my-lib');
-      expect(projectConfig).toMatchObject(workspaceJsonEntry);
-    });
-
-    it('should throw for standaloneConfig === true', async () => {
-      const promise = libraryGenerator(tree, {
-        standaloneConfig: true,
-        name: 'my-lib',
-      });
-      await expect(promise).rejects.toThrow();
-    });
-  });
+  // describe('workspace v1', () => {
+  //   beforeEach(() => {
+  //     tree = createTreeWithEmptyWorkspace(1);
+  //   });
+  //
+  //   it('should default to inline project for first project', async () => {
+  //     await libraryGenerator(tree, { ...defaultOptions, name: 'my-lib' });
+  //     const workspaceJsonEntry = toNewFormat(readJson(tree, 'workspace.json'))
+  //       .projects['my-lib'];
+  //     const projectConfig = readProjectConfiguration(tree, 'my-lib');
+  //     expect(projectConfig.root).toEqual('libs/my-lib');
+  //     expect(projectConfig).toMatchObject(workspaceJsonEntry);
+  //   });
+  //
+  //   it('should throw for standaloneConfig === true', async () => {
+  //     const promise = libraryGenerator(tree, {
+  //       standaloneConfig: true,
+  //       name: 'my-lib',
+  //     });
+  //     await expect(promise).rejects.toThrow();
+  //   });
+  // });
 
   describe('not nested', () => {
     it('should update workspace.json', async () => {
@@ -193,12 +192,12 @@ describe('lib', () => {
         name: 'myLib',
       });
 
-      expect(tree.exists(`libs/my-lib/jest.config.js`)).toBeTruthy();
-      expect(tree.read(`libs/my-lib/jest.config.js`, 'utf-8'))
+      expect(tree.exists(`libs/my-lib/jest.config.ts`)).toBeTruthy();
+      expect(tree.read(`libs/my-lib/jest.config.ts`, 'utf-8'))
         .toMatchInlineSnapshot(`
         "module.exports = {
           displayName: 'my-lib',
-          preset: '../../jest.preset.js',
+          preset: '../../jest.preset.ts',
           globals: {
             'ts-jest': {
               tsconfig: '<rootDir>/tsconfig.spec.json',
@@ -235,7 +234,7 @@ describe('lib', () => {
         };"
       `;
 
-      expect(tree.read('jest.config.js', 'utf-8')).toMatchInlineSnapshot(
+      expect(tree.read('jest.config.ts', 'utf-8')).toMatchInlineSnapshot(
         expectedRootJestConfig
       );
       await libraryGenerator(tree, {
@@ -243,7 +242,7 @@ describe('lib', () => {
         name: 'myLib2',
       });
 
-      expect(tree.read('jest.config.js', 'utf-8')).toMatchInlineSnapshot(
+      expect(tree.read('jest.config.ts', 'utf-8')).toMatchInlineSnapshot(
         expectedRootJestConfig
       );
     });
@@ -288,7 +287,7 @@ describe('lib', () => {
         name: 'myLib',
         directory: 'myDir',
       });
-      expect(tree.exists(`libs/my-dir/my-lib/jest.config.js`)).toBeTruthy();
+      expect(tree.exists(`libs/my-dir/my-lib/jest.config.ts`)).toBeTruthy();
       expect(tree.exists('libs/my-dir/my-lib/src/index.ts')).toBeTruthy();
       expect(
         tree.exists('libs/my-dir/my-lib/src/lib/my-dir-my-lib.ts')
@@ -603,7 +602,7 @@ describe('lib', () => {
       });
 
       expect(tree.exists('libs/my-lib/tsconfig.spec.json')).toBeFalsy();
-      expect(tree.exists('libs/my-lib/jest.config.js')).toBeFalsy();
+      expect(tree.exists('libs/my-lib/jest.config.ts')).toBeFalsy();
       expect(tree.exists('libs/my-lib/src/lib/my-lib.spec.ts')).toBeFalsy();
 
       const workspaceJson = readJson(tree, 'workspace.json');
@@ -828,11 +827,11 @@ describe('lib', () => {
         babelJest: true,
       } as Schema);
 
-      expect(tree.read(`libs/my-lib/jest.config.js`, 'utf-8'))
+      expect(tree.read(`libs/my-lib/jest.config.ts`, 'utf-8'))
         .toMatchInlineSnapshot(`
         "module.exports = {
           displayName: 'my-lib',
-          preset: '../../jest.preset.js',
+          preset: '../../jest.preset.ts',
           transform: {
             '^.+\\\\\\\\.[tj]sx?$': 'babel-jest'
           },

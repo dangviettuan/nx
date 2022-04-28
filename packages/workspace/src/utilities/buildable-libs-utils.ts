@@ -1,17 +1,17 @@
-import { isNpmProject, ProjectType } from '../core/project-graph';
 import { dirname, join, relative, resolve } from 'path';
-import { directoryExists } from './fileutils';
+import { directoryExists, fileExists } from './fileutils';
 import type { ProjectGraph, ProjectGraphProjectNode } from '@nrwl/devkit';
 import {
   ProjectGraphExternalNode,
   readJsonFile,
   stripIndents,
   writeJsonFile,
+  getOutputsForTargetAndConfiguration,
 } from '@nrwl/devkit';
-import { getOutputsForTargetAndConfiguration } from '../tasks-runner/utils';
 import * as ts from 'typescript';
 import { unlinkSync } from 'fs';
 import { output } from './output';
+import { isNpmProject } from 'nx/src/project-graph/operators';
 
 function isBuildable(target: string, node: ProjectGraphProjectNode): boolean {
   return (
@@ -38,21 +38,28 @@ export function calculateProjectDependencies(
   target: ProjectGraphProjectNode;
   dependencies: DependentBuildableProjectNode[];
   nonBuildableDependencies: string[];
+  topLevelDependencies: DependentBuildableProjectNode[];
 } {
   const target = projGraph.nodes[projectName];
   // gather the library dependencies
   const nonBuildableDependencies = [];
+  const topLevelDependencies: DependentBuildableProjectNode[] = [];
   const dependencies = collectDependencies(projectName, projGraph, [], shallow)
-    .map((dep) => {
+    .map(({ name: dep, isTopLevel }) => {
+      let project: DependentBuildableProjectNode = null;
       const depNode = projGraph.nodes[dep] || projGraph.externalNodes[dep];
-      if (depNode.type === ProjectType.lib) {
+      if (depNode.type === 'lib') {
         if (isBuildable(targetName, depNode)) {
-          const libPackageJson = readJsonFile(
-            join(root, depNode.data.root, 'package.json')
+          const libPackageJsonPath = join(
+            root,
+            depNode.data.root,
+            'package.json'
           );
 
-          return {
-            name: libPackageJson.name, // i.e. @workspace/mylib
+          project = {
+            name: fileExists(libPackageJsonPath)
+              ? readJsonFile(libPackageJsonPath).name // i.e. @workspace/mylib
+              : dep,
             outputs: getOutputsForTargetAndConfiguration(
               {
                 overrides: {},
@@ -70,30 +77,40 @@ export function calculateProjectDependencies(
           nonBuildableDependencies.push(dep);
         }
       } else if (depNode.type === 'npm') {
-        return {
+        project = {
           name: depNode.data.packageName,
           outputs: [],
           node: depNode,
         };
-      } else {
-        return null;
       }
+
+      if (project && isTopLevel) {
+        topLevelDependencies.push(project);
+      }
+
+      return project;
     })
     .filter((x) => !!x);
-  return { target, dependencies, nonBuildableDependencies };
+  return {
+    target,
+    dependencies,
+    nonBuildableDependencies,
+    topLevelDependencies,
+  };
 }
 
 function collectDependencies(
   project: string,
   projGraph: ProjectGraph,
-  acc: string[],
-  shallow?: boolean
-) {
+  acc: { name: string; isTopLevel: boolean }[],
+  shallow?: boolean,
+  areTopLevelDeps = true
+): { name: string; isTopLevel: boolean }[] {
   (projGraph.dependencies[project] || []).forEach((dependency) => {
-    if (acc.indexOf(dependency.target) === -1) {
-      acc.push(dependency.target);
+    if (!acc.some((dep) => dep.name === dependency.target)) {
+      acc.push({ name: dependency.target, isTopLevel: areTopLevelDeps });
       if (!shallow) {
-        collectDependencies(dependency.target, projGraph, acc);
+        collectDependencies(dependency.target, projGraph, acc, shallow, false);
       }
     }
   });
@@ -195,7 +212,15 @@ export function checkDependentProjectsHaveBeenBuilt(
     targetName,
     projectDependencies
   );
-  if (missing.length > 0) {
+  if (missing.length === projectDependencies.length && missing.length > 0) {
+    console.error(stripIndents`
+      It looks like all of ${projectName}'s dependencies have not been built yet:
+      ${missing.map((x) => ` - ${x.node.name}`).join('\n')}
+
+      You might be missing a "targetDependencies" configuration in your root nx.json (https://nx.dev/configuration/packagejson#target-dependencies),
+      or "dependsOn" configured in ${projectName}'s angular.json/workspace.json record or project.json (https://nx.dev/configuration/packagejson#dependson) 
+    `);
+  } else if (missing.length > 0) {
     console.error(stripIndents`
       Some of the project ${projectName}'s dependencies have not been built yet. Please build these libraries before:
       ${missing.map((x) => ` - ${x.node.name}`).join('\n')}
@@ -218,7 +243,7 @@ export function findMissingBuildDependencies(
 
   // verify whether all dependent libraries have been built
   projectDependencies.forEach((dep) => {
-    if (dep.node.type !== ProjectType.lib) {
+    if (dep.node.type !== 'lib') {
       return;
     }
 
@@ -303,7 +328,7 @@ export function updateBuildableProjectPackageJsonDependencies(
     ) {
       try {
         let depVersion;
-        if (entry.node.type === ProjectType.lib) {
+        if (entry.node.type === 'lib') {
           const outputs = getOutputsForTargetAndConfiguration(
             {
               overrides: {},

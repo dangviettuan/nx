@@ -16,7 +16,7 @@ import {
 } from '../../utils/versions';
 import { readFileSync } from 'fs';
 import { join, join as pathJoin } from 'path';
-import { reformattedWorkspaceJsonOrNull } from 'nx/src/shared/workspace';
+import { reformattedWorkspaceJsonOrNull } from 'nx/src/config/workspaces';
 import { Preset } from '../utils/presets';
 import { deduceDefaultBase } from '../../utilities/default-base';
 
@@ -38,11 +38,7 @@ function setPresetProperty(tree: Tree, options: Schema) {
       options.preset === Preset.TS ||
       options.preset === Preset.NPM
     ) {
-      addPropertyWithStableKeys(
-        json,
-        'extends',
-        '@nrwl/workspace/presets/core.json'
-      );
+      addPropertyWithStableKeys(json, 'extends', 'nx/presets/core.json');
       delete json.implicitDependencies;
       delete json.targetDependencies;
       delete json.workspaceLayout;

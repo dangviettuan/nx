@@ -1,7 +1,8 @@
 {
   "$schema": "http://json-schema.org/schema",
   "$id": "GeneratorNxApp",
-  "title": "Nx Application Options Schema",
+  "title": "Creates an Angular application.",
+  "description": "Creates an Angular application.",
   "type": "object",
   "cli": "nx",
   "properties": {
@@ -101,7 +102,7 @@
     "e2eTestRunner": {
       "type": "string",
       "enum": ["protractor", "cypress", "none"],
-      "description": "Test runner to use for end to end (e2e) tests.",
+      "description": "Test runner to use for end to end (E2E) tests.",
       "default": "cypress"
     },
     "tags": {
@@ -130,13 +131,22 @@
     "mfe": {
       "description": "Generate a Module Federation configuration for the application",
       "type": "boolean",
-      "default": false
+      "default": false,
+      "x-deprecated": "Use the `host` or `remote` generators instead. Support for generating Module Federation applications using the application generator will be removed in an upcoming version."
     },
     "mfeType": {
       "type": "string",
       "enum": ["host", "remote"],
       "description": "Type of application to generate the Module Federation configuration for.",
-      "default": "remote"
+      "default": "remote",
+      "x-deprecated": "Use the `host` or `remote` generators instead. Support for generating Module Federation applications using the application generator will be removed in an upcoming version."
+    },
+    "federationType": {
+      "type": "string",
+      "enum": ["static", "dynamic"],
+      "description": "Use either Static or Dynamic Module Federation pattern for the application.",
+      "default": "static",
+      "x-deprecated": "Use the `host` or `remote` generators instead. Support for generating Module Federation applications using the application generator will be removed in an upcoming version."
     },
     "port": {
       "type": "number",
@@ -144,15 +154,17 @@
     },
     "remotes": {
       "type": "array",
-      "description": "A list of remote application names that the host application should consume."
+      "description": "A list of remote application names that the host application should consume.",
+      "x-deprecated": "Use the `host` or `remote` generators instead. Support for generating Module Federation applications using the application generator will be removed in an upcoming version."
     },
     "host": {
       "type": "string",
-      "description": "The name of the host application that the remote application will be consumed by."
+      "description": "The name of the host application that the remote application will be consumed by.",
+      "x-deprecated": "Use the `host` or `remote` generators instead. Support for generating Module Federation applications using the application generator will be removed in an upcoming version."
     },
     "setParserOptionsProject": {
       "type": "boolean",
-      "description": "Whether or not to configure the ESLint \"parserOptions.project\" option. We do not do this by default for lint performance reasons.",
+      "description": "Whether or not to configure the ESLint `parserOptions.project` option. We do not do this by default for lint performance reasons.",
       "default": false
     },
     "addTailwind": {

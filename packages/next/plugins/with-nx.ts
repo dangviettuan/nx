@@ -4,8 +4,8 @@ import type { NextConfig } from 'next/dist/server/config';
 import type { WebpackConfigOptions } from '../src/utils/types';
 
 const { join } = require('path');
-const { appRootPath } = require('nx/src/utils/app-root');
-const { workspaceLayout } = require('@nrwl/workspace/src/core/file-utils');
+const { workspaceRoot } = require('@nrwl/devkit');
+const { workspaceLayout } = require('@nrwl/devkit');
 
 export interface WithNxOptions extends NextConfig {
   nx?: WebpackConfigOptions;
@@ -44,7 +44,7 @@ function withNx(nextConfig = {} as WithNxOptions) {
        */
 
       // Include workspace libs in css/sass loaders
-      const includes = [join(appRootPath, workspaceLayout().libsDir)];
+      const includes = [join(workspaceRoot, workspaceLayout().libsDir)];
 
       const nextCssLoaders = config.module.rules.find(
         (rule) => typeof rule.oneOf === 'object'

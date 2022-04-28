@@ -77,8 +77,12 @@ const IGNORE_MATCHES = {
     'babel-plugin-styled-components',
     'rollup',
     'webpack',
+    '@swc/jest',
+    'babel-jest',
     '@angular-devkit/core',
     '@angular-devkit/schematics',
+    '@swc/jest',
+    'babel-jest',
   ],
   storybook: [
     '@angular-devkit/architect',
@@ -87,6 +91,7 @@ const IGNORE_MATCHES = {
     '@storybook/addon-knobs',
     '@storybook/addon-essentials',
     '@storybook/core',
+    '@storybook/core-server',
     'rxjs',
   ],
   nx: [
@@ -94,6 +99,7 @@ const IGNORE_MATCHES = {
     '@angular-devkit/schematics',
     '@angular-devkit/core',
     '@angular-devkit/architect',
+    '@angular/cli',
   ],
   web: [
     // we don't want to bloat the install of @nrwl/web by including @swc/core and swc-loader as a dependency.
@@ -114,8 +120,11 @@ const IGNORE_MATCHES = {
     '@nrwl/jest',
     '@nrwl/linter',
     '@nrwl/devkit',
+    'tsconfig-paths',
+    '@swc-node/register',
   ],
   nest: ['semver'],
+  'make-angular-cli-faster': ['@angular/core'],
 };
 
 export default async function getMissingDependencies(

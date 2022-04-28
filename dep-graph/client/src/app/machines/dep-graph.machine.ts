@@ -10,6 +10,7 @@ import {
 } from './interfaces';
 import { createRouteMachine } from './route-setter.machine';
 import { textFilteredStateConfig } from './text-filtered.state';
+import { tracingStateConfig } from './tracing.state';
 import { unselectedStateConfig } from './unselected.state';
 
 export const initialContext: DepGraphContext = {
@@ -21,7 +22,7 @@ export const initialContext: DepGraphContext = {
   textFilter: '',
   includePath: false,
   searchDepth: 1,
-  searchDepthEnabled: false,
+  searchDepthEnabled: true,
   groupByFolder: false,
   collapseEdges: false,
   workspaceLayout: {
@@ -35,6 +36,11 @@ export const initialContext: DepGraphContext = {
     numEdges: 0,
     numNodes: 0,
     renderTime: 0,
+  },
+  tracing: {
+    start: null,
+    end: null,
+    algorithm: 'shortest',
   },
 };
 
@@ -53,6 +59,7 @@ export const depGraphMachine = Machine<
       customSelected: customSelectedStateConfig,
       focused: focusedStateConfig,
       textFiltered: textFilteredStateConfig,
+      tracing: tracingStateConfig,
     },
     on: {
       initGraph: {
@@ -113,6 +120,12 @@ export const depGraphMachine = Machine<
       },
       focusProject: {
         target: 'focused',
+      },
+      setTracingStart: {
+        target: 'tracing',
+      },
+      setTracingEnd: {
+        target: 'tracing',
       },
       setCollapseEdges: {
         actions: [
@@ -199,6 +212,15 @@ export const depGraphMachine = Machine<
       setSearchDepth: {
         actions: ['setSearchDepth', 'notifyRouteSearchDepth'],
       },
+      setTracingAlgorithm: {
+        actions: [
+          assign((ctx, event) => {
+            ctx.tracing.algorithm = event.algorithm;
+          }),
+          'notifyRouteTracing',
+          'notifyGraphTracing',
+        ],
+      },
       filterByText: {
         target: 'textFiltered',
       },
@@ -262,6 +284,20 @@ export const depGraphMachine = Machine<
           ctx.affectedProjects = event.affectedProjects;
         }
       }),
+      notifyGraphTracing: send(
+        (ctx, event) => {
+          return {
+            type: 'notifyGraphTracing',
+            start: ctx.tracing.start,
+            end: ctx.tracing.end,
+            algorithm: ctx.tracing.algorithm,
+          };
+        },
+        {
+          to: (context) => context.graphActor,
+        }
+      ),
+
       notifyGraphShowProject: send(
         (context, event) => {
           if (event.type !== 'selectProject') return;
@@ -350,6 +386,19 @@ export const depGraphMachine = Machine<
         () => ({
           type: 'notifyRouteClearSelect',
         }),
+        {
+          to: (ctx) => ctx.routeSetterActor,
+        }
+      ),
+      notifyRouteTracing: send(
+        (ctx) => {
+          return {
+            type: 'notifyRouteTracing',
+            start: ctx.tracing.start,
+            end: ctx.tracing.end,
+            algorithm: ctx.tracing.algorithm,
+          };
+        },
         {
           to: (ctx) => ctx.routeSetterActor,
         }

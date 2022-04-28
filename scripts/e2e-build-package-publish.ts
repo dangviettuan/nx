@@ -5,6 +5,7 @@ import {
   prettierVersion,
   typescriptVersion,
 } from '../packages/workspace/src/utils/versions';
+import { stripIndent } from 'nx/src/utils/logger';
 
 process.env.PUBLISHED_VERSION = `9999.0.2`;
 process.env.npm_config_registry = `http://localhost:4872`;
@@ -13,15 +14,21 @@ process.env.YARN_REGISTRY = process.env.npm_config_registry;
 async function buildPackagePublishAndCleanPorts() {
   if (!process.env.NX_E2E_SKIP_BUILD_CLEANUP) {
     if (!process.env.CI) {
-      console.log(`
+      console.log(
+        stripIndent(`
   Did you know that you can run the command with:
     > NX_E2E_SKIP_BUILD_CLEANUP - saves time by reusing the previously built local packages
-    > CI - simulate the CI environment settings\n`);
+    > CI - simulate the CI environment settings
+    
+  If you change create-nx-workspace or create-nx-plugin, make sure to remove your npx cache.
+  Otherwise the changes won't be reflected in the tests. 
+  \n`)
+      );
     }
     await Promise.all([
       remove('./build'),
-      remove('./tmp/nx/proj-backup'),
-      remove('./tmp/angular/proj-backup'),
+      remove('/tmp/nx-e2e/nx/proj-backup'),
+      remove('/tmp/nx-e2e/angular/proj-backup'),
       remove('./tmp/local-registry'),
     ]);
   }
@@ -126,7 +133,7 @@ function build(nxVersion: string) {
       `npx nx run-many --target=build --all --parallel=8 --exclude=${projectsToExclude}`,
       {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, NX_INVOKED_BY_RUNNER: 'false' },
+        env: { ...process.env, NX_CLOUD: 'true' },
       }
     );
     const a = new Date();
@@ -159,6 +166,7 @@ function build(nxVersion: string) {
       'react-native',
       'detox',
       'js',
+      'nx',
     ].map((f) => `${f}/src/utils/versions.js`),
     ...[
       'add-nx-to-monorepo',
@@ -189,7 +197,6 @@ function build(nxVersion: string) {
     ].map((f) => `${f}/package.json`),
     'create-nx-workspace/bin/create-nx-workspace.js',
     'create-nx-plugin/bin/create-nx-plugin.js',
-    'make-angular-cli-faster/src/make-angular-cli-faster.js',
     'add-nx-to-monorepo/src/add-nx-to-monorepo.js',
   ].map((f) => `${BUILD_DIR}/${f}`);
 

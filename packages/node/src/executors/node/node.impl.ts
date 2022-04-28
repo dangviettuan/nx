@@ -3,9 +3,9 @@ import {
   joinPathFragments,
   logger,
   parseTargetString,
+  readCachedProjectGraph,
   runExecutor,
 } from '@nrwl/devkit';
-import { readCachedProjectGraph } from '@nrwl/workspace/src/core/project-graph';
 import { calculateProjectDependencies } from '@nrwl/workspace/src/utilities/buildable-libs-utils';
 import { ChildProcess, fork } from 'child_process';
 import * as treeKill from 'tree-kill';
@@ -72,10 +72,9 @@ function calculateResolveMappings(
     parsed.configuration
   );
   return dependencies.reduce((m, c) => {
-    if (!c.outputs[0] && c.node.type === 'npm') {
-      c.outputs[0] = `node_modules/${c.node.data.packageName}`;
+    if (c.node.type !== 'npm' && c.outputs[0] != null) {
+      m[c.name] = joinPathFragments(context.root, c.outputs[0]);
     }
-    m[c.name] = joinPathFragments(context.root, c.outputs[0]);
     return m;
   }, {});
 }
@@ -170,6 +169,9 @@ async function* startBuild(
   context: ExecutorContext
 ) {
   const buildTarget = parseTargetString(options.buildTarget);
+
+  // TODO(jack): [Nx 14] Remove this line once we generate `development` configuration by default + add migration for it if missing
+  buildTarget.configuration ??= '';
 
   yield* await runExecutor<ExecutorEvent>(
     buildTarget,

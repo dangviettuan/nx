@@ -1,6 +1,8 @@
-// nx-ignore-next-line
-import type { DepGraphClientResponse } from '@nrwl/workspace/src/command-line/dep-graph';
+import { ArrowCircleLeftIcon, DownloadIcon } from '@heroicons/react/solid';
 import Tippy from '@tippyjs/react';
+import classNames from 'classnames';
+// nx-ignore-next-line
+import type { DepGraphClientResponse } from 'nx/src/command-line/dep-graph';
 import { useEffect, useState } from 'react';
 import DebuggerPanel from './debugger-panel';
 import { useDepGraphService } from './hooks/use-dep-graph';
@@ -14,6 +16,7 @@ import {
   projectIsSelectedSelector,
 } from './machines/selectors';
 import Sidebar from './sidebar/sidebar';
+import { selectValueByThemeStatic } from './theme-resolver';
 
 export function Shell() {
   const depGraphService = useDepGraphService();
@@ -97,7 +100,10 @@ export function Shell() {
   return (
     <>
       <Sidebar></Sidebar>
-      <div id="main-content" className="flex-grow overflow-hidden">
+      <div
+        id="main-content"
+        className="flex-grow overflow-hidden transition-all"
+      >
         {environment.appConfig.showDebugger ? (
           <DebuggerPanel
             projectGraphs={environment.appConfig.projectGraphs}
@@ -108,65 +114,31 @@ export function Shell() {
         ) : null}
 
         {!projectIsSelected ? (
-          <div id="no-projects-chosen" className="flex text-gray-700">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="mr-4 h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M11 15l-3-3m0 0l3-3m-3 3h8M3 12a9 9 0 1118 0 9 9 0 01-18 0z"
-              />
-            </svg>
+          <div
+            id="no-projects-chosen"
+            className="flex text-slate-700 dark:text-slate-400"
+          >
+            <ArrowCircleLeftIcon className="mr-4 h-6 w-6" />
             <h4>Please select projects in the sidebar.</h4>
           </div>
         ) : null}
         <div id="graph-container">
           <div id="cytoscape-graph"></div>
-          <Tippy content="Download Graph as PNG" placement="right" theme="nx">
+          <Tippy
+            content="Download Graph as PNG"
+            placement="right"
+            theme={selectValueByThemeStatic('dark-nx', 'nx')}
+          >
             <button
               type="button"
-              className={`
-            bg-green-nx-base
-            fixed
-            bottom-4
-            right-4
-            z-50
-            block
-            h-16
-            w-16
-            transform
-            rounded-full
-            text-white
-            shadow-sm
-            transition
-            duration-300
-            ${!projectIsSelected ? 'opacity-0' : ''}
-          `}
+              className={classNames(
+                !projectIsSelected ? 'opacity-0' : '',
+                'bg-green-nx-base fixed bottom-4 right-4 z-50 block h-16 w-16 transform rounded-full text-white shadow-sm transition duration-300'
+              )}
               data-cy="downloadImageButton"
               onClick={downloadImage}
             >
-              <svg
-                height="24"
-                width="24"
-                className="absolute top-1/2 left-1/2 -mt-3 -ml-3"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                ></path>
-              </svg>
+              <DownloadIcon className="absolute top-1/2 left-1/2 -mt-3 -ml-3 h-6 w-6" />
             </button>
           </Tippy>
         </div>

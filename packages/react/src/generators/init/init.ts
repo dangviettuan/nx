@@ -1,28 +1,28 @@
-import { InitSchema } from './schema';
+import { cypressInitGenerator } from '@nrwl/cypress';
 import {
   addDependenciesToPackageJson,
   convertNxGenerator,
   GeneratorCallback,
   readWorkspaceConfiguration,
+  removeDependenciesFromPackageJson,
   Tree,
-  updateJson,
   updateWorkspaceConfiguration,
 } from '@nrwl/devkit';
 import { jestInitGenerator } from '@nrwl/jest';
-import { cypressInitGenerator } from '@nrwl/cypress';
 import { webInitGenerator } from '@nrwl/web';
-import { setDefaultCollection } from '@nrwl/workspace/src/utilities/set-default-collection';
 import { runTasksInSerial } from '@nrwl/workspace/src/utilities/run-tasks-in-serial';
+import { setDefaultCollection } from '@nrwl/workspace/src/utilities/set-default-collection';
 import {
   nxVersion,
   reactDomVersion,
+  reactTestRendererVersion,
   reactVersion,
   testingLibraryReactVersion,
+  typesNodeVersion,
   typesReactDomVersion,
   typesReactVersion,
-  testingLibraryReactHooksVersion,
-  reactTestRendererVersion,
 } from '../../utils/versions';
+import { InitSchema } from './schema';
 
 function setDefault(host: Tree) {
   const workspace = readWorkspaceConfiguration(host);
@@ -45,12 +45,7 @@ function setDefault(host: Tree) {
 }
 
 function updateDependencies(host: Tree) {
-  updateJson(host, 'package.json', (json) => {
-    if (json.dependencies && json.dependencies['@nrwl/react']) {
-      delete json.dependencies['@nrwl/react'];
-    }
-    return json;
-  });
+  removeDependenciesFromPackageJson(host, ['@nrwl/react'], []);
 
   return addDependenciesToPackageJson(
     host,
@@ -63,10 +58,10 @@ function updateDependencies(host: Tree) {
     },
     {
       '@nrwl/react': nxVersion,
+      '@types/node': typesNodeVersion,
       '@types/react': typesReactVersion,
       '@types/react-dom': typesReactDomVersion,
       '@testing-library/react': testingLibraryReactVersion,
-      '@testing-library/react-hooks': testingLibraryReactHooksVersion,
       'react-test-renderer': reactTestRendererVersion,
     }
   );
@@ -78,7 +73,7 @@ export async function reactInitGenerator(host: Tree, schema: InitSchema) {
   setDefault(host);
 
   if (!schema.unitTestRunner || schema.unitTestRunner === 'jest') {
-    const jestTask = jestInitGenerator(host, {});
+    const jestTask = jestInitGenerator(host, schema);
     tasks.push(jestTask);
   }
   if (!schema.e2eTestRunner || schema.e2eTestRunner === 'cypress') {

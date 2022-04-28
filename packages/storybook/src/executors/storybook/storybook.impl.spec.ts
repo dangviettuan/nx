@@ -3,11 +3,10 @@ import * as fs from 'fs';
 
 import { ExecutorContext } from '@nrwl/devkit';
 
-jest.mock('@storybook/core/server', () => ({
+jest.mock('@storybook/core-server', () => ({
   buildDevStandalone: jest.fn().mockImplementation(() => Promise.resolve()),
 }));
-import { buildDevStandalone } from '@storybook/core/server';
-import * as fileUtils from '@nrwl/workspace/src/core/file-utils';
+import { buildDevStandalone } from '@storybook/core-server';
 
 import storybookExecutor, { StorybookExecutorOptions } from './storybook.impl';
 import { join } from 'path';
@@ -17,13 +16,6 @@ describe('@nrwl/storybook:storybook', () => {
   let context: ExecutorContext;
   let options: StorybookExecutorOptions;
   beforeEach(() => {
-    jest.spyOn(fileUtils, 'readPackageJson').mockReturnValue({
-      devDependencies: {
-        '@storybook/addon-essentials': '~6.2.9',
-        '@storybook/angular': '~6.2.9',
-      },
-    });
-
     // preserve original package.json file to memory
     const rootPath = join(__dirname, `../../../../../`);
     const packageJsonPath = join(

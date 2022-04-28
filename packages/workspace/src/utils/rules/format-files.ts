@@ -9,11 +9,11 @@ import {
 import { from } from 'rxjs';
 import { filter, map, mergeMap } from 'rxjs/operators';
 import * as path from 'path';
-import { appRootPath } from 'nx/src/utils/app-root';
+import { workspaceRoot } from '@nrwl/devkit';
 import {
   reformattedWorkspaceJsonOrNull,
   workspaceConfigName,
-} from 'nx/src/shared/workspace';
+} from 'nx/src/config/workspaces';
 import { parseJson, serializeJson } from '@nrwl/devkit';
 
 export function formatFiles(
@@ -50,7 +50,7 @@ export function formatFiles(
     return from(files).pipe(
       filter((file) => host.exists(file.path)),
       mergeMap(async (file) => {
-        const systemPath = path.join(appRootPath, file.path);
+        const systemPath = path.join(workspaceRoot, file.path);
         let options: any = {
           filepath: systemPath,
         };
@@ -80,7 +80,7 @@ export function formatFiles(
 }
 
 function updateWorkspaceJsonToMatchFormatVersion(host: Tree) {
-  const workspaceConfigPath = workspaceConfigName(appRootPath);
+  const workspaceConfigPath = workspaceConfigName(workspaceRoot);
 
   try {
     if (workspaceConfigPath) {

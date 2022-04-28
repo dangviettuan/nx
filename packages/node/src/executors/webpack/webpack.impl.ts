@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { ExecutorContext } from '@nrwl/devkit';
 
-import { readCachedProjectGraph } from '@nrwl/workspace/src/core/project-graph';
+import { readCachedProjectGraph } from '@nrwl/devkit';
 import {
   calculateProjectDependencies,
   checkDependentProjectsHaveBeenBuilt,
@@ -81,12 +81,15 @@ export async function* webpackExecutor(
   if (options.generatePackageJson) {
     generatePackageJson(context.projectName, projGraph, options);
   }
-  const config = options.webpackConfig.reduce((currentConfig, plugin) => {
-    return require(plugin)(currentConfig, {
-      options,
-      configuration: context.configurationName,
-    });
-  }, getNodeWebpackConfig(options));
+  const config = await options.webpackConfig.reduce(
+    async (currentConfig, plugin) => {
+      return require(plugin)(await currentConfig, {
+        options,
+        configuration: context.configurationName,
+      });
+    },
+    Promise.resolve(getNodeWebpackConfig(options))
+  );
 
   return yield* eachValueFrom(
     runWebpack(config).pipe(

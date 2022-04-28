@@ -1,5 +1,5 @@
 // nx-ignore-next-line
-import type { DepGraphClientResponse } from '@nrwl/workspace/src/command-line/dep-graph';
+import type { DepGraphClientResponse } from 'nx/src/command-line/dep-graph';
 import { AppConfig } from './app/interfaces';
 
 export declare global {
@@ -26,6 +26,10 @@ declare module 'cytoscape' {
   interface NodeSingular {
     popperRef: Function;
     pannable: () => boolean;
+  }
+
+  interface EdgeSingular {
+    popperRef: Function;
   }
 
   namespace Css {

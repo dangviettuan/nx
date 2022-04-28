@@ -1,24 +1,40 @@
-#!/usr/bin/env node
-
 import { exec } from 'child_process';
 import { writeFileSync } from 'fs';
 import * as enquirer from 'enquirer';
 import * as path from 'path';
 import { dirSync } from 'tmp';
-import * as yargsParser from 'yargs-parser';
+import * as yargs from 'yargs';
 import { showNxWarning, unparse } from './shared';
 import { output } from './output';
 import * as ora from 'ora';
-
 import {
   detectInvokedPackageManager,
   getPackageManagerCommand,
   getPackageManagerVersion,
   PackageManager,
+  packageManagerList,
 } from './package-manager';
 import { validateNpmPackage } from './validate-npm-package';
+import { deduceDefaultBase } from './default-base';
+import { getFileName, stringifyCollection } from './utils';
+import { yargsDecorator } from './decorator';
+import chalk = require('chalk');
+import { ciList } from './ci';
 
-export enum Preset {
+type Arguments = {
+  name: string;
+  preset: string;
+  appName: string;
+  cli: string;
+  style: string;
+  nxCloud: boolean;
+  allPrompts: boolean;
+  packageManager: PackageManager;
+  defaultBase: string;
+  ci: string[];
+};
+
+enum Preset {
   Apps = 'apps',
   Empty = 'empty', // same as apps, deprecated
   Core = 'core',
@@ -101,41 +117,108 @@ const cliVersion = 'NX_VERSION';
 const nxVersion = 'NX_VERSION';
 const prettierVersion = 'PRETTIER_VERSION';
 
-const parsedArgs: any = yargsParser(process.argv.slice(2), {
-  string: [
-    'name',
-    'cli',
-    'preset',
-    'appName',
-    'style',
-    'defaultBase',
-    'packageManager',
-  ],
-  alias: {
-    packageManager: 'pm',
-  },
-  boolean: ['help', 'interactive', 'nxCloud'],
-  default: {
-    interactive: false,
-  },
-  configuration: {
+export const commandsObject: yargs.Argv<Arguments> = yargs
+  .wrap(yargs.terminalWidth())
+  .parserConfiguration({
     'strip-dashed': true,
-    'strip-aliased': true,
-  },
-}) as any;
+    'dot-notation': false,
+  })
+  .command(
+    // this is the default and only command
+    '$0 [name] [options]',
+    'Create a new Nx workspace',
+    (yargs) =>
+      yargs
+        .option('name', {
+          describe: chalk.dim`Workspace name (e.g. org name)`,
+          type: 'string',
+        })
+        .option('preset', {
+          describe: chalk.dim`Customizes the initial content of your workspace. Default presets include: [${Object.values(
+            Preset
+          )
+            .map((p) => `"${p}"`)
+            .join(
+              ', '
+            )}]. To build your own see https://nx.dev/nx-plugin/overview#preset`,
+          type: 'string',
+        })
+        .option('appName', {
+          describe: chalk.dim`The name of the application when a preset with pregenerated app is selected`,
+          type: 'string',
+        })
+        .option('interactive', {
+          describe: chalk.dim`Enable interactive mode with presets`,
+          type: 'boolean',
+        })
+        .option('cli', {
+          describe: chalk.dim`CLI to power the Nx workspace`,
+          choices: ['nx', 'angular'],
+          type: 'string',
+        })
+        .option('style', {
+          describe: chalk.dim`Style option to be used when a preset with pregenerated app is selected`,
+          type: 'string',
+        })
+        .option('nxCloud', {
+          describe: chalk.dim`Use Nx Cloud`,
+          type: 'boolean',
+        })
+        .option('ci', {
+          describe: `Generate a CI workflow file`,
+          choices: ciList,
+          defaultDescription: '[]',
+          type: 'array',
+        })
+        .option('allPrompts', {
+          alias: 'a',
+          describe: chalk.dim`Show all prompts`,
+          type: 'boolean',
+          default: false,
+        })
+        .option('packageManager', {
+          alias: 'pm',
+          describe: chalk.dim`Package manager to use`,
+          choices: [...packageManagerList].sort(),
+          defaultDescription: 'npm',
+          type: 'string',
+        })
+        .option('defaultBase', {
+          defaultDescription: 'main',
+          describe: chalk.dim`Default base to use for new projects`,
+          type: 'string',
+        }),
+    async (argv: yargs.ArgumentsCamelCase<Arguments>) => {
+      await main(argv).catch((error) => {
+        const { version } = require('../package.json');
+        output.error({
+          title: `Something went wrong! v${version}`,
+        });
+        throw error;
+      });
+    },
+    [getConfiguration]
+  )
+  .help('help', chalk.dim`Show help`)
+  .updateLocale(yargsDecorator)
+  .version(
+    'version',
+    chalk.dim`Show version`,
+    nxVersion
+  ) as yargs.Argv<Arguments>;
 
-if (parsedArgs.help) {
-  showHelp();
-  process.exit(0);
-}
-
-(async function main() {
-  const packageManager: PackageManager =
-    parsedArgs.packageManager || detectInvokedPackageManager();
-
-  const { name, cli, preset, appName, style, nxCloud } = await getConfiguration(
-    parsedArgs
-  );
+async function main(parsedArgs: yargs.Arguments<Arguments>) {
+  const {
+    name,
+    cli,
+    preset,
+    appName,
+    style,
+    nxCloud,
+    packageManager,
+    defaultBase,
+    ci,
+  } = parsedArgs;
 
   output.log({
     title: `Nx is creating your v${cliVersion} workspace.`,
@@ -147,98 +230,83 @@ if (parsedArgs.help) {
 
   const tmpDir = await createSandbox(packageManager);
 
-  await createApp(tmpDir, name, packageManager, {
+  await createApp(tmpDir, name, packageManager as PackageManager, {
     ...parsedArgs,
     cli,
     preset,
     appName,
     style,
     nxCloud,
+    defaultBase,
   });
 
   let nxCloudInstallRes;
   if (nxCloud) {
-    nxCloudInstallRes = await setupNxCloud(name, packageManager);
+    nxCloudInstallRes = await setupNxCloud(
+      name,
+      packageManager as PackageManager
+    );
+  }
+  if (ci && ci.length) {
+    await setupCI(
+      name,
+      ci,
+      packageManager as PackageManager,
+      nxCloud && nxCloudInstallRes.code === 0
+    );
   }
 
   showNxWarning(name);
-  pointToTutorialAndCourse(preset);
+  pointToTutorialAndCourse(preset as Preset);
 
   if (nxCloud && nxCloudInstallRes.code === 0) {
     printNxCloudSuccessMessage(nxCloudInstallRes.stdout);
   }
-})().catch((error) => {
-  const { version } = require('../package.json');
-  output.error({
-    title: `Something went wrong! v${version}`,
-  });
-  throw error;
-});
-
-function showHelp() {
-  const options = Object.values(Preset)
-    .map((preset) => `"${preset}"`)
-    .join(', ');
-
-  console.log(`
-  Usage: create-nx-workspace <name> [options] [new workspace options]
-
-  Create a new Nx workspace
-
-  Options:
-
-    name                      Workspace name (e.g., org name)
-
-    preset                    Customizes the initial content of your workspace (options: ${options}). To build your own see https://nx.dev/nx-plugin/overview#preset
-
-    appName                   The name of the application created by some presets
-
-    cli                       CLI to power the Nx workspace (options: "nx", "angular")
-
-    style                     Default style option to be used when a non-empty preset is selected
-                              options: ("css", "scss", "less") plus ("styl") for all non-Angular and ("styled-components", "@emotion/styled", "styled-jsx") for React, Next.js 
-
-    interactive               Enable interactive mode when using presets (boolean)
-
-    packageManager            Package manager to use (npm, yarn, pnpm)
-
-    nx-cloud                  Use Nx Cloud (boolean)
-`);
 }
 
-async function getConfiguration(parsedArgs) {
+async function getConfiguration(
+  argv: yargs.Arguments<Arguments>
+): Promise<void> {
   try {
     let style, appName;
 
-    const name = await determineWorkspaceName(parsedArgs);
-    let preset = await determineThirdPartyPackage(parsedArgs);
+    const name = await determineWorkspaceName(argv);
+    let preset = await determineThirdPartyPackage(argv);
 
     if (!preset) {
-      preset = await determinePreset(parsedArgs);
-      appName = await determineAppName(preset, parsedArgs);
-      style = await determineStyle(preset, parsedArgs);
+      preset = await determinePreset(argv);
+      appName = await determineAppName(preset, argv);
+      style = await determineStyle(preset, argv);
     }
 
-    const cli = await determineCli(preset, parsedArgs);
-    const nxCloud = await askAboutNxCloud(parsedArgs);
+    const cli = await determineCli(preset, argv);
+    const packageManager = await determinePackageManager(argv);
+    const defaultBase = await determineDefaultBase(argv);
+    const nxCloud = await determineNxCloud(argv);
+    const ci = await determineCI(argv, nxCloud);
 
-    return {
+    Object.assign(argv, {
       name,
       preset,
       appName,
       style,
       cli,
       nxCloud,
-    };
+      packageManager,
+      defaultBase,
+      ci,
+    });
   } catch (e) {
     console.error(e);
     process.exit(1);
   }
 }
 
-function determineWorkspaceName(parsedArgs: any): Promise<string> {
+function determineWorkspaceName(
+  parsedArgs: yargs.Arguments<Arguments>
+): Promise<string> {
   const workspaceName: string = parsedArgs._[0]
-    ? parsedArgs._[0]
+    ? parsedArgs._[0].toString()
     : parsedArgs.name;
 
   if (workspaceName) {
@@ -265,8 +333,85 @@ function determineWorkspaceName(parsedArgs: any): Promise<string> {
     });
 }
 
-async function determineThirdPartyPackage({ preset }) {
-  if (preset && Object.values(Preset).indexOf(preset) === -1) {
+async function determinePackageManager(
+  parsedArgs: yargs.Arguments<Arguments>
+): Promise<PackageManager> {
+  const packageManager: string = parsedArgs.packageManager;
+
+  if (packageManager) {
+    if (packageManagerList.includes(packageManager as PackageManager)) {
+      return Promise.resolve(packageManager as PackageManager);
+    }
+    output.error({
+      title: 'Invalid package manager',
+      bodyLines: [
+        `Package manager must be one of ${stringifyCollection([
+          ...packageManagerList,
+        ])}`,
+      ],
+    });
+    process.exit(1);
+  }
+
+  if (parsedArgs.allPrompts) {
+    return enquirer
+      .prompt([
+        {
+          name: 'PackageManager',
+          message: `Which package manager to use       `,
+          initial: 'npm' as any,
+          type: 'select',
+          choices: [
+            { name: 'npm', message: 'NPM' },
+            { name: 'yarn', message: 'Yarn' },
+            { name: 'pnpm', message: 'PNPM' },
+          ],
+        },
+      ])
+      .then((a: { PackageManager }) => a.PackageManager);
+  }
+
+  return Promise.resolve(detectInvokedPackageManager());
+}
+
+async function determineDefaultBase(
+  parsedArgs: yargs.Arguments<Arguments>
+): Promise<string> {
+  if (parsedArgs.defaultBase) {
+    return Promise.resolve(parsedArgs.defaultBase);
+  }
+  if (parsedArgs.allPrompts) {
+    return enquirer
+      .prompt([
+        {
+          name: 'DefaultBase',
+          message: `Main branch name                   `,
+          initial: `main`,
+          type: 'input',
+        },
+      ])
+      .then((a: { DefaultBase: string }) => {
+        if (!a.DefaultBase) {
+          output.error({
+            title: 'Invalid branch name',
+            bodyLines: [`Branch name cannot be empty`],
+          });
+          process.exit(1);
+        }
+        return a.DefaultBase;
+      });
+  }
+  return Promise.resolve(deduceDefaultBase());
+}
+
+function isKnownPreset(preset: string): preset is Preset {
+  return Object.values(Preset).includes(preset as Preset);
+}
+
+async function determineThirdPartyPackage({
+  preset,
+}: yargs.Arguments<Arguments>) {
+  if (preset && !isKnownPreset(preset)) {
     const packageName = preset.match(/.+@/)
       ? preset[0] + preset.substring(1).split('@')[0]
       : preset;
@@ -290,7 +435,7 @@ async function determineThirdPartyPackage({ preset }) {
   }
 }
 
-function determinePreset(parsedArgs: any): Promise<Preset> {
+async function determinePreset(parsedArgs: any): Promise<Preset> {
   if (parsedArgs.preset) {
     if (Object.values(Preset).indexOf(parsedArgs.preset) === -1) {
       output.error({
@@ -320,7 +465,10 @@ function determinePreset(parsedArgs: any): Promise<Preset> {
     .then((a: { Preset: Preset }) => a.Preset);
 }
 
-function determineAppName(preset: Preset, parsedArgs: any): Promise<string> {
+async function determineAppName(
+  preset: Preset,
+  parsedArgs: yargs.Arguments<Arguments>
+): Promise<string> {
   if (
     preset === Preset.Apps ||
     preset === Preset.Core ||
@@ -355,12 +503,16 @@ function determineAppName(preset: Preset, parsedArgs: any): Promise<string> {
     });
 }
 
-function determineCli(
+function isValidCli(cli: string): cli is 'angular' | 'nx' {
+  return ['nx', 'angular'].indexOf(cli) !== -1;
+}
+
+async function determineCli(
   preset: Preset,
-  parsedArgs: any
+  parsedArgs: yargs.Arguments<Arguments>
 ): Promise<'nx' | 'angular'> {
   if (parsedArgs.cli) {
-    if (['nx', 'angular'].indexOf(parsedArgs.cli) === -1) {
+    if (!isValidCli(parsedArgs.cli)) {
       output.error({
         title: 'Invalid cli',
         bodyLines: [`It must be one of the following:`, '', 'nx', 'angular'],
@@ -381,7 +533,10 @@ function determineCli(
   }
 }
 
-function determineStyle(preset: Preset, parsedArgs: any) {
+async function determineStyle(
+  preset: Preset,
+  parsedArgs: yargs.Arguments<Arguments>
+): Promise<string> {
   if (
     preset === Preset.Apps ||
     preset === Preset.Core ||
@@ -469,10 +624,81 @@ function determineStyle(preset: Preset, parsedArgs: any) {
   return Promise.resolve(parsedArgs.style);
 }
 
-async function createSandbox(packageManager: string) {
+async function determineNxCloud(
+  parsedArgs: yargs.Arguments<Arguments>
+): Promise<boolean> {
+  if (parsedArgs.nxCloud === undefined) {
+    return enquirer
+      .prompt([
+        {
+          name: 'NxCloud',
+          message: `Use Nx Cloud? (It's free and doesn't require registration.)`,
+          type: 'select',
+          choices: [
+            {
+              name: 'Yes',
+              hint: 'Faster builds, run details, GitHub integration. Learn more at https://nx.app',
+            },
+
+            {
+              name: 'No',
+            },
+          ],
+          initial: 'Yes' as any,
+        },
+      ])
+      .then((a: { NxCloud: 'Yes' | 'No' }) => a.NxCloud === 'Yes');
+  } else {
+    return parsedArgs.nxCloud;
+  }
+}
+
+async function determineCI(
+  parsedArgs: yargs.Arguments<Arguments>,
+  nxCloud: boolean
+): Promise<string[]> {
+  if (!nxCloud) {
+    if (parsedArgs.ci && parsedArgs.ci.length > 0) {
+      output.warn({
+        title: 'Invalid CI value',
+        bodyLines: [
+          `CI option only works when Nx Cloud is enabled.`,
+          `The value provided will be ignored.`,
+        ],
+      });
+    }
+    return [];
+  }
+
+  if (parsedArgs.ci) {
+    return parsedArgs.ci;
+  }
+
+  if (parsedArgs.allPrompts) {
+    return enquirer
+      .prompt([
+        {
+          name: 'CI',
+          message: `Autogenerate CI workflow file (multi-select)?`,
+          type: 'multiselect',
+          choices: [
+            { message: 'GitHub Actions', name: 'github' },
+            { message: 'Circle CI', name: 'circleci' },
+            { message: 'Azure DevOps', name: 'azure' },
+          ],
+        },
+      ])
+      .then((a: { CI: string[] }) => a.CI);
+  }
+  return [];
+}
+
+async function createSandbox(packageManager: PackageManager) {
   const installSpinner = ora(
     `Installing dependencies with ${packageManager}`
   ).start();
+
+  const { install } = getPackageManagerCommand(packageManager);
 
   const tmpDir = dirSync().name;
   try {
@@ -489,7 +715,7 @@ async function createSandbox(packageManager: string) {
       })
     );
 
-    await execAndWait(`${packageManager} install --silent`, tmpDir);
+    await execAndWait(`${install} --silent`, tmpDir);
 
     installSpinner.succeed();
   } catch (e) {
@@ -566,7 +792,7 @@ async function setupNxCloud(name: string, packageManager: PackageManager) {
     const pmc = getPackageManagerCommand(packageManager);
     const res = await execAndWait(
       `${pmc.exec} nx g @nrwl/nx-cloud:init --no-analytics`,
-      path.join(process.cwd(), name)
+      path.join(process.cwd(), getFileName(name))
     );
     nxCloudSpinner.succeed('NxCloud has been set up successfully');
     return res;
@@ -581,6 +807,73 @@ async function setupNxCloud(name: string, packageManager: PackageManager) {
     process.exit(1);
   } finally {
     nxCloudSpinner.stop();
+  }
+}
+
+async function setupCI(
+  name: string,
+  ci: string[],
+  packageManager: PackageManager,
+  nxCloudSuccessfullyInstalled: boolean
+) {
+  if (!nxCloudSuccessfullyInstalled) {
+    output.error({
+      title: `CI workflow(s) generation skipped`,
+      bodyLines: [
+        `Nx Cloud was not (successfully) installed`,
+        `The autogenerated CI workflows require Nx Cloud to be set-up.`,
+      ],
+    });
+  }
+  const ciSpinner = ora(`Generating CI workflow(s)`).start();
+  try {
+    const pmc = getPackageManagerCommand(packageManager);
+    // GENERATE WORKFLOWS HERE based on `ci` and `packageManager`
+    const res = await Promise.allSettled(
+      ci.map(
+        async (provider) =>
+          await execAndWait(
+            `${pmc.exec} nx g @nrwl/workspace:ci-workflow --ci=${provider}`,
+            path.join(process.cwd(), getFileName(name))
+          )
+      )
+    );
+    if (res.some((r) => r.status === 'fulfilled')) {
+      if (res.some((r) => r.status === 'rejected')) {
+        // show error message that some failed
+        const failedWorkflows = res
+          .map((r, i) => [r.status, ci[i]])
+          .filter(([r, provider]) => r === 'rejected')
+          .map(([, provider]) => `"${provider}"`)
+          .join(', ');
+        ciSpinner.fail(
+          `Nx failed to generate some CI workflow(s): ${failedWorkflows}`
+        );
+      } else {
+        ciSpinner.succeed('CI workflow(s) have been generated successfully');
+      }
+      return res;
+    } else {
+      ciSpinner.fail();
+
+      output.error({
+        title: `Nx failed to generate CI workflow(s)`,
+        bodyLines: res.map((r: PromiseRejectedResult) => r.reason.message),
+      });
+
+      process.exit(1);
+    }
+  } catch (e) {
+    ciSpinner.fail();
+
+    output.error({
+      title: `Nx failed to generate CI workflow(s)`,
+      bodyLines: mapErrorToBodyLines(e),
+    });
+
+    process.exit(1);
+  } finally {
+    ciSpinner.stop();
   }
 }
 
@@ -622,33 +915,6 @@ function execAndWait(command: string, cwd: string) {
   });
 }
 
-async function askAboutNxCloud(parsedArgs: any) {
-  if (parsedArgs.nxCloud === undefined) {
-    return enquirer
-      .prompt([
-        {
-          name: 'NxCloud',
-          message: `Use Nx Cloud? (It's free and doesn't require registration.)`,
-          type: 'select',
-          choices: [
-            {
-              name: 'Yes',
-              hint: 'Faster builds, run details, GitHub integration. Learn more at https://nx.app',
-            },
-
-            {
-              name: 'No',
-            },
-          ],
-          initial: 'Yes' as any,
-        },
-      ])
-      .then((a: { NxCloud: 'Yes' | 'No' }) => a.NxCloud === 'Yes');
-  } else {
-    return parsedArgs.nxCloud;
-  }
-}
-
 function pointToTutorialAndCourse(preset: Preset) {
   const title = `First time using Nx? Check out this interactive Nx tutorial.`;
   switch (preset) {
@@ -659,7 +925,7 @@ function pointToTutorialAndCourse(preset: Preset) {
       output.addVerticalSeparator();
       output.note({
         title,
-        bodyLines: [`https://nx.dev/getting-started/nx-core`],
+        bodyLines: [`https://nx.dev/core-tutorial/01-create-blog`],
       });
       break;
 

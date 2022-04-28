@@ -1,5 +1,5 @@
 // nx-ignore-next-line
-import type { DepGraphClientResponse } from '@nrwl/workspace/src/command-line/dep-graph';
+import type { DepGraphClientResponse } from 'nx/src/command-line/dep-graph';
 import { useRef } from 'react';
 import { AppConfig } from '../interfaces';
 
@@ -12,7 +12,13 @@ export function useEnvironmentConfig(): {
   appConfig: AppConfig;
   useXstateInspect: boolean;
 } {
-  const environmentConfig = useRef({
+  const environmentConfig = useRef(getEnvironmentConfig());
+
+  return environmentConfig.current;
+}
+
+export function getEnvironmentConfig() {
+  return {
     exclude: window.exclude,
     watch: window.watch,
     localMode: window.localMode,
@@ -20,7 +26,5 @@ export function useEnvironmentConfig(): {
     environment: window.environment,
     appConfig: window.appConfig,
     useXstateInspect: window.useXstateInspect,
-  });
-
-  return environmentConfig.current;
+  };
 }

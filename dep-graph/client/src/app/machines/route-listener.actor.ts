@@ -1,6 +1,6 @@
+import { createBrowserHistory } from 'history';
 import { InvokeCallback } from 'xstate';
 import { DepGraphUIEvents } from './interfaces';
-import { createBrowserHistory } from 'history';
 
 function parseSearchParamsToEvents(searchParams: string): DepGraphUIEvents[] {
   const events: DepGraphUIEvents[] = [];
@@ -25,10 +25,34 @@ function parseSearchParamsToEvents(searchParams: string): DepGraphUIEvents[] {
         events.push({ type: 'setCollapseEdges', collapseEdges: true });
         break;
       case 'searchDepth':
+        const parsedValue = parseInt(value, 10);
+
+        if (parsedValue === 0) {
+          events.push({
+            type: 'setSearchDepthEnabled',
+            searchDepthEnabled: false,
+          });
+        } else if (parsedValue > 1) {
+          events.push({
+            type: 'setSearchDepth',
+            searchDepth: parseInt(value),
+          });
+        }
+        break;
+      case 'traceAlgorithm':
+        if (value === 'shortest' || value === 'all') {
+          // this needs to go before other tracing options or else the default of 'shortest' gets used
+          events.unshift({ type: 'setTracingAlgorithm', algorithm: value });
+        }
+        break;
+      case 'traceStart':
         events.push({
-          type: 'setSearchDepth',
-          searchDepth: parseInt(value),
+          type: 'setTracingStart',
+          projectName: value,
         });
+        break;
+      case 'traceEnd':
+        events.push({ type: 'setTracingEnd', projectName: value });
         break;
     }
   });

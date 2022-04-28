@@ -10,7 +10,7 @@ Lists installed plugins, capabilities of installed plugins and other available p
 ## Usage
 
 ```bash
-nx list
+nx list [plugin]
 ```
 
 [Install `nx` globally](/getting-started/nx-setup#install-nx) to invoke the command directly using `nx`, or use `npx nx`, `yarn nx`, or `pnpx nx`.
@@ -33,12 +33,18 @@ nx list @nrwl/web
 
 ### help
 
+Type: boolean
+
 Show help
 
 ### plugin
 
+Type: string
+
 The name of an installed plugin to query
 
 ### version
+
+Type: boolean
 
 Show version number

@@ -1,7 +1,8 @@
+// nx-ignore-next-line
 import type { ProjectGraphProjectNode } from '@nrwl/devkit';
 import { DepGraphSelector } from '../hooks/use-dep-graph-selector';
 import { WorkspaceLayout } from '../interfaces';
-import { GraphPerfReport } from './interfaces';
+import { GraphPerfReport, TracingAlgorithmType } from './interfaces';
 
 export const allProjectsSelector: DepGraphSelector<
   ProjectGraphProjectNode[]
@@ -47,3 +48,9 @@ export const textFilterSelector: DepGraphSelector<string> = (state) =>
 
 export const hasAffectedProjectsSelector: DepGraphSelector<boolean> = (state) =>
   state.context.affectedProjects.length > 0;
+
+export const getTracingInfo: DepGraphSelector<{
+  start: string;
+  end: string;
+  algorithm: TracingAlgorithmType;
+}> = (state) => state.context.tracing;

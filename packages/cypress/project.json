@@ -6,7 +6,7 @@
     "test": {
       "executor": "@nrwl/jest:jest",
       "options": {
-        "jestConfig": "packages/cypress/jest.config.js",
+        "jestConfig": "packages/cypress/jest.config.ts",
         "passWithNoTests": true
       },
       "outputs": ["coverage/packages/cypress"]
@@ -46,7 +46,11 @@
             "glob": "**/*.d.ts",
             "output": "/"
           },
-          { "input": "", "glob": "LICENSE", "output": "/" }
+          {
+            "input": "",
+            "glob": "LICENSE",
+            "output": "/"
+          }
         ]
       },
       "outputs": ["{options.outputPath}"]
@@ -67,7 +71,9 @@
           "packages/cypress/**/*.spec.tsx",
           "packages/cypress/**/*.spec.js",
           "packages/cypress/**/*.spec.jsx",
-          "packages/cypress/**/*.d.ts"
+          "packages/cypress/**/*.d.ts",
+          "packages/cypress/**/executors/**/schema.json",
+          "packages/cypress/**/generators/**/schema.json"
         ]
       },
       "outputs": ["{options.outputFile}"]

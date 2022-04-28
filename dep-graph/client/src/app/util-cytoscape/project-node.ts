@@ -1,6 +1,7 @@
+// nx-ignore-next-line
 import type { ProjectGraphProjectNode } from '@nrwl/devkit';
 import * as cy from 'cytoscape';
-import { parseParentDirectoriesFromPilePath } from '../util';
+import { parseParentDirectoriesFromFilePath } from '../util';
 
 interface NodeDataDefinition extends cy.NodeDataDefinition {
   id: string;
@@ -13,6 +14,7 @@ interface Ancestor {
   parentId: string;
   label: string;
 }
+
 export class ProjectNode {
   affected = false;
   focused = false;
@@ -42,6 +44,8 @@ export class ProjectNode {
         groupByFolder && this.project.data.hasOwnProperty('root')
           ? this.getParentId()
           : null,
+      files: this.project.data.files,
+      root: this.project.data.root,
     };
   }
 
@@ -71,7 +75,7 @@ export class ProjectNode {
       return [];
     }
 
-    const directories = parseParentDirectoriesFromPilePath(
+    const directories = parseParentDirectoriesFromFilePath(
       this.project.data.root,
       this.workspaceRoot
     );

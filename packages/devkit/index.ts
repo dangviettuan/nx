@@ -12,7 +12,7 @@
 /**
  * @category Tree
  */
-export type { Tree, FileChange } from 'nx/src/shared/tree';
+export type { Tree, FileChange } from 'nx/src/config/tree';
 
 /**
  * @category Workspace
@@ -23,23 +23,39 @@ export type {
   TargetConfiguration,
   ProjectConfiguration,
   ProjectType,
+  Workspace,
+} from 'nx/src/config/workspace-json-project-json';
+
+/**
+ * @category Workspace
+ */
+export type {
   Generator,
   GeneratorCallback,
   Executor,
   ExecutorContext,
   TaskGraphExecutor,
-  Workspace,
-} from 'nx/src/shared/workspace';
-
-export type {
-  NxPlugin,
-  ProjectTargetConfigurator,
-} from 'nx/src/shared/nx-plugin';
+  GeneratorsJson,
+  ExecutorsJson,
+  MigrationsJson,
+  CustomHasher,
+  HasherContext,
+} from 'nx/src/config/misc-interfaces';
 
 /**
  * @category Workspace
  */
-export type { Task, TaskGraph } from 'nx/src/shared/tasks';
+export { Workspaces } from 'nx/src/config/workspaces';
+
+export type {
+  NxPlugin,
+  ProjectTargetConfigurator,
+} from 'nx/src/utils/nx-plugin';
+
+/**
+ * @category Workspace
+ */
+export type { Task, TaskGraph } from 'nx/src/config/task-graph';
 
 /**
  * @category Workspace
@@ -48,19 +64,23 @@ export type {
   ImplicitDependencyEntry,
   ImplicitJsonSubsetDependency,
   NxJsonConfiguration,
-  NxJsonProjectConfiguration,
   NxAffectedConfig,
-} from 'nx/src/shared/nx';
+} from 'nx/src/config/nx-json';
 
 /**
  * @category Logger
  */
-export { logger } from 'nx/src/shared/logger';
+export { logger } from 'nx/src/utils/logger';
+
+/**
+ * @category Utils
+ */
+export { output } from 'nx/src/utils/output';
 
 /**
  * @category Package Manager
  */
-export type { PackageManager } from 'nx/src/shared/package-manager';
+export type { PackageManager } from 'nx/src/utils/package-manager';
 
 /**
  * @category Package Manager
@@ -69,16 +89,16 @@ export {
   getPackageManagerCommand,
   detectPackageManager,
   getPackageManagerVersion,
-} from 'nx/src/shared/package-manager';
+} from 'nx/src/utils/package-manager';
 
 /**
  * @category Commands
  */
-export type { Target } from 'nx/src/commands/run';
+export type { Target } from 'nx/src/command-line/run';
 /**
  * @category Commands
  */
-export { runExecutor } from 'nx/src/commands/run';
+export { runExecutor } from 'nx/src/command-line/run';
 
 /**
  * @category Generators
@@ -150,17 +170,17 @@ export type {
   ProjectGraphProjectNode,
   ProjectGraphExternalNode,
   ProjectGraphProcessorContext,
-} from './src/project-graph/interfaces';
+} from 'nx/src/config/project-graph';
 
 /**
  * @category Project Graph
  */
-export { DependencyType } from './src/project-graph/interfaces';
+export { DependencyType } from 'nx/src/config/project-graph';
 
 /**
  * @category Project Graph
  */
-export { ProjectGraphBuilder } from './src/project-graph/project-graph-builder';
+export { ProjectGraphBuilder } from 'nx/src/project-graph/project-graph-builder';
 
 /**
  * @category Utils
@@ -240,14 +260,60 @@ export { convertNxExecutor } from './src/utils/convert-nx-executor';
 /**
  * @category Utils
  */
-export { stripIndents } from './src/utils/strip-indents';
+export { stripIndents } from 'nx/src/utils/strip-indents';
 
 /**
  * @category Utils
  */
-export { joinPathFragments, normalizePath } from './src/utils/path';
+export { joinPathFragments, normalizePath } from 'nx/src/utils/path';
 
 /**
  * @category Utils
  */
 export { moveFilesToNewDirectory } from './src/utils/move-dir';
+
+/**
+ * @category Utils
+ */
+export { workspaceRoot, appRootPath } from 'nx/src/utils/app-root';
+
+/**
+ * @category Utils
+ */
+export { reverse } from 'nx/src/project-graph/operators';
+/**
+ * @category Utils
+ */
+export {
+  createProjectGraphAsync,
+  readCachedProjectGraph,
+} from 'nx/src/project-graph/project-graph';
+
+/**
+ * @category Utils
+ */
+export { readNxJson, workspaceLayout } from 'nx/src/project-graph/file-utils';
+
+/**
+ * @category Utils
+ */
+export { getOutputsForTargetAndConfiguration } from 'nx/src/tasks-runner/utils';
+
+/**
+ * @category Utils
+ */
+export {
+  defaultTasksRunner,
+  DefaultTasksRunnerOptions,
+  RemoteCache,
+} from 'nx/src/tasks-runner/default-tasks-runner';
+
+/**
+ * @category Utils
+ */
+export { Hash, Hasher } from 'nx/src/hasher/hasher';
+
+/**
+ * @category Utils
+ */
+export { cacheDir } from 'nx/src/utils/cache-directory';

@@ -4,7 +4,8 @@ version: 2.1
 #        ORBS
 # -------------------------
 orbs:
-  nx: nrwl/nx@1.1.3
+  nx: nrwl/nx@1.4.0
+  node: circleci/node@5.0.2
 
 # -------------------------
 #        DEFAULTS
@@ -34,7 +35,7 @@ executors:
   linux:
     <<: *defaults
     docker:
-      - image: cimg/node:16.13-browsers
+      - image: cimg/node:lts-browsers
 
   macos:
     <<: *defaults
@@ -45,30 +46,11 @@ executors:
 #        COMMANDS
 # -------------------------
 commands:
-  run-yarn-install:
-    parameters:
-      os:
-        type: string
-    steps:
-      - restore_cache:
-          name: Restore Yarn Package Cache
-          keys:
-            - nrwl-nx-yarn-packages-<< parameters.os >>-{{ checksum "yarn.lock" }}
-      - run:
-          name: Install dependencies
-          command: yarn install --prefer-offline --frozen-lockfile --non-interactive --cache-folder ~/.cache/yarn
-      - save_cache:
-          name: Save Yarn Package Cache
-          key: nrwl-nx-yarn-packages-<< parameters.os >>-{{ checksum "yarn.lock" }}
-          paths:
-            - node_modules
-            - ~/.cache/yarn
-
   install-pnpm:
     steps:
       - run:
           name: Install PNPM
-          command: npm install --prefix=$HOME/.local -g pnpm@6.9.1
+          command: npm install --prefix=$HOME/.local -g pnpm@6.32.4
 
   setup:
     parameters:
@@ -98,8 +80,9 @@ commands:
                   - /usr/local/Homebrew
                   - ~/Library/Caches/Homebrew
 
-      - run-yarn-install:
-          os: << parameters.os >>
+      - node/install-packages:
+          pkg-manager: yarn
+          include-branch-in-cache-key: false
       - when:
           condition:
             equal: [<< parameters.os >>, linux]
@@ -161,20 +144,20 @@ jobs:
           os: linux
       - nx/set-shas:
           main-branch-name: 'master'
-      - run: yarn check-imports
-      - run: yarn nx format:check --base=$NX_BASE --head=$NX_HEAD
-      - run: yarn check-commit
-      - run: yarn depcheck
+      - run: npx nx-cloud record yarn check-imports
+      - run: npx nx-cloud record yarn nx format:check --base=$NX_BASE --head=$NX_HEAD
+      - run: npx nx-cloud record yarn check-commit
+      - run: npx nx-cloud record yarn depcheck
       - run:
           name: Check Documentation
-          command: yarn documentation
+          command: npx nx-cloud record yarn documentation
           no_output_timeout: 20m
       - run:
           name: Run Lint/Test/Build
           command: |
             pids=()
 
-            yarn nx workspace-lint &
+            npx nx-cloud record yarn nx workspace-lint &
             pids+=($!)
             yarn nx affected --target=lint --base=$NX_BASE --head=$NX_HEAD --parallel=3 &
             pids+=($!)
@@ -221,7 +204,7 @@ jobs:
           command: npx nx-cloud stop-all-agents
 
 # -------------------------
-#        WORKFLOWS
+#        WORKFLOWS(JOBS)
 # -------------------------
 workflows:
   version: 2

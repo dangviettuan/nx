@@ -1,7 +1,6 @@
 import * as webpack from 'webpack';
 import {
   ExecutorContext,
-  joinPathFragments,
   parseTargetString,
   readTargetOptions,
 } from '@nrwl/devkit';
@@ -17,7 +16,7 @@ import {
   calculateProjectDependencies,
   createTmpTsConfig,
 } from '@nrwl/workspace/src/utilities/buildable-libs-utils';
-import { readCachedProjectGraph } from '@nrwl/workspace/src/core/project-graph';
+import { readCachedProjectGraph } from '@nrwl/devkit';
 import { getEmittedFiles, runWebpackDevServer } from '../../utils/run-webpack';
 import { resolveCustomWebpackConfig } from '../../utils/webpack/custom-webpack';
 
@@ -51,25 +50,6 @@ export default async function* devServerExecutor(
     context.root,
     sourceRoot
   );
-  let webpackConfig = getDevServerConfig(
-    context.root,
-    projectRoot,
-    sourceRoot,
-    buildOptions,
-    serveOptions
-  );
-
-  if (buildOptions.webpackConfig) {
-    const customWebpack = resolveCustomWebpackConfig(
-      buildOptions.webpackConfig,
-      buildOptions.tsConfig
-    );
-
-    webpackConfig = customWebpack(webpackConfig, {
-      buildOptions,
-      configuration: serveOptions.buildTarget.split(':')[2],
-    });
-  }
 
   if (!buildOptions.buildLibsFromSource) {
     const { target, dependencies } = calculateProjectDependencies(
@@ -80,17 +60,41 @@ export default async function* devServerExecutor(
       context.configurationName
     );
     buildOptions.tsConfig = createTmpTsConfig(
-      joinPathFragments(context.root, buildOptions.tsConfig),
+      buildOptions.tsConfig,
       context.root,
       target.data.root,
       dependencies
     );
   }
 
+  let webpackConfig = getDevServerConfig(
+    context.root,
+    projectRoot,
+    sourceRoot,
+    buildOptions,
+    serveOptions
+  );
+
+  if (buildOptions.webpackConfig) {
+    let customWebpack = resolveCustomWebpackConfig(
+      buildOptions.webpackConfig,
+      buildOptions.tsConfig
+    );
+
+    if (typeof customWebpack.then === 'function') {
+      customWebpack = await customWebpack;
+    }
+
+    webpackConfig = customWebpack(webpackConfig, {
+      buildOptions,
+      configuration: serveOptions.buildTarget.split(':')[2],
+    });
+  }
+
   return yield* eachValueFrom(
     runWebpackDevServer(webpackConfig, webpack, WebpackDevServer).pipe(
       tap(({ stats }) => {
-        console.info(stats.toString(webpackConfig.stats));
+        console.info(stats.toString((webpackConfig as any).stats));
       }),
       map(({ baseUrl, stats }) => {
         return {
@@ -108,6 +112,10 @@ function getBuildOptions(
   context: ExecutorContext
 ): WebWebpackExecutorOptions {
   const target = parseTargetString(options.buildTarget);
+
+  // TODO(jack): [Nx 14] Remove this line once we generate `development` configuration by default + add migration for it if missing
+  target.configuration ??= '';
+
   const overrides: Partial<WebWebpackExecutorOptions> = {
     watch: false,
   };

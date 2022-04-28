@@ -1,14 +1,12 @@
 import { ExecutorContext, logger } from '@nrwl/devkit';
-import { buildDevStandalone } from '@storybook/core/server';
+import { buildDevStandalone } from '@storybook/core-server';
 import 'dotenv/config';
-import { showStorybookV5Warning } from '../../utils/utilities';
 import { CommonNxStorybookConfig } from '../models';
 import {
   getStorybookFrameworkPath,
   normalizeAngularBuilderStylesOptions,
   resolveCommonStorybookOptionMapper,
   runStorybookSetupCheck,
-  isStorybookLT6,
 } from '../utils';
 export interface StorybookExecutorOptions extends CommonNxStorybookConfig {
   host?: string;
@@ -35,10 +33,6 @@ export default async function* storybookExecutor(
   // print warnings
   runStorybookSetupCheck(options);
 
-  if (isStorybookLT6()) {
-    showStorybookV5Warning(options.uiFramework);
-  }
-
   await runInstance(option);
 
   yield { success: true };
@@ -52,7 +46,6 @@ function runInstance(options: StorybookExecutorOptions) {
   process.env.NODE_ENV = env;
   return buildDevStandalone({
     ...options,
-    ci: true,
     configType: env.toUpperCase(),
   } as any).catch((error) => {
     // TODO(juri): find a better cleaner way to handle these. Taken from:

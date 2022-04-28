@@ -6,7 +6,7 @@ We would love for you to contribute to Nx! Read this document to see how to do i
 
 Watch this 5-minute video:
 
-<a href="https://www.youtube.com/watch?v=8LCA_4qxc08" target="_blank">
+<a href="https://www.youtube.com/watch?v=8LCA_4qxc08" target="_blank" rel="noreferrer">
 <p style="text-align: center;"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/how-to-contribute.png" width="600" alt="Nx - How to contribute"></p>
 </a>
 
@@ -192,7 +192,7 @@ Please follow the following guidelines:
 
 - Make sure unit tests pass (`nx affected --target=test`)
   - Target a specific project with: `nx run proj:test` (i.e. `nx run angular:test` to target `packages/angular`)
-  - Target a specific unit test file (i.e. `packages/angular/src/utils/ast-utils.spec.ts`) with `npx jest angular/src/utils/ast-utils` or `npx jest packages/angular/src/utils/ast-utils`
+  - Target a specific unit test file (i.e. `packages/angular/src/utils/ast-command-line-utils.spec.ts`) with `npx jest angular/src/utils/ast-utils` or `npx jest packages/angular/src/utils/ast-utils`
   - For more options on running tests - check `npx jest --help` or visit [jestjs.io](https://jestjs.io/)
   - Debug with `node --inspect-brk ./node_modules/jest/bin/jest.js build/packages/angular/src/utils/ast-utils.spec.js`
 - Make sure e2e tests pass (this can take a while, so you can always let CI check those) (`yarn e2e`)

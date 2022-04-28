@@ -6,7 +6,7 @@
     "test": {
       "executor": "@nrwl/jest:jest",
       "options": {
-        "jestConfig": "packages/web/jest.config.js",
+        "jestConfig": "packages/web/jest.config.ts",
         "passWithNoTests": true
       },
       "outputs": ["coverage/packages/web"]
@@ -51,7 +51,11 @@
             "glob": "**/*.d.ts",
             "output": "/"
           },
-          { "input": "", "glob": "LICENSE", "output": "/" }
+          {
+            "input": "",
+            "glob": "LICENSE",
+            "output": "/"
+          }
         ]
       },
       "outputs": ["{options.outputPath}"]
@@ -73,7 +77,9 @@
           "packages/web/**/*.spec.tsx",
           "packages/web/**/*.spec.js",
           "packages/web/**/*.spec.jsx",
-          "packages/web/**/*.d.ts"
+          "packages/web/**/*.d.ts",
+          "packages/web/**/executors/**/schema.json",
+          "packages/web/**/generators/**/schema.json"
         ]
       },
       "outputs": ["{options.outputFile}"]

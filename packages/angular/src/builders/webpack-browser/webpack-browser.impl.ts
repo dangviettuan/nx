@@ -7,7 +7,7 @@ import { executeBrowserBuilder } from '@angular-devkit/build-angular';
 import { Schema } from '@angular-devkit/build-angular/src/builders/browser/schema';
 import { JsonObject } from '@angular-devkit/core';
 import { joinPathFragments } from '@nrwl/devkit';
-import { readCachedProjectGraph } from '@nrwl/workspace/src/core/project-graph';
+import { readCachedProjectGraph } from '@nrwl/devkit';
 import {
   calculateProjectDependencies,
   checkDependentProjectsHaveBeenBuilt,
@@ -77,11 +77,7 @@ function buildAppWithCustomWebpackConfiguration(
       // The extra Webpack configuration file can export a synchronous or asynchronous function,
       // for instance: `module.exports = async config => { ... }`.
       if (typeof config === 'function') {
-        return customWebpackConfiguration(
-          baseWebpackConfig,
-          options,
-          context.target
-        );
+        return config(baseWebpackConfig, options, context.target);
       } else {
         return merge(baseWebpackConfig, config);
       }

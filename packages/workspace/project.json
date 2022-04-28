@@ -2,12 +2,11 @@
   "root": "packages/workspace",
   "sourceRoot": "packages/workspace/src",
   "projectType": "library",
-  "implicitDependencies": ["dep-graph-client"],
   "targets": {
     "test": {
       "executor": "@nrwl/jest:jest",
       "options": {
-        "jestConfig": "packages/workspace/jest.config.js",
+        "jestConfig": "packages/workspace/jest.config.ts",
         "passWithNoTests": true
       },
       "outputs": ["coverage/packages/workspace"]
@@ -33,13 +32,13 @@
           },
           {
             "input": "packages/workspace",
-            "glob": "**/**/decorate-angular-cli.js__tmpl__",
+            "glob": "**/*.json",
+            "ignore": ["**/tsconfig*.json", "project.json"],
             "output": "/"
           },
           {
             "input": "packages/workspace",
-            "glob": "**/*.json",
-            "ignore": ["**/tsconfig*.json", "project.json"],
+            "glob": "**/**/decorate-angular-cli.js__tmpl__",
             "output": "/"
           },
           {
@@ -53,7 +52,11 @@
             "glob": "**/*.d.ts",
             "output": "/"
           },
-          { "input": "", "glob": "LICENSE", "output": "/" }
+          {
+            "input": "",
+            "glob": "LICENSE",
+            "output": "/"
+          }
         ]
       },
       "outputs": ["{options.outputPath}"]
@@ -94,7 +97,9 @@
           "packages/workspace/**/*.spec.tsx",
           "packages/workspace/**/*.spec.js",
           "packages/workspace/**/*.spec.jsx",
-          "packages/workspace/**/*.d.ts"
+          "packages/workspace/**/*.d.ts",
+          "packages/workspace/**/executors/**/schema.json",
+          "packages/workspace/**/generators/**/schema.json"
         ]
       },
       "outputs": ["{options.outputFile}"]

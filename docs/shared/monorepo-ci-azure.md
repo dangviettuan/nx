@@ -27,28 +27,29 @@ pr:
   - main
 
 variables:
-  - name: NX_BRANCH
-    ${{ if eq(variables['Build.Reason'], 'PullRequest') }}:
-      value: $(System.PullRequest.PullRequestNumber) # Pull request Number
-    ${{ if ne(variables['Build.Reason'], 'PullRequest') }}:
-      value: $(Build.SourceBranchName)
-  - name: TARGET_BRANCH
-    ${{ if eq(variables['Build.Reason'], 'PullRequest') }}:
-      value: $[replace(variables['System.PullRequest.TargetBranch'],'refs/heads/','origin/')]
-  - name: BASE_SHA
-    ${{ if eq(variables['Build.Reason'], 'PullRequest') }}:
-      value: $(git merge-base $(TARGET_BRANCH) HEAD)
-    ${{ if ne(variables['Build.Reason'], 'PullRequest') }}:
-      value: $(git rev-parse HEAD~1)
+  CI: 'true'
+  ${{ if eq(variables['Build.Reason'], 'PullRequest') }}:
+    NX_BRANCH: $(System.PullRequest.PullRequestNumber)
+    TARGET_BRANCH: $[replace(variables['System.PullRequest.TargetBranch'],'refs/heads/','origin/')]
+    BASE_SHA: $(git merge-base $(TARGET_BRANCH) HEAD)
+  ${{ if ne(variables['Build.Reason'], 'PullRequest') }}:
+    NX_BRANCH: $(Build.SourceBranchName)
+    BASE_SHA: $(git rev-parse HEAD~1)
+  HEAD_SHA: $(git rev-parse HEAD)
 
 jobs:
   - job: main
     pool:
       vmImage: 'ubuntu-latest'
     steps:
-      - script: npm i
-      - script: npx nx affected --target=build --parallel=3
-      - script: npx nx affected --target=test --parallel=2
+      - script: npm ci
+
+      - script: npx nx workspace-lint
+      - script: npx nx format:check
+
+      - script: npx nx affected --base=$(BASE_SHA) --target=lint --parallel=3
+      - script: npx nx affected --base=$(BASE_SHA) --target=test --parallel=3 --ci --code-coverage
+      - script: npx nx affected --base=$(BASE_SHA) --target=build --parallel=3
 ```
 
 The `main` job implements the CI workflow.
@@ -58,5 +59,56 @@ The `main` job implements the CI workflow.
 A computation cache is created on your local machine to make the developer experience faster. This allows you to not waste time re-building, re-testing, re-linting, or any number of other actions you might take on code that hasn't changed. Because the cache is stored locally, you are the only member of your team that can take advantage of these instant commands. You can manage and share this cache manually.
 
 Nx Cloud allows this cache to be shared across your entire organization, meaning that any cacheable operation completed on your workspace only needs to be run once. Nx Cloud also allows you to distribute your CI across multiple machines to make sure the CI is fast even for very large repos.
+
+In order to use distributed task execution, we need to start agents and set the `NX_CLOUD_DISTRIBUTED_EXECUTION` flag to `true`. Once all tasks are finished, we must not forget to cleanup used agents.
+
+```yaml
+trigger:
+  - main
+pr:
+  - main
+
+variables:
+  CI: 'true'
+  NX_CLOUD_DISTRIBUTED_EXECUTION: 'true'
+  ${{ if eq(variables['Build.Reason'], 'PullRequest') }}:
+    NX_BRANCH: $(System.PullRequest.PullRequestNumber)
+    TARGET_BRANCH: $[replace(variables['System.PullRequest.TargetBranch'],'refs/heads/','origin/')]
+    BASE_SHA: $(git merge-base $(TARGET_BRANCH) HEAD)
+  ${{ if ne(variables['Build.Reason'], 'PullRequest') }}:
+    NX_BRANCH: $(Build.SourceBranchName)
+    BASE_SHA: $(git rev-parse HEAD~1)
+  HEAD_SHA: $(git rev-parse HEAD)
+
+jobs:
+  - job: agents
+    strategy:
+      parallel: 3
+    displayName: Nx Cloud Agent
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+      - script: npm ci
+      - script: npx nx-cloud start-agent
+
+  - job: main
+    displayName: Nx Cloud Main
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+      - script: npm ci
+      - script: npx nx-cloud start-ci-run
+
+      - script: npx nx-cloud record -- npx nx workspace-lint
+      - script: npx nx-cloud record -- npx nx format:check --base=$(BASE_SHA) --head=$(HEAD_SHA)
+      - script: npx nx affected --base=$(BASE_SHA) --head=$(HEAD_SHA) --target=lint --parallel=3
+      - script: npx nx affected --base=$(BASE_SHA) --head=$(HEAD_SHA) --target=test --parallel=3 --ci --code-coverage
+      - script: npx nx affected --base=$(BASE_SHA) --head=$(HEAD_SHA) --target=build --parallel=3
+
+      - script: npx nx-cloud stop-all-agents
+        condition: always()
+```
+
+You can also use our [ci-workflow generator](https://nx.app/packages/workspace/generators/ci-workflow) to generate the pipeline file.
 
 Learn more about [configuring your CI](https://nx.app/docs/configuring-ci) environment using Nx Cloud with [Distributed Caching](https://nx.app/docs/distributed-caching) and [Distributed Task Execution](https://nx.app/docs/distributed-execution) in the Nx Cloud docs.

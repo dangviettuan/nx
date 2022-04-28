@@ -3,26 +3,27 @@ import {
   convertNxGenerator,
   formatFiles,
   GeneratorCallback,
+  removeDependenciesFromPackageJson,
   Tree,
-  updateJson,
 } from '@nrwl/devkit';
-import { nxVersion, tslibVersion } from '../../utils/versions';
-import { Schema } from './schema';
-import { setDefaultCollection } from '@nrwl/workspace/src/utilities/set-default-collection';
 import { jestInitGenerator } from '@nrwl/jest';
+import { setDefaultCollection } from '@nrwl/workspace/src/utilities/set-default-collection';
+import {
+  nxVersion,
+  tslibVersion,
+  typesNodeVersion,
+} from '../../utils/versions';
+import { Schema } from './schema';
 
 function updateDependencies(tree: Tree) {
-  updateJson(tree, 'package.json', (json) => {
-    delete json.dependencies['@nrwl/node'];
-    return json;
-  });
+  removeDependenciesFromPackageJson(tree, ['@nrwl/node'], []);
 
   return addDependenciesToPackageJson(
     tree,
     {
       tslib: tslibVersion,
     },
-    { '@nrwl/node': nxVersion }
+    { '@nrwl/node': nxVersion, '@types/node': typesNodeVersion }
   );
 }
 
@@ -40,7 +41,7 @@ export async function initGenerator(tree: Tree, schema: Schema) {
 
   let jestInstall: GeneratorCallback;
   if (options.unitTestRunner === 'jest') {
-    jestInstall = await jestInitGenerator(tree, {});
+    jestInstall = await jestInitGenerator(tree, schema);
   }
   const installTask = await updateDependencies(tree);
   if (!options.skipFormat) {

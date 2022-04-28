@@ -4,12 +4,12 @@ import * as stripJsonComments from 'strip-json-comments';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as cp from 'child_process';
-import { output } from '@nrwl/workspace/src/utils/output';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 import * as enquirer from 'enquirer';
 import * as yargsParser from 'yargs-parser';
 
 import { execSync } from 'child_process';
+import { output } from '@nrwl/devkit';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const ignore = require('ignore');
 const parsedArgs = yargsParser(process.argv, {
@@ -45,7 +45,6 @@ export async function addNxToMonorepo() {
   }
 
   createNxJsonFile(repoRoot);
-  createTsConfigIfMissing(repoRoot);
 
   addDepsToPackageJson(repoRoot, useCloud);
 
@@ -77,7 +76,7 @@ async function askAboutNxCloud(parsedArgs: any) {
               name: 'No',
             },
           ],
-          initial: 'No' as any,
+          initial: 'Yes' as any,
         },
       ])
       .then((a: { NxCloud: 'Yes' | 'No' }) => a.NxCloud === 'Yes');
@@ -190,11 +189,11 @@ function detectWorkspaceScope(repoRoot: string) {
 function createNxJsonFile(repoRoot: string) {
   const scope = detectWorkspaceScope(repoRoot);
   const res = {
-    extends: '@nrwl/workspace/presets/npm.json',
+    extends: 'nx/presets/npm.json',
     npmScope: scope,
     tasksRunnerOptions: {
       default: {
-        runner: '@nrwl/workspace/tasks-runners/default',
+        runner: 'nx/tasks-runners/default',
         options: {
           cacheableOperations: ['build', 'test', 'lint', 'package', 'prepare'],
         },
@@ -264,42 +263,11 @@ function deduceDefaultBase() {
   }
 }
 
-function createTsConfigIfMissing(repoRoot: string) {
-  if (!hasRootTsConfig(repoRoot)) {
-    fs.writeFileSync(
-      'tsconfig.base.json',
-      JSON.stringify({ compilerOptions: {} }, null, 2)
-    );
-  }
-}
-
-function hasRootTsConfig(repoRoot: string) {
-  try {
-    readJsonFile(repoRoot, `tsconfig.base.json`);
-    return true;
-  } catch (e) {
-    try {
-      readJsonFile(repoRoot, `tsconfig.json`);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-}
-
 // add dependencies
 function addDepsToPackageJson(repoRoot: string, useCloud: boolean) {
   const json = readJsonFile(repoRoot, `package.json`);
   if (!json.devDependencies) json.devDependencies = {};
-  json.devDependencies['@nrwl/workspace'] = 'NX_VERSION';
-  json.devDependencies['@nrwl/cli'] = 'NX_VERSION';
   json.devDependencies['nx'] = 'NX_VERSION';
-  if (
-    !(json.dependencies && json.dependencies['typescript']) &&
-    !json.devDependencies['typescript']
-  ) {
-    json.devDependencies['typescript'] = '4.2.4';
-  }
   if (useCloud) {
     json.devDependencies['@nrwl/nx-cloud'] = 'latest';
   }
@@ -365,12 +333,4 @@ function printFinalMessage(repoRoot) {
       `- Learn more at https://nx.dev/migration/adding-to-monorepo`,
     ],
   });
-}
-
-function removeWindowsDriveLetter(osSpecificPath: string): string {
-  return osSpecificPath.replace(/^[A-Z]:/, '');
-}
-
-function normalizePath(osSpecificPath: string): string {
-  return removeWindowsDriveLetter(osSpecificPath).split(path.sep).join('/');
 }

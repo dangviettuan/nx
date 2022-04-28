@@ -1,19 +1,17 @@
-import { ExecutorContext, logger } from '@nrwl/devkit';
+import { ExecutorContext, logger, readCachedProjectGraph } from '@nrwl/devkit';
 import type { Configuration, Stats } from 'webpack';
 import { from, of } from 'rxjs';
 import {
   bufferCount,
+  mergeMap,
   mergeScan,
   switchMap,
   tap,
-  mergeMap,
 } from 'rxjs/operators';
 import { eachValueFrom } from 'rxjs-for-await';
 import { execSync } from 'child_process';
 import { Range, satisfies } from 'semver';
 import { basename, join } from 'path';
-
-import { readCachedProjectGraph } from '@nrwl/workspace/src/core/project-graph';
 import {
   calculateProjectDependencies,
   checkDependentProjectsHaveBeenBuilt,
@@ -67,10 +65,10 @@ export interface WebWebpackExecutorOptions extends BuildBuilderOptions {
   postcssConfig?: string;
 }
 
-function getWebpackConfigs(
+async function getWebpackConfigs(
   options: WebWebpackExecutorOptions,
   context: ExecutorContext
-): Configuration[] {
+): Promise<Configuration[]> {
   const metadata = context.workspace.projects[context.projectName];
   const sourceRoot = metadata.sourceRoot;
   const projectRoot = metadata.root;
@@ -88,6 +86,19 @@ function getWebpackConfigs(
     projectRoot,
     scriptTarget
   );
+
+  let customWebpack = null;
+
+  if (options.webpackConfig) {
+    customWebpack = resolveCustomWebpackConfig(
+      options.webpackConfig,
+      options.tsConfig
+    );
+
+    if (typeof customWebpack.then === 'function') {
+      customWebpack = await customWebpack;
+    }
+  }
 
   return [
     // ESM build for modern browsers.
@@ -115,11 +126,7 @@ function getWebpackConfigs(
   ]
     .filter(Boolean)
     .map((config) => {
-      if (options.webpackConfig) {
-        const customWebpack = resolveCustomWebpackConfig(
-          options.webpackConfig,
-          options.tsConfig
-        );
+      if (customWebpack) {
         return customWebpack(config, {
           options,
           configuration: context.configurationName,
@@ -144,7 +151,14 @@ export async function* run(
     );
   }
 
-  process.env.NODE_ENV ||= 'production';
+  const isScriptOptimizeOn =
+    typeof options.optimization === 'boolean'
+      ? options.optimization
+      : options.optimization && options.optimization.scripts
+      ? options.optimization.scripts
+      : false;
+
+  process.env.NODE_ENV ||= isScriptOptimizeOn ? 'production' : 'development';
 
   const metadata = context.workspace.projects[context.projectName];
 
@@ -192,7 +206,7 @@ export async function* run(
     deleteOutputDir(context.root, options.outputPath);
   }
 
-  const configs = getWebpackConfigs(options, context);
+  const configs = await getWebpackConfigs(options, context);
   return yield* eachValueFrom(
     from(configs).pipe(
       mergeMap((config) => (Array.isArray(config) ? from(config) : of(config))),

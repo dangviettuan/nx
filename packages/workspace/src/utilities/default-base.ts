@@ -1,6 +1,5 @@
 import { execSync } from 'child_process';
 
-// TODO (v13): Update to main
 export function deduceDefaultBase(): string {
   const nxDefaultBase = 'main';
   try {

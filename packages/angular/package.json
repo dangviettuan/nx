@@ -1,7 +1,7 @@
 {
   "name": "@nrwl/angular",
   "version": "0.0.1",
-  "description": "Angular Plugin for Nx",
+  "description": "The Nx Plugin for Angular contains executors, generators, and utilities for managing Angular applications and libraries within an Nx workspace. It provides: \n\n- Integration with libraries such as Storybook, Jest, ESLint, Tailwind CSS, Cypress, Karma, and Protractor. \n\n- Generators to help scaffold code quickly (like: Micro Frontends, Libraries, both internal to your codebase and publishable to npm) \n\n- Upgrading AngularJS applications \n\n- Single Component Application Modules (SCAMs) \n\n- NgRx helpers. \n\n- Utilities for automatic workspace refactoring.",
   "repository": {
     "type": "git",
     "url": "https://github.com/nrwl/nx.git",
@@ -22,7 +22,7 @@
     "./executors": "./executors.js",
     "./tailwind": "./tailwind.js",
     "./src/generators/utils": "./src/generators/utils/index.js",
-    "./module-federation": "./src/utils/mfe/with-module-federation.js"
+    "./module-federation": "./module-federation/index.js"
   },
   "author": "Victor Savkin",
   "license": "MIT",
@@ -43,8 +43,11 @@
     "@nrwl/jest": "*",
     "@nrwl/linter": "*",
     "@nrwl/storybook": "*",
+    "@nrwl/workspace": "*",
     "@schematics/angular": "~13.3.0",
     "@phenomnomnominal/tsquery": "4.1.1",
+    "chalk": "4.1.0",
+    "chokidar": "^3.5.1",
     "ignore": "^5.0.4",
     "jasmine-marbles": "~0.8.4",
     "rxjs-for-await": "0.0.2",

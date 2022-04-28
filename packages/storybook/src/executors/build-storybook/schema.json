@@ -1,12 +1,29 @@
 {
   "title": "Storybook Builder",
   "cli": "nx",
-  "description": "Build storybook in production mode",
+  "description": "Build storybook in production mode.",
   "type": "object",
+  "presets": [
+    {
+      "name": "Default minimum setup",
+      "keys": ["uiFramework", "outputPath", "projectBuildConfig", "config"]
+    },
+    {
+      "name": "Angular setup with styles",
+      "keys": [
+        "uiFramework",
+        "outputPath",
+        "projectBuildConfig",
+        "config",
+        "styles",
+        "stylePreprocessorOptions"
+      ]
+    }
+  ],
   "properties": {
     "uiFramework": {
       "type": "string",
-      "description": "Storybook framework npm package",
+      "description": "Storybook framework npm package.",
       "default": "@storybook/angular",
       "hidden": true
     },
@@ -16,37 +33,43 @@
     },
     "projectBuildConfig": {
       "type": "string",
-      "description": "Workspace project where Storybook reads the Webpack config from"
+      "description": "Workspace project where Storybook reads the Webpack config from."
     },
     "styles": {
       "type": "array",
-      "description": "Global styles to be included in the build. This is for Angular projects only, as an option for the Storybook/Angular builder. It will be ignored in non-Angular projects.",
+      "description": "Global styles to be included in the build. This is for Angular projects only. It will be ignored in non-Angular projects.",
       "items": {
         "$ref": "#/definitions/extraEntryPoint"
       }
     },
-    "stylePreprocessorOptions.includePaths": {
-      "description": "Options to pass to style preprocessors. The paths to include. Paths will be resolved to workspace root. This is for Angular projects only, as an option for the Storybook/Angular builder. It will be ignored in non-Angular projects.",
-      "type": "array",
-      "items": {
-        "type": "string"
+    "stylePreprocessorOptions": {
+      "type": "object",
+      "description": "Options to pass to style preprocessors.",
+      "properties": {
+        "includePaths": {
+          "type": "array",
+          "description": "The paths to include. Paths will be resolved to workspace root. This is for Angular projects only. It will be ignored in non-Angular projects.",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "config": {
       "type": "object",
-      "description": ".storybook configuration",
+      "description": "`.storybook` file configuration",
       "properties": {
         "configFolder": {
           "type": "string",
-          "description": "Directory where to load Storybook configurations from"
+          "description": "Directory where to load Storybook configurations from."
         },
         "pluginPath": {
           "type": "string",
-          "description": "Path to storybook plugin.js file."
+          "description": "Path to storybook `plugin.js` file."
         },
         "configPath": {
           "type": "string",
-          "description": "Path to storybook preview.js file."
+          "description": "Path to storybook `preview.js` file."
         },
         "srcRoot": {
           "type": "string",

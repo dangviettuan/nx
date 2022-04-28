@@ -6,21 +6,27 @@ using a monorepo approach. If you are currently using an Angular CLI workspace, 
 ## Prerequisites
 
 - The major version of your `Angular CLI` must align with the version of `Nx` you are upgrading to. For example, if you're using Angular CLI version 7, you must transition using the latest version 7 release of Nx.
-- Currently, transforming an Angular CLI workspace to an Nx workspace automatically only supports a single project. If you have more than one project in your Angular CLI workspace, you can still migrate manually.
+- Currently, transforming an Angular CLI workspace to an Nx workspace automatically only supports a single project. If you have more than one project in your Angular CLI workspace, you can still [migrate manually](#transitioning-manually).
 
 ## Using the Nx CLI while preserving the existing structure
 
 To use the Nx CLI in an existing Angular CLI workspace while keeping your existing file structure in place, use the `ng add` command with the `--preserve-angular-cli-layout` option:
 
 ```bash
-ng add @nrwl/workspace --preserve-angular-cli-layout
+ng add @nrwl/angular --preserve-angular-cli-layout
 ```
 
-> **Note**: If you are migrating to an Nx versions previous to `v13.8.4` (e.g. `ng add @nrwl/workspace@12`) use the `--preserveAngularCLILayout` option instead.
+**Note**: If you specify a version of Nx (e.g. `ng add @nrwl/angular@13.10.0`), please make sure to use the appropriate command as shown in the compatibility table below:
 
-This installs the `@nrwl/workspace` package into your workspace and applies the following changes to your workspace:
+| Nx version          | Collection to use | Flag to use                     | Example                                                       |
+| ------------------- | ----------------- | ------------------------------- | ------------------------------------------------------------- |
+| >= 13.10.0          | `@nrwl/angular`   | `--preserve-angular-cli-layout` | `ng add @nrwl/angular@13.10.0 --preserve-angular-cli-layout`  |
+| >= 13.8.4 < 13.10.0 | `@nrwl/workspace` | `--preserve-angular-cli-layout` | `ng add @nrwl/workspace@13.8.4 --preserve-angular-cli-layout` |
+| < 13.8.4            | `@nrwl/workspace` | `--preserveAngularCLILayout`    | `ng add @nrwl/workspace@13.5.0 --preserveAngularCLILayout`    |
 
-- Adds and installs the `@nrwl/workspace` package in your development dependencies.
+This installs the `@nrwl/angular` (or `@nrwl/workspace`) package into your workspace and runs a generator (or schematic) to make following changes:
+
+- Installs the `nx` and `@nrwl/workspace` packages.
 - Creates an `nx.json` file in the root of your workspace.
 - Adds a `decorate-angular-cli.js` to the root of your workspace, and a `postinstall` script in your `package.json` to run the script when your dependencies are updated. The script forwards the `ng` commands to the Nx CLI (`nx`) to enable features such as [Computation Caching](/using-nx/caching).
 
@@ -31,12 +37,19 @@ After the process completes, you can continue using the same `serve/build/lint/t
 To transform an Angular CLI workspace to an Nx workspace, run the following command:
 
 ```bash
-ng add @nrwl/workspace
+ng add @nrwl/angular
 ```
 
-This installs the `@nrwl/workspace` package into your workspace and runs a generator (or schematic) to transform your workspace. The generator applies the following changes to your workspace:
+**Note**: If you specify a version of Nx (e.g. `ng add @nrwl/angular@13.10.0`), please make sure to use the appropriate command as shown in the compatibility table below:
 
-- Installs the packages for the `Nx` plugin `@nrwl/angular` in your `package.json`.
+| Nx version | Command to run           |
+| ---------- | ------------------------ |
+| >= 13.10.0 | `ng add @nrwl/angular`   |
+| < 13.10.0  | `ng add @nrwl/workspace` |
+
+This installs the `@nrwl/angular` (or `@nrwl/workspace`) package into your workspace and runs a generator (or schematic) to transform your workspace. The generator applies the following changes to your workspace:
+
+- Installs the `nx` and `@nrwl/workspace` packages.
 - Creates an `nx.json` file in the root of your workspace.
 - Creates configuration files for Prettier.
 - Creates an `apps` folder for generating applications.
@@ -385,3 +398,28 @@ Learn more about the advantages of Nx in the following guides:
 [Using Cypress for e2e tests](/cypress/overview) \
 [Using Jest for unit tests](/jest/overview) \
 [Rebuilding and Retesting What is Affected](/using-nx/affected)
+
+## From Nx Console
+
+<iframe loading="lazy" width="750" height="420" src="https://www.youtube.com/embed/vRj9SNVYKrE?rel=0" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen"></iframe>
+
+As of Nx Console version 17.15.0, Angular CLI users will receive a notice periodically when running commands via Nx Console, asking if they want to use Nx to make their Angular commands faster.
+
+When you click this button, we’ll run [a script](https://github.com/nrwl/add-nx/tree/master/projects/gitmake-angular-cli-faster) to decorate your Angular workspace with Nx, allowing for cached builds, and for you to share this cache with your teammates via Nx Cloud.
+
+The script will make the following changes:
+
+- Installs the `@nrwl/workspace` and `nx` packages.
+  - If you opted into Nx Cloud, `@nrwl/nx-cloud` will be installed as well.
+  - If your project's Angular version is greater than or equal to version 13, then the `@nrwl/angular` package will be installed as well.
+- Creates an `nx.json` file in the root of your workspace.
+- Adds a `decorate-angular-cli.js` to the root of your workspace, and a `postinstall` script in your `package.json` to run the script when your dependencies are updated. The script forwards the `ng` commands to the Nx CLI (`nx`) to enable features such as [Computation Caching](/using-nx/caching).
+
+By running this command and accepting Nx Cloud, Nx distributed caching is now enabled.
+
+Once the script has run, commit the changes. Reverting these changes will effectively undo the changes made.
+
+If you're not ready to make the change yet, you can come back to this later:
+
+- If you're using Nx Console: open the Vs Code command pallet and start typing "make angular faster".
+- Regardless of using Nx Console (or your IDE): run `npx make-angular-cli-faster` from the root of your project.

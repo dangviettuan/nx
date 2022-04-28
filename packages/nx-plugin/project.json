@@ -6,7 +6,7 @@
     "test": {
       "executor": "@nrwl/jest:jest",
       "options": {
-        "jestConfig": "packages/nx-plugin/jest.config.js",
+        "jestConfig": "packages/nx-plugin/jest.config.ts",
         "passWithNoTests": true
       },
       "outputs": ["coverage/packages/nx-plugin"]
@@ -46,7 +46,11 @@
             "glob": "**/*.d.ts",
             "output": "/"
           },
-          { "input": "", "glob": "LICENSE", "output": "/" }
+          {
+            "input": "",
+            "glob": "LICENSE",
+            "output": "/"
+          }
         ]
       },
       "outputs": ["{options.outputPath}"]
@@ -68,7 +72,9 @@
           "packages/nx-plugin/**/*.spec.tsx",
           "packages/nx-plugin/**/*.spec.js",
           "packages/nx-plugin/**/*.spec.jsx",
-          "packages/nx-plugin/**/*.d.ts"
+          "packages/nx-plugin/**/*.d.ts",
+          "packages/nx-plugin/**/executors/**/schema.json",
+          "packages/nx-plugin/**/generators/**/schema.json"
         ]
       },
       "outputs": ["{options.outputFile}"]

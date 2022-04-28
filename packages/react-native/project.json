@@ -12,7 +12,9 @@
           "packages/react-native/**/*.spec.tsx",
           "packages/react-native/**/*.spec.js",
           "packages/react-native/**/*.spec.jsx",
-          "packages/react-native/**/*.d.ts"
+          "packages/react-native/**/*.d.ts",
+          "packages/react-native/**/executors/**/schema.json",
+          "packages/react-native/**/generators/**/schema.json"
         ]
       },
       "outputs": ["{options.outputFile}"]
@@ -20,7 +22,7 @@
     "test": {
       "executor": "@nrwl/jest:jest",
       "options": {
-        "jestConfig": "packages/react-native/jest.config.js",
+        "jestConfig": "packages/react-native/jest.config.ts",
         "passWithNoTests": true
       },
       "outputs": ["coverage/packages/react-native"]

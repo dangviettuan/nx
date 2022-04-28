@@ -1,5 +1,5 @@
-import { DocumentMetadata } from '@nrwl/nx-dev/data-access-documents';
-import { MenuItem, MenuSection } from './menu.models';
+import { DocumentMetadata } from '@nrwl/nx-dev/models-document';
+import { MenuItem, MenuSection } from '@nrwl/nx-dev/models-menu';
 
 export function createMenuItems(root: DocumentMetadata): MenuItem[] {
   const items = root?.itemList;
@@ -7,8 +7,7 @@ export function createMenuItems(root: DocumentMetadata): MenuItem[] {
   const createPathMetadata = (g: DocumentMetadata, parentId = ''): MenuItem => {
     const pathData = {
       ...g,
-      path: `/${parentId}/${g.id}`,
-      url: `/${parentId}/${g.id}`,
+      path: g['path'] ?? `/${parentId}/${g.id}`,
     };
 
     if (Array.isArray(g.itemList)) {
@@ -66,11 +65,13 @@ export function getDeepDiveSection(items: MenuItem[]): MenuSection {
         (m) =>
           m.id === 'workspace-concepts' ||
           m.id === 'structure' ||
+          m.id === 'extending-nx' ||
           m.id === 'generators' ||
           m.id === 'executors' ||
           m.id === 'ci' ||
           m.id === 'modern-angular' ||
           m.id === 'guides' ||
+          m.id === 'module-federation' ||
           m.id === 'examples' ||
           m.id === 'core-extended'
       )

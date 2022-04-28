@@ -72,7 +72,7 @@ export function Header(props: HeaderProps) {
                 Docs
               </a>
             </Link>
-            <Link href="/using-nx/nx-devkit">
+            <Link href="/extending-nx/nx-devkit">
               <a
                 title="Check Nx available plugins"
                 className="hidden px-3 py-2 leading-tight text-white md:inline-flex"
@@ -91,8 +91,12 @@ export function Header(props: HeaderProps) {
             <Link href="/conf">
               <a
                 title="Check Nx conference"
-                className="hidden px-3 py-2 leading-tight text-white md:inline-flex"
+                className="relative px-3 py-2 leading-tight text-white md:inline-flex"
               >
+                <span className="absolute top-0 right-0 -mt-1 -mr-1 flex h-3 w-3">
+                  <span className="bg-green-nx-base absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" />
+                  <span className="bg-green-nx-base relative inline-flex h-3 w-3 rounded-full" />
+                </span>
                 Nx Conf
               </a>
             </Link>
@@ -102,7 +106,7 @@ export function Header(props: HeaderProps) {
               href="https://nx.app/?utm_source=nx.dev"
               target="_blank"
               rel="noreferrer"
-              className="group relative px-3 py-2 leading-tight text-white lg:inline-flex"
+              className="group relative hidden px-3 py-2 leading-tight text-white lg:inline-flex"
             >
               Nx Cloud
             </a>
@@ -136,7 +140,7 @@ export function Header(props: HeaderProps) {
                 </svg>
                 <span
                   aria-hidden="true"
-                  className="relative ml-1.5 rounded-md bg-white px-1 py-0.5 text-xs font-medium uppercase text-gray-700"
+                  className="relative ml-1.5 hidden rounded-md bg-white px-1 py-0.5 text-xs font-medium uppercase text-gray-700 lg:inline-flex"
                 >
                   <svg
                     viewBox="0 0 16 16"
@@ -145,7 +149,7 @@ export function Header(props: HeaderProps) {
                   >
                     <rect width="10" height="10" />
                   </svg>
-                  11k+
+                  12k+
                 </span>
               </div>
             </a>

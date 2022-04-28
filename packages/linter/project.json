@@ -6,7 +6,7 @@
     "test": {
       "executor": "@nrwl/jest:jest",
       "options": {
-        "jestConfig": "packages/linter/jest.config.js",
+        "jestConfig": "packages/linter/jest.config.ts",
         "passWithNoTests": true
       },
       "outputs": ["coverage/packages/linter"]
@@ -46,7 +46,11 @@
             "glob": "**/*.d.ts",
             "output": "/"
           },
-          { "input": "", "glob": "LICENSE", "output": "/" }
+          {
+            "input": "",
+            "glob": "LICENSE",
+            "output": "/"
+          }
         ]
       },
       "outputs": ["{options.outputPath}"]
@@ -68,7 +72,9 @@
           "packages/linter/**/*.spec.tsx",
           "packages/linter/**/*.spec.js",
           "packages/linter/**/*.spec.jsx",
-          "packages/linter/**/*.d.ts"
+          "packages/linter/**/*.d.ts",
+          "packages/linter/**/executors/**/schema.json",
+          "packages/linter/**/generators/**/schema.json"
         ]
       },
       "outputs": ["{options.outputFile}"]

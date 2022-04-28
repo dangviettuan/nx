@@ -1,7 +1,7 @@
 import { ExecutorContext } from '@nrwl/devkit';
 import { of } from 'rxjs';
-import * as projectGraph from '@nrwl/workspace/src/core/project-graph';
-import type { ProjectGraph } from '@nrwl/workspace/src/core/project-graph';
+import * as projectGraph from '@nrwl/devkit';
+import type { ProjectGraph } from '@nrwl/devkit';
 import webpackExecutor from './webpack.impl';
 import { BuildNodeBuilderOptions } from '../../utils/types';
 
@@ -72,6 +72,9 @@ describe('Node Build Executor', () => {
 
     expect(runWebpack).toHaveBeenCalledWith(
       expect.objectContaining({
+        entry: expect.objectContaining({
+          index: ['/root/apps/wibble/src/main.ts'],
+        }),
         output: expect.objectContaining({
           filename: 'index.js',
           libraryTarget: 'commonjs',

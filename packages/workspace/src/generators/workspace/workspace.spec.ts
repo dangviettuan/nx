@@ -51,7 +51,7 @@ describe('@nrwl/workspace:workspace', () => {
       },
       tasksRunnerOptions: {
         default: {
-          runner: '@nrwl/workspace/tasks-runners/default',
+          runner: 'nx/tasks-runners/default',
           options: {
             cacheableOperations: ['build', 'lint', 'test', 'e2e'],
           },
@@ -165,7 +165,7 @@ Object {
     expect(tree.exists('/proj/apps/.gitkeep')).toBe(false);
     expect(tree.exists('/proj/libs/.gitkeep')).toBe(false);
     const nx = readJson(tree, '/proj/nx.json');
-    expect(nx.extends).toEqual('@nrwl/workspace/presets/core.json');
+    expect(nx.extends).toEqual('nx/presets/core.json');
 
     const { scripts } = readJson(tree, '/proj/package.json');
     expect(scripts).toMatchInlineSnapshot(`Object {}`);

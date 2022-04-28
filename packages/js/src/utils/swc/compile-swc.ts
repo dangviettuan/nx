@@ -1,6 +1,6 @@
 import { ExecutorContext, logger } from '@nrwl/devkit';
-import { cacheDir } from '@nrwl/workspace/src/utilities/cache-directory';
 import { exec, execSync } from 'child_process';
+import { cacheDir } from '@nrwl/devkit';
 import { createAsyncIterable } from '../create-async-iterable/create-async-iteratable';
 import { NormalizedSwcExecutorOptions, SwcCliOptions } from '../schema';
 import { printDiagnostics } from '../typescript/print-diagnostics';
@@ -20,8 +20,9 @@ function getTypeCheckOptions(normalizedOptions: NormalizedSwcExecutorOptions) {
   const typeCheckOptions: TypeCheckOptions = {
     mode: 'emitDeclarationOnly',
     tsConfigPath: tsConfig,
-    outDir: outputPath.replace(`/${projectRoot}`, ''),
+    outDir: outputPath,
     workspaceRoot: root,
+    rootDir: projectRoot,
   };
 
   if (watch) {

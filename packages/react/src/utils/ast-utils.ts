@@ -5,6 +5,7 @@ import {
   logger,
   StringChange,
   StringInsertion,
+  stripIndents,
 } from '@nrwl/devkit';
 
 export function addImport(
@@ -43,9 +44,19 @@ export function findMainRenderStatement(
 
   for (const expr of calls) {
     const inner = expr.expression;
+    // React 17 and below
     if (
       ts.isPropertyAccessExpression(inner) &&
       /ReactDOM/i.test(inner.expression.getText()) &&
+      inner.name.getText() === 'render'
+    ) {
+      return expr;
+    }
+
+    // React 18
+    if (
+      ts.isPropertyAccessExpression(inner) &&
+      /root/.test(inner.expression.getText()) &&
       inner.name.getText() === 'render'
     ) {
       return expr;
@@ -245,26 +256,29 @@ export function addInitialRoutes(
         <li><Link to="/page-2">Page 2</Link></li>
       </ul>
     </div>
-    <Route
-      path="/"
-      exact
-      render={() => (
-        <div>This is the generated root route. <Link to="/page-2">Click here for page 2.</Link></div>
-      )}
-    />
-    <Route
-      path="/page-2"
-      exact
-      render={() => (
-        <div><Link to="/">Click here to go back to root page.</Link></div>
-      )}
-    />
+    <Routes>
+      <Route
+        path="/"
+        element={
+          <div>This is the generated root route. <Link to="/page-2">Click here for page 2.</Link></div>
+        }
+      />
+      <Route
+        path="/page-2"
+        element={
+          <div><Link to="/">Click here to go back to root page.</Link></div>
+        }
+      />
+    </Routes>
     {/* END: routes */}
     `,
   };
 
   return [
-    ...addImport(source, `import { Route, Link } from 'react-router-dom';`),
+    ...addImport(
+      source,
+      `import { Route, Routes, Link } from 'react-router-dom';`
+    ),
     insertRoutes,
   ];
 }
@@ -301,7 +315,7 @@ export function addRoute(
     changes.push({
       type: ChangeType.Insert,
       index: firstRoute.getEnd(),
-      text: `<Route path="${options.routePath}" component={${options.componentName}} />`,
+      text: `<Route path="${options.routePath}" element={<${options.componentName}/>} />`,
     });
 
     if (firstLink) {
@@ -358,7 +372,7 @@ export function addReduxStoreToMain(
 ): StringChange[] {
   const renderStmt = findMainRenderStatement(source);
   if (!renderStmt) {
-    logger.warn(`Could not find ReactDOM.render in ${sourcePath}`);
+    logger.warn(`Could not find render(...) in ${sourcePath}`);
     return [];
   }
   const jsx = renderStmt.arguments[0];

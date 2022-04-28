@@ -42,7 +42,7 @@ describe('workspace-generator', () => {
     const workspace = uniq('workspace');
 
     updateFile(
-      'tools/utils/utils.ts',
+      'tools/utils/command-line-utils.ts',
       `
         export const noop = () => {}
         `
@@ -186,7 +186,7 @@ describe('workspace-lint', () => {
     expect(stdout).toContain(
       'The following file(s) do not belong to any projects:'
     );
-    expect(stdout).toContain(`- apps/${appAfter}/jest.config.js`);
+    expect(stdout).toContain(`- apps/${appAfter}/jest.config.ts`);
     expect(stdout).toContain(`- apps/${appAfter}/src/app/app.component.css`);
     expect(stdout).toContain(`- apps/${appAfter}/src/app/app.component.html`);
     expect(stdout).toContain(
@@ -257,12 +257,12 @@ describe('move project', () => {
     expect(moveOutput).toContain(`CREATE ${readmePath}`);
     checkFilesExist(readmePath);
 
-    const jestConfigPath = `${newPath}/jest.config.js`;
+    const jestConfigPath = `${newPath}/jest.config.ts`;
     expect(moveOutput).toContain(`CREATE ${jestConfigPath}`);
     checkFilesExist(jestConfigPath);
     const jestConfig = readFile(jestConfigPath);
     expect(jestConfig).toContain(`displayName: 'shared-${lib1}-data-access'`);
-    expect(jestConfig).toContain(`preset: '../../../../jest.preset.js'`);
+    expect(jestConfig).toContain(`preset: '../../../../jest.preset.ts'`);
     expect(jestConfig).toContain(`'../../../../coverage/${newPath}'`);
 
     const tsConfigPath = `${newPath}/tsconfig.json`;
@@ -395,12 +395,12 @@ describe('move project', () => {
     expect(moveOutput).toContain(`CREATE ${readmePath}`);
     checkFilesExist(readmePath);
 
-    const jestConfigPath = `${newPath}/jest.config.js`;
+    const jestConfigPath = `${newPath}/jest.config.ts`;
     expect(moveOutput).toContain(`CREATE ${jestConfigPath}`);
     checkFilesExist(jestConfigPath);
     const jestConfig = readFile(jestConfigPath);
     expect(jestConfig).toContain(`displayName: 'shared-${lib1}-data-access'`);
-    expect(jestConfig).toContain(`preset: '../../../../jest.preset.js'`);
+    expect(jestConfig).toContain(`preset: '../../../../jest.preset.ts'`);
     expect(jestConfig).toContain(`'../../../../coverage/${newPath}'`);
 
     const tsConfigPath = `${newPath}/tsconfig.json`;
@@ -528,12 +528,12 @@ describe('move project', () => {
     expect(moveOutput).toContain(`CREATE ${readmePath}`);
     checkFilesExist(readmePath);
 
-    const jestConfigPath = `${newPath}/jest.config.js`;
+    const jestConfigPath = `${newPath}/jest.config.ts`;
     expect(moveOutput).toContain(`CREATE ${jestConfigPath}`);
     checkFilesExist(jestConfigPath);
     const jestConfig = readFile(jestConfigPath);
     expect(jestConfig).toContain(`displayName: 'shared-${lib1}-data-access'`);
-    expect(jestConfig).toContain(`preset: '../../../../jest.preset.js'`);
+    expect(jestConfig).toContain(`preset: '../../../../jest.preset.ts'`);
     expect(jestConfig).toContain(`'../../../../coverage/${newPath}'`);
 
     const tsConfigPath = `${newPath}/tsconfig.json`;
@@ -606,8 +606,8 @@ describe('remove project', () => {
    */
   it('should work', () => {
     newProject();
-    const lib1 = uniq('mylib');
-    const lib2 = uniq('mylib');
+    const lib1 = uniq('myliba');
+    const lib2 = uniq('mylibb');
 
     runCLI(`generate @nrwl/workspace:lib ${lib1}`);
     expect(exists(tmpProjPath(`libs/${lib1}`))).toBeTruthy();
@@ -628,7 +628,7 @@ describe('remove project', () => {
 
     let error;
     try {
-      runCLI(`generate @nrwl/workspace:remove --project ${lib1}`);
+      console.log(runCLI(`generate @nrwl/workspace:remove --project ${lib1}`));
     } catch (e) {
       error = e;
     }

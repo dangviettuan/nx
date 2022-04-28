@@ -1,4 +1,4 @@
-import type { Tree } from 'nx/src/shared/tree';
+import type { Tree } from 'nx/src/config/tree';
 import * as path from 'path';
 import type * as Prettier from 'prettier';
 import { getWorkspacePath } from '../utils/get-workspace-layout';
@@ -32,7 +32,7 @@ export async function formatFiles(tree: Tree): Promise<void> {
   await Promise.all(
     Array.from(files).map(async (file) => {
       const systemPath = path.join(tree.root, file.path);
-      let options: Prettier.Options = {
+      let options: any = {
         filepath: systemPath,
       };
 
@@ -47,7 +47,7 @@ export async function formatFiles(tree: Tree): Promise<void> {
         ...resolvedOptions,
       };
 
-      const support = await prettier.getFileInfo(systemPath);
+      const support = await prettier.getFileInfo(systemPath, options);
       if (support.ignored || !support.inferredParser) {
         return;
       }

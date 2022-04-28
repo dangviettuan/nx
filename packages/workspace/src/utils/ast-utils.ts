@@ -18,9 +18,13 @@ import {
   Tree,
 } from '@angular-devkit/schematics';
 import * as ts from 'typescript';
-import { parseJson, ProjectConfiguration, serializeJson } from '@nrwl/devkit';
+import {
+  parseJson,
+  ProjectConfiguration,
+  serializeJson,
+  FileData,
+} from '@nrwl/devkit';
 import { getWorkspacePath } from './cli-config-utils';
-import { FileData } from '../core/file-utils';
 import { extname, join, normalize, Path } from '@angular-devkit/core';
 import type {
   NxJsonConfiguration,
@@ -455,25 +459,6 @@ export function updateNxJsonInTree(
     );
     return host;
   };
-}
-
-/**
- * Sets former nx.json options on projects which are already in workspace.json
- * @deprecated(v14) project options are no longer stored in nx.json, this should not be used.
- */
-export function addProjectToNxJsonInTree(
-  projectName: string,
-  options: Pick<ProjectConfiguration, 'tags' | 'implicitDependencies'>
-): Rule {
-  return updateWorkspaceInTree((json: WorkspaceJsonConfiguration) => {
-    const project =
-      json.projects[projectName] ?? ({} as Partial<ProjectConfiguration>);
-    project.tags = options.tags ?? project.tags ?? [];
-    project.implicitDependencies =
-      options.implicitDependencies ?? project.implicitDependencies;
-    json.projects[projectName] = project as ProjectConfiguration;
-    return json;
-  });
 }
 
 export function readWorkspace(host: Tree): any {

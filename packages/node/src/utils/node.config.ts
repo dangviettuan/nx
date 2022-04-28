@@ -1,4 +1,4 @@
-import { appRootPath } from 'nx/src/utils/app-root';
+import { workspaceRoot } from '@nrwl/devkit';
 import { Configuration } from 'webpack';
 import { merge } from 'webpack-merge';
 
@@ -32,7 +32,7 @@ function getNodePartial(options: BuildNodeBuilderOptions) {
   }
 
   if (options.externalDependencies === 'all') {
-    const modulesDir = `${appRootPath}/node_modules`;
+    const modulesDir = `${workspaceRoot}/node_modules`;
     webpackConfig.externals = [nodeExternals({ modulesDir })];
   } else if (Array.isArray(options.externalDependencies)) {
     webpackConfig.externals = [

@@ -3,14 +3,16 @@ import {
   joinPathFragments,
   logger,
   parseTargetString,
+  readProjectConfiguration,
   readTargetOptions,
+  TargetConfiguration,
+  Tree,
 } from '@nrwl/devkit';
-import { TargetConfiguration, Workspaces } from 'nx/src/shared/workspace';
 import { checkAndCleanWithSemver } from '@nrwl/workspace/src/utilities/version-utils';
 import 'dotenv/config';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { gte, lt } from 'semver';
+import { gte } from 'semver';
 import {
   findOrCreateConfig,
   readCurrentWorkspaceStorybookVersionFromExecutor,
@@ -156,8 +158,8 @@ function webpackFinalPropertyCheck(options: CommonNxStorybookConfig) {
   Consider switching to the "webpackFinal" property declared in "main.js" instead.
   ${
     options.uiFramework === '@storybook/react'
-      ? 'https://nx.dev/latest/react/storybook/migrate-webpack-final'
-      : 'https://nx.dev/latest/angular/storybook/migrate-webpack-final'
+      ? 'https://nx.dev/storybook/migrate-webpack-final-react'
+      : 'https://nx.dev/storybook/migrate-webpack-final-angular'
   }
     `
     );
@@ -278,7 +280,7 @@ function normalizeTargetString(
   appName: string,
   defaultTarget: string = 'build'
 ) {
-  if (appName.includes(':')) {
+  if (appName?.includes(':')) {
     return appName;
   }
   return `${appName}:${defaultTarget}`;
@@ -293,13 +295,38 @@ function isStorybookGTE6_4() {
   );
 }
 
-export function isStorybookLT6() {
-  const storybookVersion = readCurrentWorkspaceStorybookVersionFromExecutor();
-
-  return lt(
-    checkAndCleanWithSemver('@storybook/core', storybookVersion),
-    '6.0.0'
-  );
+export function customProjectBuildConfigIsValid(
+  tree: Tree,
+  projectBuildConfig: string
+): boolean {
+  if (projectBuildConfig?.includes(':')) {
+    const { project, target } = parseTargetString(projectBuildConfig);
+    const projectConfig = readProjectConfiguration(tree, project);
+    if (projectConfig?.targets?.[target]) {
+      return true;
+    } else {
+      logger.warn(`
+      The projectBuildConfig you provided is not valid.   
+      ${!projectConfig ? 'The project ' + project + ' does not exist.' : ''}   
+      ${
+        projectConfig &&
+        !projectConfig.targets?.[target] &&
+        `The project ${project} does not have the target ${target}.`
+      }  
+      The default projectBuildConfig is going to be used.       
+      `);
+    }
+  } else {
+    try {
+      return Boolean(readProjectConfiguration(tree, projectBuildConfig));
+    } catch (e) {
+      logger.warn(`
+      The projectBuildConfig you provided is not valid. 
+      The project ${projectBuildConfig} does not exist.
+      The default projectBuildConfig is going to be used.
+      `);
+    }
+  }
 }
 
 export function findStorybookAndBuildTargets(targets: {
@@ -321,10 +348,17 @@ export function findStorybookAndBuildTargets(targets: {
     if (targetConfig.executor === '@nrwl/storybook:build') {
       returnObject.storybookBuildTarget = target;
     }
-    if (
-      targetConfig.executor === '@angular-devkit/build-angular:browser' ||
-      targetConfig.executor === '@nrwl/angular:ng-packagr-lite'
-    ) {
+    /**
+     * Not looking for '@nrwl/angular:ng-packagr-lite', only
+     * looking for '@angular-devkit/build-angular:browser'
+     * because the '@nrwl/angular:ng-packagr-lite' executor
+     * does not support styles and extra options, so the user
+     * will be forced to switch to build-storybook to add extra options.
+     *
+     * So we might as well use the build-storybook by default to
+     * avoid any errors.
+     */
+    if (targetConfig.executor === '@angular-devkit/build-angular:browser') {
       returnObject.buildTarget = target;
     }
   });
@@ -343,7 +377,10 @@ export function normalizeAngularBuilderStylesOptions(
     | '@storybook/svelte'
     | '@storybook/react-native'
 ): StorybookBuilderOptions | StorybookExecutorOptions {
-  if (uiFramework !== '@storybook/angular') {
+  if (
+    uiFramework !== '@storybook/angular' &&
+    uiFramework !== '@storybook/react'
+  ) {
     if (builderOptions.styles) {
       delete builderOptions.styles;
     }

@@ -1,63 +1,46 @@
-import type { GeneratorCallback, Tree } from '@nrwl/devkit';
+import type { Tree } from '@nrwl/devkit';
 import type { Schema } from './schema';
 
-import {
-  readProjectConfiguration,
-  addDependenciesToPackageJson,
-  formatFiles,
-} from '@nrwl/devkit';
+import { readProjectConfiguration, formatFiles } from '@nrwl/devkit';
 
 import {
   addCypressOnErrorWorkaround,
   addEntryModule,
-  addImplicitDeps,
   addRemoteToHost,
   changeBuildTarget,
   fixBootstrap,
   generateWebpackConfig,
   getRemotesWithPorts,
   setupServeTarget,
+  setupHostIfDynamic,
   updateTsConfigTarget,
 } from './lib';
-import { angularArchitectsModuleFederationPluginVersion } from '../../utils/versions';
 
-export async function setupMfe(host: Tree, options: Schema) {
-  const projectConfig = readProjectConfiguration(host, options.appName);
+export async function setupMfe(tree: Tree, options: Schema) {
+  const projectConfig = readProjectConfiguration(tree, options.appName);
 
-  const remotesWithPorts = getRemotesWithPorts(host, options);
-  addRemoteToHost(host, options);
+  options.federationType = options.federationType ?? 'static';
 
-  generateWebpackConfig(host, options, projectConfig.root, remotesWithPorts);
+  setupHostIfDynamic(tree, options);
 
-  addEntryModule(host, options, projectConfig.root);
-  addImplicitDeps(host, options);
-  changeBuildTarget(host, options);
-  updateTsConfigTarget(host, options);
-  setupServeTarget(host, options);
+  const remotesWithPorts = getRemotesWithPorts(tree, options);
+  addRemoteToHost(tree, options);
 
-  fixBootstrap(host, projectConfig.root);
+  generateWebpackConfig(tree, options, projectConfig.root, remotesWithPorts);
 
-  addCypressOnErrorWorkaround(host, options);
+  addEntryModule(tree, options, projectConfig.root);
+  changeBuildTarget(tree, options);
+  updateTsConfigTarget(tree, options);
+  setupServeTarget(tree, options);
 
-  let installPackages: GeneratorCallback = () => {};
-  if (!options.skipPackageJson) {
-    // add package to install
-    installPackages = addDependenciesToPackageJson(
-      host,
-      {
-        '@angular-architects/module-federation':
-          angularArchitectsModuleFederationPluginVersion,
-      },
-      {}
-    );
-  }
+  fixBootstrap(tree, projectConfig.root, options);
+
+  addCypressOnErrorWorkaround(tree, options);
 
   // format files
   if (!options.skipFormat) {
-    await formatFiles(host);
+    await formatFiles(tree);
   }
-
-  return installPackages;
 }
 
 export default setupMfe;

@@ -1,5 +1,4 @@
 import * as path from 'path';
-import { FileData, readFileIfExisting } from '../core/file-utils';
 import {
   ProjectGraph,
   ProjectGraphDependency,
@@ -9,12 +8,14 @@ import {
   parseJson,
   ProjectGraphExternalNode,
   joinPathFragments,
+  FileData,
 } from '@nrwl/devkit';
-import { TargetProjectLocator } from '../core/target-project-locator';
 import { join } from 'path';
-import { appRootPath } from './app-root';
+import { workspaceRoot } from './app-root';
 import { getPath, pathExists } from './graph-utils';
 import { existsSync } from 'fs';
+import { readFileIfExisting } from 'nx/src/project-graph/file-utils';
+import { TargetProjectLocator } from 'nx/src/utils/target-project-locator';
 
 export type MappedProjectGraphNode<T = any> = ProjectGraphProjectNode<T> & {
   data: {
@@ -75,7 +76,7 @@ function hasTag(proj: ProjectGraphProjectNode, tag: string) {
   return tag === '*' || (proj.data.tags || []).indexOf(tag) > -1;
 }
 
-function removeExt(file: string): string {
+export function removeExt(file: string): string {
   return file.replace(/(?<!(^|\/))\.[^/.]+$/, '');
 }
 
@@ -173,14 +174,9 @@ export function findProjectUsingImport(
   projectGraph: MappedProjectGraph,
   targetProjectLocator: TargetProjectLocator,
   filePath: string,
-  imp: string,
-  npmScope: string
+  imp: string
 ): MappedProjectGraphNode | ProjectGraphExternalNode {
-  const target = targetProjectLocator.findProjectWithImport(
-    imp,
-    filePath,
-    npmScope
-  );
+  const target = targetProjectLocator.findProjectWithImport(imp, filePath);
   return projectGraph.nodes[target] || projectGraph.externalNodes?.[target];
 }
 
@@ -235,7 +231,7 @@ export function hasBannedImport(
 
 export function isDirectDependency(target: ProjectGraphExternalNode): boolean {
   const fileName = 'package.json';
-  const content = readFileIfExisting(join(appRootPath, fileName));
+  const content = readFileIfExisting(join(workspaceRoot, fileName));
   if (content) {
     const { dependencies, devDependencies, peerDependencies } =
       parseJson(content);
@@ -305,7 +301,7 @@ export function mapProjectGraphFiles<T>(
 }
 
 const ESLINT_REGEX = /node_modules.*\/eslint$/;
-const NRWL_CLI_REGEX = /@nrwl\/cli\/lib\/run-cli\.js$/;
+const NRWL_CLI_REGEX = /nx\/bin\/run-executor\.js$/;
 
 export function isTerminalRun(): boolean {
   return (

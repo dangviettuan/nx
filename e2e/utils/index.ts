@@ -10,6 +10,7 @@ import {
   copySync,
   createFileSync,
   ensureDirSync,
+  existsSync,
   moveSync,
   readdirSync,
   readFileSync,
@@ -27,8 +28,16 @@ import { promisify } from 'util';
 import chalk = require('chalk');
 import isCI = require('is-ci');
 import treeKill = require('tree-kill');
-import { Workspaces } from '../../packages/nx/src/shared/workspace';
-import { detectPackageManager } from '../../packages/create-nx-workspace/bin/package-manager';
+import { Workspaces } from '../../packages/nx/src/config/workspaces';
+import { PackageManager } from 'nx/src/utils/package-manager';
+
+export function detectPackageManager(dir: string = ''): PackageManager {
+  return existsSync(join(dir, 'yarn.lock'))
+    ? 'yarn'
+    : existsSync(join(dir, 'pnpm-lock.yaml'))
+    ? 'pnpm'
+    : 'npm';
+}
 
 const kill = require('kill-port');
 export const isWindows = require('is-windows');
@@ -49,7 +58,10 @@ export function currentCli() {
   return process.env.SELECTED_CLI || 'nx';
 }
 
-export const e2eRoot = isCI ? dirSync({ prefix: 'nx-e2e-' }).name : `./tmp`;
+export const e2eRoot = isCI
+  ? dirSync({ prefix: 'nx-e2e-' }).name
+  : '/tmp/nx-e2e';
+
 export const e2eCwd = `${e2eRoot}/${currentCli()}`;
 ensureDirSync(e2eCwd);
 
@@ -204,7 +216,7 @@ export function runNgNew(
 }
 
 export function getSelectedPackageManager(): 'npm' | 'yarn' | 'pnpm' {
-  return process.env.SELECTED_PM as 'npm' | 'yarn' | 'pnpm';
+  return (process.env.SELECTED_PM as 'npm' | 'yarn' | 'pnpm') || 'npm';
 }
 
 /**
@@ -269,7 +281,7 @@ export function newProject({
 
 const KILL_PORT_DELAY = 5000;
 
-async function killPort(port: number): Promise<boolean> {
+export async function killPort(port: number): Promise<boolean> {
   if (await portCheck(port)) {
     try {
       logInfo(`Attempting to close port ${port}`);
@@ -342,7 +354,6 @@ export function runCommandAsync(
         env: {
           ...(opts.env || process.env),
           FORCE_COLOR: 'false',
-          NX_INVOKED_BY_RUNNER: undefined,
         },
         encoding: 'utf-8',
       },
@@ -370,7 +381,6 @@ export function runCommandUntil(
     env: {
       ...process.env,
       FORCE_COLOR: 'false',
-      NX_INVOKED_BY_RUNNER: undefined,
     },
     encoding: 'utf-8',
   });
@@ -414,7 +424,9 @@ export function runCLIAsync(
 }
 
 export function runNgAdd(
+  packageName: string,
   command?: string,
+  version: string = publishedVersion,
   opts: RunCmdOpts = {
     silenceError: false,
     env: null,
@@ -422,10 +434,11 @@ export function runNgAdd(
   }
 ): string {
   try {
-    packageInstall('@nrwl/workspace');
-    return execSync(`npx ng add @nrwl/workspace ${command}`, {
+    const pmc = getPackageManagerCommand();
+    packageInstall(packageName, null, version);
+    return execSync(pmc.run(`ng g ${packageName}:ng-add`, command ?? ''), {
       cwd: tmpProjPath(),
-      env: { ...(opts.env || process.env), NX_INVOKED_BY_RUNNER: undefined },
+      env: { ...(opts.env || process.env) },
       encoding: 'utf-8',
     })
       .toString()
@@ -458,7 +471,7 @@ export function runCLI(
     let r = stripConsoleColors(
       execSync(`${pm.runNx} ${command}`, {
         cwd: opts.cwd || tmpProjPath(),
-        env: { ...(opts.env || process.env), NX_INVOKED_BY_RUNNER: undefined },
+        env: { ...(opts.env || process.env) },
         encoding: 'utf-8',
         maxBuffer: 50 * 1024 * 1024,
       })
@@ -514,7 +527,6 @@ export function runCommand(
       env: {
         ...process.env,
         FORCE_COLOR: 'false',
-        NX_INVOKED_BY_RUNNER: undefined,
       },
       encoding: 'utf-8',
       ...options,
@@ -524,7 +536,6 @@ export function runCommand(
     }
     return r;
   } catch (e) {
-    console.log('ERROR CAUGHT', e);
     // this is intentional
     // npm ls fails if package is not found
     return e.stdout?.toString() + e.stderr?.toString();
@@ -729,8 +740,10 @@ export function getPackageManagerCommand({
   packageManager = detectPackageManager(path),
 } = {}): {
   createWorkspace: string;
+  run: (script: string, args: string) => string;
   runNx: string;
   runNxSilent: string;
+  runUninstalledPackage?: string | undefined;
   addDev: string;
   list: string;
 } {
@@ -741,28 +754,34 @@ export function getPackageManagerCommand({
       createWorkspace: `npx ${
         +npmMajorVersion >= 7 ? '--yes' : ''
       } create-nx-workspace@${publishedVersion}`,
+      run: (script: string, args: string) => `npm run ${script} -- ${args}`,
       runNx: `npx nx`,
       runNxSilent: `npx nx`,
+      runUninstalledPackage: `npx`,
       addDev: `npm install --legacy-peer-deps -D`,
       list: 'npm ls --depth 10',
     },
     yarn: {
       // `yarn create nx-workspace` is failing due to wrong global path
       createWorkspace: `yarn global add create-nx-workspace@${publishedVersion} && create-nx-workspace`,
+      run: (script: string, args: string) => `yarn ${script} ${args}`,
       runNx: `yarn nx`,
       runNxSilent: `yarn --silent nx`,
+      runUninstalledPackage: 'npx',
       addDev: `yarn add -D`,
       list: 'npm ls --depth 10',
     },
     // Pnpm 3.5+ adds nx to
     pnpm: {
-      createWorkspace: `pnpx --yes create-nx-workspace@${publishedVersion}`,
-      runNx: `pnpx nx`,
-      runNxSilent: `pnpx nx`,
+      createWorkspace: `pnpm dlx create-nx-workspace@${publishedVersion}`,
+      run: (script: string, args: string) => `pnpm run ${script} -- ${args}`,
+      runNx: `pnpm exec nx`,
+      runNxSilent: `pnpm exec nx`,
+      runUninstalledPackage: 'pnpm dlx',
       addDev: `pnpm add -D`,
       list: 'npm ls --depth 10',
     },
-  }[packageManager];
+  }[packageManager.trim()];
 }
 
 function getNpmMajorVersion(): string {
@@ -784,7 +803,7 @@ export function expectNoAngularDevkit() {
 
 export function expectNoTsJestInJestConfig(appName: string) {
   const jestConfig = readFile(
-    joinPathFragments('apps', appName, 'jest.config.js')
+    joinPathFragments('apps', appName, 'jest.config.ts')
   );
   expect(jestConfig).not.toContain('ts-jest');
 }

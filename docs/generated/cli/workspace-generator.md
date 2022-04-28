@@ -10,7 +10,7 @@ Runs a workspace generator from the tools/generators directory
 ## Usage
 
 ```bash
-nx workspace-generator
+nx workspace-generator [name]
 ```
 
 [Install `nx` globally](/getting-started/nx-setup#install-nx) to invoke the command directly using `nx`, or use `npx nx`, `yarn nx`, or `pnpx nx`.
@@ -19,16 +19,24 @@ nx workspace-generator
 
 ### help
 
+Type: boolean
+
 Show help
 
 ### list-generators
+
+Type: boolean
 
 List the available workspace-generators
 
 ### name
 
-The name of your generator`
+Type: string
+
+The name of your generator
 
 ### version
+
+Type: boolean
 
 Show version number

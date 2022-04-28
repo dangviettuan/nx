@@ -57,7 +57,7 @@ describe('preset', () => {
     expect(
       readJson<NxJsonConfiguration>(tree, 'nx.json').cli.defaultCollection
     ).toBe('@nrwl/angular');
-  });
+  }, 10000);
 
   it(`should create files (preset = ${Preset.WebComponents})`, async () => {
     await presetGenerator(tree, {
@@ -167,6 +167,19 @@ describe('preset', () => {
   });
 
   describe('core preset', () => {
+    it('should not contain workspace.json or angular.json', async () => {
+      await presetGenerator(tree, {
+        name: 'proj',
+        preset: Preset.Core,
+        linter: 'eslint',
+        cli: 'nx',
+        standaloneConfig: false,
+        packageManager: 'npm',
+      });
+      expect(tree.exists('workspace.json')).toBeFalsy();
+      expect(tree.exists('angular.json')).toBeFalsy();
+    });
+
     describe('package manager workspaces', () => {
       it('should be configured in package.json', async () => {
         await presetGenerator(tree, {

@@ -1,6 +1,6 @@
+import { memo } from 'react';
 import { ProjectGraphList } from './interfaces';
 import { GraphPerfReport } from './machines/interfaces';
-import { memo } from 'react';
 
 export interface DebuggerPanelProps {
   projectGraphs: ProjectGraphList[];
@@ -18,21 +18,13 @@ export const DebuggerPanel = memo(function ({
   return (
     <div
       data-cy="debugger-panel"
-      className="
-          flex-column
-          flex
-          w-auto
-          items-center justify-items-center
-          gap-4
-          border-b border-gray-200
-          bg-gray-50
-          p-4
-          text-gray-700
-        "
+      className="flex-column flex w-auto items-center items-center justify-items-center justify-items-center gap-4 border-b border-slate-900/10 bg-slate-50 p-4 transition-all dark:border-slate-300/10 dark:bg-transparent"
     >
-      <h4 className="mr-4 text-lg font-bold">Debugger</h4>
+      <h4 className="dark:text-sidebar-title-dark mr-4 text-lg font-normal">
+        Debugger
+      </h4>
       <select
-        className="flex w-auto items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700"
+        className="flex w-auto items-center rounded-md rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:dark:bg-slate-700"
         data-cy="project-select"
         onChange={(event) => projectGraphChange(event.target.value)}
         value={selectedProjectGraph}

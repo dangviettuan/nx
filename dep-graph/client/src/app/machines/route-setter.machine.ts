@@ -8,7 +8,10 @@ type ParamKeys =
   | 'groupByFolder'
   | 'searchDepth'
   | 'select'
-  | 'collapseEdges';
+  | 'collapseEdges'
+  | 'traceStart'
+  | 'traceEnd'
+  | 'traceAlgorithm';
 type ParamRecord = Record<ParamKeys, string | null>;
 
 function reduceParamRecordToQueryString(params: ParamRecord): string {
@@ -33,6 +36,9 @@ export const createRouteMachine = () => {
     collapseEdges: params.get('collapseEdges'),
     searchDepth: params.get('searchDepth'),
     select: params.get('select'),
+    traceStart: params.get('traceStart'),
+    traceEnd: params.get('traceEnd'),
+    traceAlgorithm: params.get('traceAlgorithm'),
   };
 
   const initialContext = {
@@ -55,6 +61,9 @@ export const createRouteMachine = () => {
           searchDepth: null,
           select: null,
           collapseEdges: null,
+          traceStart: null,
+          traceEnd: null,
+          traceAlgorithm: null,
         },
       },
       always: {
@@ -112,9 +121,29 @@ export const createRouteMachine = () => {
         },
         notifyRouteSearchDepth: {
           actions: assign((ctx, event) => {
-            ctx.params.searchDepth = event.searchDepthEnabled
-              ? event.searchDepth.toString()
-              : null;
+            if (event.searchDepthEnabled === false) {
+              ctx.params.searchDepth = '0';
+            } else if (event.searchDepthEnabled && event.searchDepth !== 1) {
+              ctx.params.searchDepth = event.searchDepth.toString();
+            } else {
+              ctx.params.searchDepth = null;
+            }
+          }),
+        },
+        notifyRouteTracing: {
+          actions: assign((ctx, event) => {
+            if (event.start !== null && event.end !== null && event.algorithm) {
+              ctx.params.traceStart = event.start;
+              ctx.params.traceEnd = event.end;
+              ctx.params.traceAlgorithm = event.algorithm;
+
+              ctx.params.focus = null;
+              ctx.params.select = null;
+            } else {
+              ctx.params.traceStart = null;
+              ctx.params.traceEnd = null;
+              ctx.params.traceAlgorithm = null;
+            }
           }),
         },
       },

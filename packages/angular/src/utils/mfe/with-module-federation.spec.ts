@@ -1,12 +1,10 @@
 jest.mock('fs');
-jest.mock('@nrwl/workspace/src/core/project-graph');
+jest.mock('@nrwl/devkit');
 jest.mock('@nrwl/workspace/src/utilities/typescript');
-jest.mock('@nrwl/workspace/src/core/file-utils');
-jest.mock('nx/src/shared/workspace');
-import * as graph from '@nrwl/workspace/src/core/project-graph';
+jest.mock('nx/src/project-graph/file-utils');
+import * as graph from '@nrwl/devkit';
 import * as typescriptUtils from '@nrwl/workspace/src/utilities/typescript';
-import * as workspace from '@nrwl/workspace/src/core/file-utils';
-import * as taoWorkspace from 'nx/src/shared/workspace';
+import * as workspace from 'nx/src/project-graph/file-utils';
 import * as fs from 'fs';
 
 import { withModuleFederation } from './with-module-federation';
@@ -56,7 +54,7 @@ describe('withModuleFederation', () => {
       },
     });
 
-    (taoWorkspace.Workspaces as jest.Mock).mockReturnValue({
+    (graph.Workspaces as jest.Mock).mockReturnValue({
       readWorkspaceConfiguration: () => ({
         projects: {
           shared: {
@@ -65,6 +63,8 @@ describe('withModuleFederation', () => {
         },
       }),
     });
+
+    (fs.readdirSync as jest.Mock).mockReturnValue([]);
 
     // ACT
     const config = (
@@ -107,7 +107,7 @@ describe('withModuleFederation', () => {
       },
     });
 
-    (taoWorkspace.Workspaces as jest.Mock).mockReturnValue({
+    (graph.Workspaces as jest.Mock).mockReturnValue({
       readWorkspaceConfiguration: () => ({
         projects: {
           shared: {
@@ -116,6 +116,8 @@ describe('withModuleFederation', () => {
         },
       }),
     });
+
+    (fs.readdirSync as jest.Mock).mockReturnValue([]);
 
     // ACT
     const config = (
@@ -138,7 +140,7 @@ describe('withModuleFederation', () => {
           { target: 'npm:zone.js' },
           { target: 'core' },
         ],
-        core: [{ target: 'shared' }],
+        core: [{ target: 'shared' }, { target: 'npm:lodash' }],
       },
     });
 
@@ -160,7 +162,7 @@ describe('withModuleFederation', () => {
       },
     });
 
-    (taoWorkspace.Workspaces as jest.Mock).mockReturnValue({
+    (graph.Workspaces as jest.Mock).mockReturnValue({
       readWorkspaceConfiguration: () => ({
         projects: {
           shared: {
@@ -172,6 +174,66 @@ describe('withModuleFederation', () => {
         },
       }),
     });
+
+    (fs.readdirSync as jest.Mock).mockReturnValue([]);
+
+    // ACT
+    const config = (
+      await withModuleFederation({
+        name: 'remote1',
+        exposes: { './Module': 'apps/remote1/src/module.ts' },
+      })
+    )({});
+
+    // ASSERT
+    expect(config.plugins).toMatchSnapshot();
+  });
+
+  it('should not have duplicated entries for duplicated dependencies', async () => {
+    // ARRANGE
+    (graph.readCachedProjectGraph as jest.Mock).mockReturnValue({
+      dependencies: {
+        remote1: [
+          { target: 'npm:@angular/core' },
+          { target: 'npm:zone.js' },
+          { target: 'core' },
+        ],
+        core: [{ target: 'shared' }, { target: 'npm:@angular/core' }],
+      },
+    });
+
+    (fs.existsSync as jest.Mock).mockReturnValue(true);
+    (fs.readFileSync as jest.Mock).mockReturnValue(
+      JSON.stringify({
+        dependencies: {
+          '@angular/core': '~13.2.0',
+        },
+      })
+    );
+
+    (typescriptUtils.readTsConfig as jest.Mock).mockReturnValue({
+      options: {
+        paths: {
+          shared: ['/libs/shared/src/index.ts'],
+          core: ['/libs/core/src/index.ts'],
+        },
+      },
+    });
+
+    (graph.Workspaces as jest.Mock).mockReturnValue({
+      readWorkspaceConfiguration: () => ({
+        projects: {
+          shared: {
+            sourceRoot: '/libs/shared/src/',
+          },
+          core: {
+            sourceRoot: '/libs/core/src/',
+          },
+        },
+      }),
+    });
+
+    (fs.readdirSync as jest.Mock).mockReturnValue([]);
 
     // ACT
     const config = (
@@ -216,7 +278,7 @@ describe('withModuleFederation', () => {
       },
     }));
 
-    (taoWorkspace.Workspaces as jest.Mock).mockReturnValue({
+    (graph.Workspaces as jest.Mock).mockReturnValue({
       readWorkspaceConfiguration: () => ({
         projects: {
           shared: {
@@ -228,6 +290,8 @@ describe('withModuleFederation', () => {
         },
       }),
     });
+
+    (fs.readdirSync as jest.Mock).mockReturnValue([]);
 
     // ACT
     const config = (

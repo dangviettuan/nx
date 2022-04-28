@@ -19,7 +19,6 @@ import {
 import {
   babelRuntimeVersion,
   jestReactNativeVersion,
-  metroReactNativeBabelPresetVersion,
   metroVersion,
   nxVersion,
   reactNativeAsyncStorageAsyncStorageVersion,
@@ -33,6 +32,7 @@ import {
   reactTestRendererVersion,
   testingLibraryJestNativeVersion,
   testingLibraryReactNativeVersion,
+  typesNodeVersion,
   typesReactNativeVersion,
 } from '../../utils/versions';
 
@@ -47,7 +47,7 @@ export async function reactNativeInitGenerator(host: Tree, schema: Schema) {
   const tasks = [moveDependency(host), updateDependencies(host)];
 
   if (!schema.unitTestRunner || schema.unitTestRunner === 'jest') {
-    const jestTask = jestInitGenerator(host, {});
+    const jestTask = jestInitGenerator(host, schema);
     tasks.push(jestTask);
   }
 
@@ -73,18 +73,20 @@ export function updateDependencies(host: Tree) {
     },
     {
       '@nrwl/react-native': nxVersion,
+      '@types/node': typesNodeVersion,
       '@types/react': typesReactVersion,
       '@types/react-native': typesReactNativeVersion,
       '@react-native-community/cli': reactNativeCommunityCli,
       '@react-native-community/cli-platform-android':
         reactNativeCommunityCliAndroid,
       '@react-native-community/cli-platform-ios': reactNativeCommunityCliIos,
-      'metro-react-native-babel-preset': metroReactNativeBabelPresetVersion,
       '@testing-library/react-native': testingLibraryReactNativeVersion,
       '@testing-library/jest-native': testingLibraryJestNativeVersion,
       'jest-react-native': jestReactNativeVersion,
       metro: metroVersion,
       'metro-resolver': metroVersion,
+      'metro-babel-register': metroVersion,
+      'metro-react-native-babel-preset': metroVersion,
       'react-test-renderer': reactTestRendererVersion,
       'react-native-svg-transformer': reactNativeSvgTransformerVersion,
       'react-native-svg': reactNativeSvgVersion,

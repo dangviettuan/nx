@@ -83,13 +83,13 @@ Full E2Es are supported (and recommended) and will run everything on the file sy
 
 ## Testing your plugin
 
-One of the biggest benefits that the Nx Plugin package provides is support for E2E testing.
+One of the biggest benefits that the Nx Plugin package provides is support for E2E and unit testing.
 
 When the E2E app runs, a temporary E2E directory is created in the root of the workspace. This directory is a blank Nx workspace, and will have the plugin's built package installed locally.
 
 ### E2E Testing file
 
-When the plugin is generated, a test file is created in the `my-plugin-e2e` app. Inside this test file, there are already tests for making sure that the executor ran, checking if directories are created with the `--directory` option, and checking if tags are added to `nx.json`.
+When the plugin is generated, a test file is created in the `my-plugin-e2e` app. Inside this test file, there are already tests for making sure that the executor ran, checking if directories are created with the `--directory` option, and checking if tags are added to the project configuration.
 
 We'll go over a few parts of a test file below:
 
@@ -145,9 +145,13 @@ To make sure that assets are copied to the dist folder, open the plugin's `proje
 }
 ```
 
+## Using your Nx Plugin
+
+To use your plugin, simply list it in `nx.json` or use its generators and executors as you would for any other plugin. This could look like `nx g @my-org/my-plugin:lib` for generators or `"executor": "@my-org/my-plugin:build"` for executors. It should be usable in all of the same ways as published plugins in your local workspace immediately after generating it. This includes setting it up as the default collection in `nx.json`, which would allow you to run `nx g lib` and hit your plugin's generator.
+
 ## Publishing your Nx Plugin
 
-To publish your plugin follow these steps:
+In order to use your plugin in other workspaces or share it with the community, you will need to publish it to an npm registry. To publish your plugin follow these steps:
 
 1. Build your plugin with the command `nx run my-plugin:build`
 1. `npm publish ./dist/package/my-plugin` and follow the prompts from npm.
@@ -175,6 +179,8 @@ We will then verify the plugin, offer suggestions or merge the pull request!
 
 A Preset is a customization option which you provide when creating a new workspace. TS, Node, React are some of the internal presets that Nx provides by default.
 
+<iframe loading="lazy" width="560" height="315" src="https://www.youtube.com/embed/yGUrF0-uqaU" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen"></iframe>
+ 
 ### Custom Preset
 
 At its core a preset is a generator, which we can create inside of a plugin.
@@ -223,24 +229,20 @@ Here is the sample generator function which you can customize to meet your needs
 ```typescript
 export default async function (tree: Tree, options: PresetGeneratorSchema) {
   const normalizedOptions = normalizeOptions(tree, options);
-  addProjectConfiguration(
-    tree,
-    normalizedOptions.projectName,
-    {
-      root: normalizedOptions.projectRoot,
-      projectType: 'application',
-      sourceRoot: `${normalizedOptions.projectRoot}/src`,
-      targets: {
-        exec: {
-          executor: "@nrwl/workspace:run-commands",
-          options: {
-	          command: `node ${projectRoot}/src/index.js
-          }
+  addProjectConfiguration(tree, normalizedOptions.projectName, {
+    root: normalizedOptions.projectRoot,
+    projectType: 'application',
+    sourceRoot: `${normalizedOptions.projectRoot}/src`,
+    targets: {
+      exec: {
+        executor: '@nrwl/workspace:run-commands',
+        options: {
+          command: `node ${projectRoot}/src/index.js`,
         },
       },
-      tags: normalizedOptions.parsedTags,
-    }
-  );
+    },
+    tags: normalizedOptions.parsedTags,
+  });
   addFiles(tree, normalizedOptions);
   await formatFiles(tree);
 }
@@ -248,7 +250,7 @@ export default async function (tree: Tree, options: PresetGeneratorSchema) {
 
 To get an in-depth guide on customizing/running or debugging your generator see [workspace generators](https://nx.dev/generators/workspace-generators#running-a-workspace-generator).
 
-### Usage
+#### Usage
 
 Before you are able to use your newly created preset you must package and publish it to a registry.
 
@@ -257,8 +259,3 @@ After you have published your plugin to a registry you can now use your preset w
 ```bash
 npx create-nx-workspace my-workspace --preset=my-plugin-name
 ```
-
-### Useful links
-
-- [Preset Video by Juri](https://www.youtube.com/watch?v=yGUrF0-uqaU)
-- [Preset release docs](https://blog.nrwl.io/single-file-monorepo-config-custom-workspace-presets-improved-tailwind-support-and-more-in-nx-13-1bc88da334c9)

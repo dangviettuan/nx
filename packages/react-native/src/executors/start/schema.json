@@ -3,7 +3,7 @@
   "$id": "NxReactNativeStart",
   "$schema": "http://json-schema.org/schema",
   "title": "Packager Server for React Native",
-  "description": "Packager Server target options",
+  "description": "Packager Server target options.",
   "type": "object",
   "properties": {
     "port": {
@@ -15,6 +15,11 @@
       "type": "boolean",
       "description": "Resets metro cache.",
       "default": false
+    },
+    "interactive": {
+      "type": "boolean",
+      "description": "Run packager server in interactive mode.",
+      "default": true
     }
   }
 }

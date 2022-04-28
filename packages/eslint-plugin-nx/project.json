@@ -6,7 +6,7 @@
     "test": {
       "executor": "@nrwl/jest:jest",
       "options": {
-        "jestConfig": "packages/eslint-plugin-nx/jest.config.js",
+        "jestConfig": "packages/eslint-plugin-nx/jest.config.ts",
         "passWithNoTests": true
       },
       "outputs": ["coverage/packages/eslint-plugin-nx"]
@@ -46,7 +46,11 @@
             "glob": "**/*.d.ts",
             "output": "/"
           },
-          { "input": "", "glob": "LICENSE", "output": "/" }
+          {
+            "input": "",
+            "glob": "LICENSE",
+            "output": "/"
+          }
         ]
       },
       "outputs": ["{options.outputPath}"]

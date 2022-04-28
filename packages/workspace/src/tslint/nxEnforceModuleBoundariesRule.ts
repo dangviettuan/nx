@@ -5,8 +5,7 @@ import type {
   NxJsonConfiguration,
   ProjectGraphExternalNode,
 } from '@nrwl/devkit';
-import { ProjectType, readCachedProjectGraph } from '../core/project-graph';
-import { appRootPath } from 'nx/src/utils/app-root';
+import { workspaceRoot } from '@nrwl/devkit';
 import {
   DepConstraint,
   findConstraintsFor,
@@ -27,19 +26,18 @@ import {
   isAngularSecondaryEntrypoint,
 } from '../utils/runtime-lint-utils';
 import { normalize } from 'path';
-import { readNxJson } from '../core/file-utils';
-import { TargetProjectLocator } from '../core/target-project-locator';
+import { TargetProjectLocator } from 'nx/src/utils/target-project-locator';
 import {
   checkCircularPath,
   findFilesInCircularPath,
 } from '../utils/graph-utils';
 import { isRelativePath } from '../utilities/fileutils';
+import { readNxJson, readCachedProjectGraph } from '@nrwl/devkit';
 
 export class Rule extends Lint.Rules.AbstractRule {
   constructor(
     options: IOptions,
     private readonly projectPath?: string,
-    private readonly npmScope?: string,
     private readonly projectGraph?: MappedProjectGraph,
     private readonly targetProjectLocator?: TargetProjectLocator,
     private readonly workspaceLayout?: NxJsonConfiguration['workspaceLayout']
@@ -47,10 +45,9 @@ export class Rule extends Lint.Rules.AbstractRule {
     super(options);
 
     if (!projectPath) {
-      this.projectPath = normalize(appRootPath);
+      this.projectPath = normalize(workspaceRoot);
       if (!(global as any).projectGraph) {
         const nxJson = readNxJson();
-        (global as any).npmScope = nxJson.npmScope;
         (global as any).workspaceLayout = nxJson.workspaceLayout;
 
         /**
@@ -63,7 +60,6 @@ export class Rule extends Lint.Rules.AbstractRule {
           );
         } catch {}
       }
-      this.npmScope = (global as any).npmScope;
       this.workspaceLayout = (global as any).workspaceLayout;
       this.projectGraph = (global as any).projectGraph as MappedProjectGraph;
 
@@ -84,7 +80,6 @@ export class Rule extends Lint.Rules.AbstractRule {
         sourceFile,
         this.getOptions(),
         this.projectPath,
-        this.npmScope,
         this.projectGraph,
         this.targetProjectLocator,
         this.workspaceLayout
@@ -103,7 +98,6 @@ class EnforceModuleBoundariesWalker extends Lint.RuleWalker {
     sourceFile: ts.SourceFile,
     options: IOptions,
     private readonly projectPath: string,
-    private readonly npmScope: string,
     private readonly projectGraph: MappedProjectGraph,
     private readonly targetProjectLocator: TargetProjectLocator,
     private readonly workspaceLayout: NxJsonConfiguration['workspaceLayout']
@@ -172,8 +166,7 @@ class EnforceModuleBoundariesWalker extends Lint.RuleWalker {
         this.projectGraph,
         this.targetProjectLocator,
         filePath,
-        imp,
-        this.npmScope
+        imp
       );
 
     // If source or target are not part of an nx workspace, return.
@@ -220,7 +213,7 @@ class EnforceModuleBoundariesWalker extends Lint.RuleWalker {
     }
 
     // cannot import apps
-    if (targetProject.type === ProjectType.app) {
+    if (targetProject.type === 'app') {
       this.addFailureAt(
         node.getStart(),
         node.getWidth(),
@@ -230,7 +223,7 @@ class EnforceModuleBoundariesWalker extends Lint.RuleWalker {
     }
 
     // cannot import e2e projects
-    if (targetProject.type === ProjectType.e2e) {
+    if (targetProject.type === 'e2e') {
       this.addFailureAt(
         node.getStart(),
         node.getWidth(),
@@ -242,8 +235,8 @@ class EnforceModuleBoundariesWalker extends Lint.RuleWalker {
     // buildable-lib is not allowed to import non-buildable-lib
     if (
       this.enforceBuildableLibDependency === true &&
-      sourceProject.type === ProjectType.lib &&
-      targetProject.type === ProjectType.lib
+      sourceProject.type === 'lib' &&
+      targetProject.type === 'lib'
     ) {
       if (hasBuildExecutor(sourceProject) && !hasBuildExecutor(targetProject)) {
         this.addFailureAt(

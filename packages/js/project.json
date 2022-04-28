@@ -7,14 +7,18 @@
       "executor": "@nrwl/linter:eslint",
       "outputs": ["{options.outputFile}"],
       "options": {
-        "lintFilePatterns": ["packages/js/**/*.ts"]
+        "lintFilePatterns": [
+          "packages/js/**/*.ts",
+          "packages/js/**/executors/**/schema.json",
+          "packages/js/**/generators/**/schema.json"
+        ]
       }
     },
     "test": {
       "executor": "@nrwl/jest:jest",
       "outputs": ["coverage/js"],
       "options": {
-        "jestConfig": "packages/js/jest.config.js",
+        "jestConfig": "packages/js/jest.config.ts",
         "passWithNoTests": true
       }
     },
@@ -53,7 +57,11 @@
             "glob": "**/*.d.ts",
             "output": "/"
           },
-          { "input": "", "glob": "LICENSE", "output": "/" }
+          {
+            "input": "",
+            "glob": "LICENSE",
+            "output": "/"
+          }
         ]
       },
       "outputs": ["{options.outputPath}"]

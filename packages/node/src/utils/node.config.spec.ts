@@ -4,8 +4,8 @@ import { TsconfigPathsPlugin } from 'tsconfig-paths-webpack-plugin';
 import { BuildNodeBuilderOptions } from './types';
 
 jest.mock('tsconfig-paths-webpack-plugin');
-jest.mock('nx/src/utils/app-root', () => ({
-  get appRootPath() {
+jest.mock('@nrwl/devkit', () => ({
+  get workspaceRoot() {
     return join(__dirname, '../../../..');
   },
 }));

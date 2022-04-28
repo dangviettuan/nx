@@ -15,20 +15,6 @@
         "styles": ["dep-graph/client/src/styles.scss"],
         "scripts": [],
         "assets": [],
-        "optimization": true,
-        "outputHashing": "none",
-        "sourceMap": false,
-        "extractCss": true,
-        "namedChunks": false,
-        "extractLicenses": true,
-        "vendorChunk": false,
-        "budgets": [
-          {
-            "type": "initial",
-            "maximumWarning": "2mb",
-            "maximumError": "5mb"
-          }
-        ],
         "webpackConfig": "dep-graph/client/webpack.config.js"
       },
       "configurations": {
@@ -57,15 +43,35 @@
               "maximumError": "5mb"
             }
           ]
+        },
+        "release": {
+          "optimization": true,
+          "outputHashing": "none",
+          "sourceMap": false,
+          "extractCss": true,
+          "namedChunks": false,
+          "extractLicenses": true,
+          "vendorChunk": false,
+          "budgets": [
+            {
+              "type": "initial",
+              "maximumWarning": "2mb",
+              "maximumError": "5mb"
+            }
+          ]
         }
       },
+      "defaultConfiguration": "release",
       "outputs": ["{options.outputPath}"]
     },
     "serve-base": {
       "executor": "@nrwl/web:dev-server",
-      "options": {
-        "buildTarget": "dep-graph-client:build-base:dev"
-      }
+      "configurations": {
+        "dev": {
+          "buildTarget": "dep-graph-client:build-base:dev"
+        }
+      },
+      "defaultConfiguration": "dev"
     },
     "lint": {
       "executor": "@nrwl/linter:eslint",
@@ -78,7 +84,7 @@
       "executor": "@nrwl/jest:jest",
       "outputs": ["coverage/dep-graph/client"],
       "options": {
-        "jestConfig": "dep-graph/client/jest.config.js",
+        "jestConfig": "dep-graph/client/jest.config.ts",
         "passWithNoTests": true
       }
     },

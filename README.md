@@ -22,11 +22,12 @@ Nx is a next generation build system with first class monorepo support and power
 A few links to help you get started:
 
 - [Nx.Dev: Documentation, Guides, Interactive Tutorials](https://nx.dev)
+- [Nx.Dev: Core Tutorials](https://nx.dev/core-tutorial/01-create-blog)
 - [Tutorial: Adding Nx to an Existing Monorepo](https://nx.dev/migration/adding-to-monorepo)
 - [Official Nx YouTube Channel](https://www.youtube.com/c/Nrwl_io)
 - [Blog Posts About Nx](https://blog.nrwl.io/nx/home)
 
-<p style="text-align: center;"><a href="https://nx.dev/#learning-materials" target="_blank"><img src="./images/nx-courses-and-videos.svg" 
+<p style="text-align: center;"><a href="https://nx.dev/#learning-materials" target="_blank" rel="noreferrer"><img src="./images/nx-courses-and-videos.svg" 
 width="100%" alt="Nx - Smart, Fast and Extensible Build System"></a></p>
 
 # Engage with the Core Team and the Community
@@ -42,7 +43,7 @@ If you want to file a bug or submit a PR, read up on
 our [guidelines for contributing](https://github.com/nrwl/nx/blob/master/CONTRIBUTING.md) and watch this video that will
 help you get started.
 
-<a href="https://www.youtube.com/watch?v=8LCA_4qxc08" target="_blank">
+<a href="https://www.youtube.com/watch?v=8LCA_4qxc08" target="_blank" rel="noreferrer">
 <p style="text-align: center;"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/how-to-contribute.png" width="600" alt="Nx - How to contribute video"></p>
 </a>
 
@@ -58,17 +59,17 @@ help you get started.
 | ![Jo Hanna Pearce](https://avatars1.githubusercontent.com/u/439121?s=160) | ![Jon Cammisuli](https://avatars2.githubusercontent.com/u/4332460?s=160) | ![Isaac Mann](https://avatars1.githubusercontent.com/u/861504?s=160) | ![Juri Strumpflohner](https://avatars1.githubusercontent.com/u/542458?s=160) |
 | [jdpearce](https://github.com/jdpearce)                                   | [cammisuli](https://github.com/cammisuli)                                | [isaacplmann](https://github.com/isaacplmann)                        | [juristr](https://github.com/juristr)                                        |
 
-| Philip Fulcher                                                            | Kirils Ladovs                                                           | Katerina Skroumpelou                                                            | Colum Ferry                                                            |
-| ------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| ![Philip Fulcher](https://avatars1.githubusercontent.com/u/1536471?s=160) | ![Kirils Ladovs](https://avatars.githubusercontent.com/u/9858620?s=160) | ![Katerina Skroumpelou](https://avatars0.githubusercontent.com/u/6603745?s=160) | ![Colum Ferry](https://avatars.githubusercontent.com/u/12140467?s=160) |
-| [philipjfulcher](https://github.com/philipjfulcher)                       | [kirjai](https://github.com/kirjai)                                     | [mandarini](https://github.com/mandarini)                                       | [Coly010](https://github.com/Coly010)                                  |
+| Philip Fulcher                                                            | Caleb Ukl                                                             | Katerina Skroumpelou                                                            | Colum Ferry                                                            |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| ![Philip Fulcher](https://avatars1.githubusercontent.com/u/1536471?s=160) | ![Caleb Ukle](https://avatars.githubusercontent.com/u/23272162?s=160) | ![Katerina Skroumpelou](https://avatars0.githubusercontent.com/u/6603745?s=160) | ![Colum Ferry](https://avatars.githubusercontent.com/u/12140467?s=160) |
+| [philipjfulcher](https://github.com/philipjfulcher)                       | [barbados-clemens](https://github.com/barbados-clemens)               | [mandarini](https://github.com/mandarini)                                       | [Coly010](https://github.com/Coly010)                                  |
 
 | Emily Xiong                                                            | Miroslav Jonaš                                                          | Leosvel Pérez Espinosa                                                            | Zachary DeRose                                                           |
 | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | ![Emily Xiong](https://avatars.githubusercontent.com/u/16211801?s=160) | ![Miroslav Jonaš](https://avatars.githubusercontent.com/u/881612?s=160) | ![Leosvel Pérez Espinosa](https://avatars.githubusercontent.com/u/12051310?s=160) | ![Zachary DeRose](https://avatars.githubusercontent.com/u/3788405?s=160) |
 | [xiongemi](https://github.com/xiongemi)                                | [meeroslav](https://github.com/meeroslav)                               | [leosvelperez](https://github.com/leosvelperez)                                   | [ZackDeRose](https://github.com/ZackDeRose)                              |
 
-| Craigory Coppola                                                           | Chau Tran                                                            | Nicholas Cunningham                                                          | Caleb Ukle                                                            |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| ![Craigory Coppola](https://avatars.githubusercontent.com/u/6933928?s=160) | ![Chau Tran](https://avatars.githubusercontent.com/u/25516557?s=160) | ![Nicholas Cunningham](https://avatars.githubusercontent.com/u/338948?s=160) | ![Caleb Ukle](https://avatars.githubusercontent.com/u/23272162?s=160) |
-| [AgentEnder](https://github.com/AgentEnder)                                | [nartc](https://github.com/nartc)                                    | [ndcunningham](https://github.com/ndcunningham)                              | [barbados-clemens](https://github.com/barbados-clemens)               |
+| Craigory Coppola                                                           | Chau Tran                                                            | Nicholas Cunningham                                                          |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| ![Craigory Coppola](https://avatars.githubusercontent.com/u/6933928?s=160) | ![Chau Tran](https://avatars.githubusercontent.com/u/25516557?s=160) | ![Nicholas Cunningham](https://avatars.githubusercontent.com/u/338948?s=160) |
+| [AgentEnder](https://github.com/AgentEnder)                                | [nartc](https://github.com/nartc)                                    | [ndcunningham](https://github.com/ndcunningham)                              |

@@ -5,7 +5,7 @@ import * as fse from 'fs-extra';
 import ignore, { Ignore } from 'ignore';
 import * as fg from 'fast-glob';
 import { AssetGlob } from '@nrwl/workspace/src/utilities/assets';
-import { logger } from 'nx/src/shared/logger';
+import { logger } from '@nrwl/devkit';
 
 export type FileEventType = 'create' | 'update' | 'delete';
 
@@ -112,6 +112,7 @@ export class CopyAssetsHandler {
         // fast-glob only supports Unix paths
         const files = await fg(pattern.replace(/\\/g, '/'), {
           cwd: this.rootDir,
+          dot: true, // enable hidden files
         });
 
         this.callback(
@@ -120,14 +121,12 @@ export class CopyAssetsHandler {
               !ag.ignore?.some((ig) => minimatch(src, ig)) &&
               !this.ignore.ignores(src)
             ) {
+              const relPath = path.relative(ag.input, src);
+              const dest = relPath.startsWith('..') ? src : relPath;
               acc.push({
                 type: 'create',
                 src: path.join(this.rootDir, src),
-                dest: path.join(
-                  this.rootDir,
-                  ag.output,
-                  path.relative(ag.input, src)
-                ),
+                dest: path.join(this.rootDir, ag.output, dest),
               });
             }
             return acc;
@@ -140,7 +139,7 @@ export class CopyAssetsHandler {
   async watchAndProcessOnAssetChange(): Promise<() => Promise<void>> {
     const watcher = await import('@parcel/watcher');
     const subscription = await watcher.subscribe(
-      this.projectDir,
+      this.rootDir,
       (err, events) => {
         if (err) {
           logger.error(`Watch error: ${err?.message ?? 'Unknown'}`);
@@ -163,14 +162,12 @@ export class CopyAssetsHandler {
           !ag.ignore?.some((ig) => minimatch(pathFromRoot, ig)) &&
           !this.ignore.ignores(pathFromRoot)
         ) {
+          const relPath = path.relative(ag.input, pathFromRoot);
+          const destPath = relPath.startsWith('..') ? pathFromRoot : relPath;
           fileEvents.push({
             type: event.type,
             src: path.join(this.rootDir, pathFromRoot),
-            dest: path.join(
-              this.rootDir,
-              ag.output,
-              path.relative(ag.input, pathFromRoot)
-            ),
+            dest: path.join(this.rootDir, ag.output, destPath),
           });
           // Match first entry and skip the rest for this file.
           break;

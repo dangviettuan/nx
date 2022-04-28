@@ -6,16 +6,11 @@ import { from, Observable, of } from 'rxjs';
 import { catchError, concatMap, last, scan, tap } from 'rxjs/operators';
 import { eachValueFrom } from 'rxjs-for-await';
 import * as autoprefixer from 'autoprefixer';
-import type {
-  ExecutorContext,
-  ProjectGraphExternalNode,
-  ProjectGraphProjectNode,
-} from '@nrwl/devkit';
+import type { ExecutorContext, ProjectGraphProjectNode } from '@nrwl/devkit';
 import { logger, names, readJsonFile, writeJsonFile } from '@nrwl/devkit';
-import { readCachedProjectGraph } from '@nrwl/workspace/src/core/project-graph';
+import { readCachedProjectGraph } from '@nrwl/devkit';
 import {
   calculateProjectDependencies,
-  checkDependentProjectsHaveBeenBuilt,
   computeCompilerOptionsPaths,
   DependentBuildableProjectNode,
   updateBuildableProjectPackageJsonDependencies,
@@ -68,7 +63,7 @@ export default async function* rollupExecutor(
 
   const npmDeps = (projectGraph.dependencies[context.projectName] ?? [])
     .filter((d) => d.target.startsWith('npm:'))
-    .map((d) => d.target.substr(4));
+    .map((d) => d.target.slice(4));
 
   const rollupOptions = createRollupOptions(
     options,
@@ -310,7 +305,11 @@ function updatePackageJson(
     /\.[jt]sx?$/,
     '.d.ts'
   );
-  packageJson.main = entryFileTmpl.replace('<%= extension %>', 'umd');
+  if (options.format.includes('umd')) {
+    packageJson.main = entryFileTmpl.replace('<%= extension %>', 'umd');
+  } else if (options.format.includes('cjs')) {
+    packageJson.main = entryFileTmpl.replace('<%= extension %>', 'cjs');
+  }
   packageJson.module = entryFileTmpl.replace('<%= extension %>', 'esm');
   packageJson.typings = `./${typingsFile}`;
   writeJsonFile(`${options.outputPath}/package.json`, packageJson);

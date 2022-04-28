@@ -1,16 +1,19 @@
 import * as chalk from 'chalk';
 import { readFileSync } from 'fs';
-import { readJsonSync, removeSync } from 'fs-extra';
+import { readJsonSync } from 'fs-extra';
 import { join } from 'path';
-import { dedent } from 'tslint/lib/utils';
 import {
   formatDeprecated,
   generateMarkdownFile,
+  generateOptionsMarkdown,
+  getCommands,
+  parseCommand,
+  ParsedCommand,
   sortAlphabeticallyFunction,
 } from './utils';
 import { register as registerTsConfigPaths } from 'tsconfig-paths';
-
-import { examples } from '../../packages/workspace/src/command-line/examples';
+import { examples } from '../../packages/nx/src/command-line/examples';
+import { dedent } from 'tslint/lib/utils';
 
 const importFresh = require('import-fresh');
 
@@ -24,20 +27,9 @@ const sharedCommands = [
   'test',
 ];
 
-interface ParsedCommandOption {
-  name: string;
-  description: string;
-  default: string;
-  deprecated: boolean | string;
-}
-
-interface ParsedCommand {
-  name: string;
-  description: string;
-  options?: Array<ParsedCommandOption>;
-}
-
-export async function generateCLIDocumentation() {
+export async function generateCLIDocumentation(
+  commandsOutputDirectory: string
+) {
   /**
    * For certain commands, they will output dynamic data at runtime in a real workspace,
    * so we leverage an envrionment variable to inform the logic of the context that we
@@ -53,56 +45,8 @@ export async function generateCLIDocumentation() {
   console.log(`\n${chalk.blue('i')} Generating Documentation for Nx Commands`);
 
   const { commandsObject } = importFresh(
-    '../../packages/workspace/src/command-line/nx-commands'
+    '../../packages/nx/src/command-line/nx-commands'
   );
-
-  const commandsOutputDirectory = join(
-    __dirname,
-    '../../docs/',
-    'generated',
-    'cli'
-  );
-  removeSync(commandsOutputDirectory);
-
-  function getCommands(command) {
-    return command.getCommandInstance().getCommandHandlers();
-  }
-  async function parseCommandInstance(
-    name: string,
-    command: any
-  ): Promise<ParsedCommand> {
-    // It is not a function return a strip down version of the command
-    if (
-      !(
-        command.builder &&
-        command.builder.constructor &&
-        command.builder.call &&
-        command.builder.apply
-      )
-    ) {
-      return { name, description: command.description };
-    }
-    // Show all the options we can get from yargs
-    const builder = await command.builder(
-      importFresh('yargs')().resetOptions()
-    );
-    const builderDescriptions = builder.getUsageInstance().getDescriptions();
-    const builderDefaultOptions = builder.getOptions().default;
-    const builderDeprecatedOptions = builder.getDeprecatedOptions();
-    return {
-      name,
-      description: command.description,
-      options:
-        Object.keys(builderDescriptions).map((key) => ({
-          name: key,
-          description: builderDescriptions[key]
-            ? builderDescriptions[key].replace('__yargsString__:', '')
-            : '',
-          default: builderDefaultOptions[key],
-          deprecated: builderDeprecatedOptions[key],
-        })) || null,
-    };
-  }
 
   function generateMarkdown(command: ParsedCommand) {
     let template = dedent`
@@ -117,7 +61,7 @@ ${command.description}
 ## Usage
 
 \`\`\`bash
-nx ${command.name}
+nx ${command.commandString}
 \`\`\`
 
 [Install \`nx\` globally](/getting-started/nx-setup#install-nx) to invoke the command directly using \`nx\`, or use \`npx nx\`, \`yarn nx\`, or \`pnpx nx\`.\n`;
@@ -134,25 +78,7 @@ nx ${command.name}
       });
     }
 
-    if (Array.isArray(command.options) && !!command.options.length) {
-      template += '\n## Options';
-
-      command.options
-        .sort((a, b) => sortAlphabeticallyFunction(a.name, b.name))
-        .forEach((option) => {
-          template += dedent`
-                ### ${option.deprecated ? `~~${option.name}~~` : option.name}
-                ${
-                  option.default === undefined || option.default === ''
-                    ? ''
-                    : `Default: \`${option.default}\`\n`
-                }
-              `;
-          template += dedent`
-                ${formatDeprecated(option.description, option.deprecated)}
-              `;
-        });
-    }
+    template += generateOptionsMarkdown(command);
 
     return {
       name: command.name
@@ -168,7 +94,8 @@ nx ${command.name}
   await Promise.all(
     Object.keys(nxCommands)
       .filter((name) => !sharedCommands.includes(name))
-      .map((name) => parseCommandInstance(name, nxCommands[name]))
+      .filter((name) => nxCommands[name].description)
+      .map((name) => parseCommand(name, nxCommands[name]))
       .map(async (command) => generateMarkdown(await command))
       .map(async (templateObject) =>
         generateMarkdownFile(commandsOutputDirectory, await templateObject)

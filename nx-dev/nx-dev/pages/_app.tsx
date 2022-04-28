@@ -1,4 +1,5 @@
 import { sendPageViewEvent } from '@nrwl/nx-dev/feature-analytics';
+import { AnnouncementBanner } from '@nrwl/nx-dev/ui-common';
 import { DefaultSeo } from 'next-seo';
 import { AppProps } from 'next/app';
 import Head from 'next/head';
@@ -44,35 +45,20 @@ export default function CustomApp({ Component, pageProps }: AppProps) {
         }}
       />
       <Head>
-        <meta charSet="utf-8" />
-        <link
-          rel="apple-touch-icon"
-          sizes="180x180"
-          href="/images/apple-touch-icon.png"
-        />
-        <link
-          rel="icon"
-          type="image/png"
-          sizes="32x32"
-          href="/images/favicon-32x32.png"
-        />
-        <link
-          rel="icon"
-          type="image/png"
-          sizes="16x16"
-          href="/images/favicon-16x16.png"
-        />
-        <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-        <link
-          rel="mask-icon"
-          href="/images/safari-pinned-tab.svg"
-          color="#5bbad5"
-        />
         <meta name="msapplication-TileColor" content="#da532c" />
         <meta name="theme-color" content="#ffffff" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
+      <a
+        id="skip-to-content-link"
+        href="#main"
+        tabIndex={0}
+        className="bg-green-nx-base absolute top-3 left-8 -translate-y-24 rounded-md px-4 py-2 text-white transition focus:translate-y-0"
+      >
+        Skip to content
+      </a>
       <div className="documentation-app bg-white text-gray-700 antialiased">
+        <AnnouncementBanner />
         <Component {...pageProps} />
       </div>
       {/* Global Site Tag (gtag.js) - Google Analytics */}

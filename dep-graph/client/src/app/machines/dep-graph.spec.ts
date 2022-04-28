@@ -1,12 +1,9 @@
 // nx-ignore-next-line
-import type {
-  ProjectGraphDependency,
-  ProjectGraphProjectNode,
-} from '@nrwl/devkit';
-import { depGraphMachine } from './dep-graph.machine';
+import type { ProjectGraphDependency, ProjectGraphNode } from '@nrwl/devkit';
 import { interpret } from 'xstate';
+import { depGraphMachine } from './dep-graph.machine';
 
-export const mockProjects: ProjectGraphProjectNode[] = [
+export const mockProjects: ProjectGraphNode[] = [
   {
     name: 'app1',
     type: 'app',
@@ -273,7 +270,10 @@ describe('dep-graph machine', () => {
         affectedProjects: [],
         workspaceLayout: { appsDir: 'apps', libsDir: 'libs' },
       });
-
+      service.send({
+        type: 'setSearchDepthEnabled',
+        searchDepthEnabled: false,
+      });
       service.send({ type: 'focusProject', projectName: 'app1' });
     });
 

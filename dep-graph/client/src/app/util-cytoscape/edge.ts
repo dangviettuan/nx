@@ -1,3 +1,4 @@
+// nx-ignore-next-line
 import type { ProjectGraphDependency } from '@nrwl/devkit';
 import * as cy from 'cytoscape';
 
@@ -14,6 +15,7 @@ export class ProjectEdge {
         id: `${this.dep.source}|${this.dep.target}`,
         source: this.dep.source,
         target: this.dep.target,
+        type: this.dep.type,
       },
     };
     edge.classes = this.dep.type ?? '';

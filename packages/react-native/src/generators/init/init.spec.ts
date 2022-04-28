@@ -1,3 +1,4 @@
+import { logger } from '@nrwl/devkit';
 import { Tree, readJson, updateJson } from '@nrwl/devkit';
 import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { reactNativeInitGenerator } from './init';
@@ -15,6 +16,7 @@ describe('init', () => {
     const packageJson = readJson(tree, 'package.json');
     expect(packageJson.dependencies['react']).toBeDefined();
     expect(packageJson.dependencies['react-native']).toBeDefined();
+    expect(packageJson.devDependencies['@types/node']).toBeDefined();
     expect(packageJson.devDependencies['@types/react']).toBeDefined();
     expect(packageJson.devDependencies['@types/react-native']).toBeDefined();
   });

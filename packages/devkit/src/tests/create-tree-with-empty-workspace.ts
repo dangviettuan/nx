@@ -1,5 +1,5 @@
-import { FsTree } from 'nx/src/shared/tree';
-import type { Tree } from 'nx/src/shared/tree';
+import { FsTree } from 'nx/src/config/tree';
+import type { Tree } from 'nx/src/config/tree';
 
 /**
  * Creates a host for testing.
@@ -26,7 +26,7 @@ export function createTreeWithEmptyWorkspace(version = 1): Tree {
       },
       tasksRunnerOptions: {
         default: {
-          runner: '@nrwl/workspace/tasks-runners/default',
+          runner: 'nx/tasks-runners/default',
           options: {
             cacheableOperations: ['build', 'lint', 'test', 'e2e'],
           },
