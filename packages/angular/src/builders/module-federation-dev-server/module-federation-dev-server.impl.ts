@@ -40,13 +40,20 @@ export function moduleFederationDevServer(
     ? options.devRemotes
     : [options.devRemotes];
 
+  const remotePorts: number[] = [];
   for (const remote of remotes) {
     const isDev = devServeRemotes.includes(remote);
+    const target = isDev ? 'serve' : 'serve-static';
+
+    remotePorts.push(
+      workspaceConfig.projects[remote]?.targets[target]?.options.port ?? 4200
+    );
+
     scheduleTarget(
       context.workspaceRoot,
       {
         project: remote,
-        target: isDev ? 'serve' : 'serve-static',
+        target,
         configuration: context.target.configuration,
         runOptions: {},
         executor: context.builder.builderName,

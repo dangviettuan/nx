@@ -15,7 +15,7 @@ import { createConsoleLogger, NodeJsSyncHost } from '@angular-devkit/core/node';
 import { Stats } from 'fs';
 import { detectPackageManager } from '../utils/package-manager';
 import { GenerateOptions } from '../command-line/generate';
-import { FileChange, Tree } from '../config/tree';
+import { FileChange, Tree } from '../generators/tree';
 import {
   buildWorkspaceConfigurationFromGlobs,
   globForProjectFiles,
@@ -38,6 +38,7 @@ import {
   RawWorkspaceJsonConfiguration,
   WorkspaceJsonConfiguration,
 } from '../config/workspace-json-project-json';
+import { readNxJson } from '../generators/utils/project-configuration';
 
 export async function scheduleTarget(
   root: string,
@@ -261,10 +262,17 @@ export class NxScopedHost extends virtualFs.ScopedHost<any> {
     };
 
     const readNxJsonFile = () => {
-      if (overrides?.nx) {
-        return overrides.nx;
-      }
-      return readJsonFile('nx.json');
+      let nxJson = overrides?.nx ? overrides.nx : readJsonFile('nx.json');
+
+      return nxJson.pipe(
+        map((json) => {
+          if (json.extends) {
+            return { ...require(json.extends), ...json };
+          } else {
+            return json;
+          }
+        })
+      );
     };
 
     return super.exists('nx.json' as Path).pipe(
@@ -497,6 +505,7 @@ export class NxScopedHost extends virtualFs.ScopedHost<any> {
         // project was read from a project.json file
         const configPath = projectConfig.configFilePath;
         const fileConfigObject = { ...projectConfig };
+        delete fileConfigObject.root; // remove the root before writing
         delete fileConfigObject.configFilePath; // remove the configFilePath before writing
         const projectJsonWrite = super.write(
           configPath,
@@ -539,6 +548,7 @@ export class NxScopedHost extends virtualFs.ScopedHost<any> {
             map((x) => ({
               project,
               projectConfig: {
+                root: dirname(configFilePath),
                 ...parseJson(Buffer.from(x).toString()),
                 configFilePath,
               },
@@ -597,12 +607,11 @@ export class NxScopeHostUsedForWrappedSchematics extends NxScopedHost {
         // we have to add them into the file.
         const createdProjectFiles = findCreatedProjects(this.host);
         const deletedProjectFiles = findDeletedProjects(this.host);
-        const nxJsonInTree = nxJsonChange
-          ? parseJson(nxJsonChange.content.toString())
-          : parseJson(this.host.read('nx.json').toString());
-        const readJsonWithHost = (file) =>
-          parseJson(this.host.read(file).toString());
-
+        const nxJsonInTree = readNxJson(this.host);
+        const readJsonWithHost = (file) => ({
+          root: dirname(file),
+          ...parseJson(this.host.read(file).toString()),
+        });
         const staticProjects = buildWorkspaceConfigurationFromGlobs(
           nxJsonInTree,
           globForProjectFiles(this.host.root).filter(
@@ -734,23 +743,25 @@ function findCreatedProjects(host: Tree): FileChange[] {
     .listChanges()
     .filter(
       (f) =>
+        f.type === 'CREATE' &&
         (basename(f.path) === 'project.json' ||
-          basename(f.path) === 'package.json') &&
-        f.type === 'CREATE'
+          basename(f.path) === 'package.json')
     );
 }
 
 function findDeletedProjects(host: Tree): FileChange[] {
   return host
     .listChanges()
-    .filter((f) => basename(f.path) === 'project.json' && f.type === 'DELETE');
+    .filter((f) => f.type === 'DELETE' && basename(f.path) === 'project.json');
 }
 
 function findMatchingFileChange(host: Tree, path: Path) {
-  const targetPath = path.startsWith('/') ? path.substring(1) : path.toString();
+  const targetPath = normalize(
+    path.startsWith('/') ? path.substring(1) : path.toString()
+  );
   return host
     .listChanges()
-    .find((f) => f.path === targetPath && f.type !== 'DELETE');
+    .find((f) => f.type !== 'DELETE' && normalize(f.path) === targetPath);
 }
 
 function isWorkspaceConfigPath(p: Path | string) {
@@ -1214,6 +1225,7 @@ function saveWorkspaceConfigurationInWrappedSchematic(
     ) {
       const path = config.configFilePath || join(config.root, 'project.json');
       workspace.projects[project] = normalize(dirname(path));
+      delete config.root; // remove the root before writing
       delete config.configFilePath;
       host.write(path, serializeJson(config));
     }

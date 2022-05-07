@@ -66,7 +66,7 @@ export const e2eCwd = `${e2eRoot}/${currentCli()}`;
 ensureDirSync(e2eCwd);
 
 let projName: string;
-const publishedVersion = `9999.0.2`;
+const publishedVersion = process.env.PUBLISHED_VERSION || `9999.0.2`;
 
 export function uniq(prefix: string) {
   return `${prefix}${Math.floor(Math.random() * 10000000)}`;
@@ -126,6 +126,7 @@ export function runCreateWorkspace(
     packageManager,
     cli,
     extraArgs,
+    ci,
     useDetectedPm = false,
   }: {
     preset: string;
@@ -135,6 +136,7 @@ export function runCreateWorkspace(
     packageManager?: 'npm' | 'yarn' | 'pnpm';
     cli?: string;
     extraArgs?: string;
+    ci?: 'azure' | 'github' | 'circleci';
     useDetectedPm?: boolean;
   }
 ) {
@@ -151,9 +153,53 @@ export function runCreateWorkspace(
   if (style) {
     command += ` --style=${style}`;
   }
+  if (ci) {
+    command += ` --ci=${ci}`;
+  }
 
   if (base) {
     command += ` --defaultBase="${base}"`;
+  }
+
+  if (packageManager && !useDetectedPm) {
+    command += ` --package-manager=${packageManager}`;
+  }
+
+  if (extraArgs) {
+    command += ` ${extraArgs}`;
+  }
+
+  const create = execSync(command, {
+    cwd: e2eCwd,
+    stdio: [0, 1, 2],
+    env: process.env,
+    encoding: 'utf-8',
+  });
+  return create ? create.toString() : '';
+}
+
+export function runCreatePlugin(
+  name: string,
+  {
+    pluginName,
+    packageManager,
+    extraArgs,
+    useDetectedPm = false,
+  }: {
+    pluginName?: string;
+    packageManager?: 'npm' | 'yarn' | 'pnpm';
+    extraArgs?: string;
+    useDetectedPm?: boolean;
+  }
+) {
+  projName = name;
+
+  const pm = getPackageManagerCommand({ packageManager });
+
+  let command = `${pm.runUninstalledPackage} create-nx-plugin ${name}`;
+
+  if (pluginName) {
+    command += ` --pluginName=${pluginName}`;
   }
 
   if (packageManager && !useDetectedPm) {
