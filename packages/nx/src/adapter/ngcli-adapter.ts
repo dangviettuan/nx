@@ -35,10 +35,11 @@ import { parseJson, serializeJson } from '../utils/json';
 import { NxJsonConfiguration } from '../config/nx-json';
 import {
   ProjectConfiguration,
-  RawWorkspaceJsonConfiguration,
-  WorkspaceJsonConfiguration,
+  RawProjectsConfigurations,
+  ProjectsConfigurations,
 } from '../config/workspace-json-project-json';
 import { readNxJson } from '../generators/utils/project-configuration';
+import { PackageJson, readModulePackageJson } from '../utils/package-json';
 
 export async function scheduleTarget(
   root: string,
@@ -65,6 +66,10 @@ export async function scheduleTarget(
 
   const registry = new schema.CoreSchemaRegistry();
   registry.addPostTransform(schema.transforms.addUndefinedDefaults);
+  registry.addSmartDefaultProvider('unparsed', () => {
+    // This happens when context.scheduleTarget is used to run a target using nx:run-commands
+    return [];
+  });
   const architectHost = new WorkspaceNodeModulesArchitectHost(workspace, root);
   const architect: Architect = new Architect(architectHost, registry);
   const run = await architect.scheduleTarget(
@@ -94,7 +99,7 @@ function createWorkflow(
   fsHost: virtualFs.Host<Stats>,
   root: string,
   opts: any
-) {
+): import('@angular-devkit/schematics/tools').NodeWorkflow {
   const NodeWorkflow = require('@angular-devkit/schematics/tools').NodeWorkflow;
   const workflow = new NodeWorkflow(fsHost, {
     force: false,
@@ -210,12 +215,15 @@ async function runSchematic(
   return { status: 0, loggingQueue: record.loggingQueue };
 }
 
-type AngularJsonConfiguration = WorkspaceJsonConfiguration &
+type AngularJsonConfiguration = ProjectsConfigurations &
   Pick<NxJsonConfiguration, 'cli' | 'defaultProject' | 'generators'> & {
     schematics?: NxJsonConfiguration['generators'];
+    cli?: NxJsonConfiguration['cli'] & {
+      schematicCollections?: string[];
+    };
   };
 export class NxScopedHost extends virtualFs.ScopedHost<any> {
-  protected __nxInMemoryWorkspace: WorkspaceJsonConfiguration | null;
+  protected __nxInMemoryWorkspace: ProjectsConfigurations | null;
 
   constructor(private root: string) {
     super(new NodeJsSyncHost(), normalize(root));
@@ -224,7 +232,7 @@ export class NxScopedHost extends virtualFs.ScopedHost<any> {
   protected __readWorkspaceConfiguration = (
     configFileName: ChangeContext['actualConfigFileName'],
     overrides?: {
-      workspace?: Observable<RawWorkspaceJsonConfiguration>;
+      workspace?: Observable<RawProjectsConfigurations>;
       nx?: Observable<NxJsonConfiguration>;
     }
   ): Observable<FileBuffer> => {
@@ -235,7 +243,7 @@ export class NxScopedHost extends virtualFs.ScopedHost<any> {
 
     const readWorkspaceJsonFile = (
       nxJson: NxJsonConfiguration
-    ): Observable<RawWorkspaceJsonConfiguration> => {
+    ): Observable<RawProjectsConfigurations> => {
       if (overrides?.workspace) {
         return overrides.workspace;
       } else if (this.__nxInMemoryWorkspace) {
@@ -283,7 +291,7 @@ export class NxScopedHost extends virtualFs.ScopedHost<any> {
         } else {
           nxJsonObservable = of({} as NxJsonConfiguration);
         }
-        const workspaceJsonObservable: Observable<RawWorkspaceJsonConfiguration> =
+        const workspaceJsonObservable: Observable<RawProjectsConfigurations> =
           nxJsonObservable.pipe(switchMap((x) => readWorkspaceJsonFile(x)));
         return forkJoin([nxJsonObservable, workspaceJsonObservable]);
       }),
@@ -432,6 +440,7 @@ export class NxScopedHost extends virtualFs.ScopedHost<any> {
         if (formatted) {
           const { cli, generators, defaultProject, ...workspaceJson } =
             formatted;
+          delete cli?.schematicCollections;
           return merge(
             this.writeWorkspaceConfigFiles(context, workspaceJson),
             cli || generators || defaultProject
@@ -446,6 +455,7 @@ export class NxScopedHost extends virtualFs.ScopedHost<any> {
             defaultProject,
             ...angularJson
           } = w;
+          delete cli?.schematicCollections;
           return merge(
             this.writeWorkspaceConfigFiles(context, angularJson),
             cli || schematics
@@ -461,6 +471,8 @@ export class NxScopedHost extends virtualFs.ScopedHost<any> {
     }
     const { cli, schematics, generators, defaultProject, ...angularJson } =
       config;
+    delete cli?.schematicCollections;
+
     return merge(
       this.writeWorkspaceConfigFiles(context, angularJson),
       this.__saveNxJsonProps({
@@ -527,8 +539,8 @@ export class NxScopedHost extends virtualFs.ScopedHost<any> {
   }
 
   protected resolveInlineProjectConfigurations(
-    config: RawWorkspaceJsonConfiguration
-  ): Observable<WorkspaceJsonConfiguration> {
+    config: RawProjectsConfigurations
+  ): Observable<ProjectsConfigurations> {
     // Creates an observable where each emission is a project configuration
     // that is not listed inside workspace.json. Each time it encounters a
     // standalone config, observable is updated by concatenating the new
@@ -565,7 +577,7 @@ export class NxScopedHost extends virtualFs.ScopedHost<any> {
         configs.forEach(({ project, projectConfig }) => {
           config.projects[project] = projectConfig;
         });
-        return config as WorkspaceJsonConfiguration;
+        return config as ProjectsConfigurations;
       })
     );
   }
@@ -591,7 +603,7 @@ export class NxScopeHostUsedForWrappedSchematics extends NxScopedHost {
       const nxJsonChange = findMatchingFileChange(this.host, 'nx.json' as Path);
       const match = findWorkspaceConfigFileChange(this.host);
 
-      let workspaceJsonOverride: Observable<RawWorkspaceJsonConfiguration>;
+      let workspaceJsonOverride: Observable<RawProjectsConfigurations>;
       let actualConfigFileName: ConfigFilePath = [
         '/workspace.json',
         '/angular.json',
@@ -868,7 +880,11 @@ export async function runMigration(
   const fsHost = new NxScopedHost(root);
   const workflow = createWorkflow(fsHost, root, {});
   const collection = resolveMigrationsCollection(packageName);
-  return workflow
+
+  const record = { loggingQueue: [] as string[], error: false };
+  workflow.reporter.subscribe(await createRecorder(fsHost, record, logger));
+
+  await workflow
     .execute({
       collection,
       schematic: migrationName,
@@ -877,6 +893,11 @@ export async function runMigration(
       logger: logger as any,
     })
     .toPromise();
+
+  return {
+    loggingQueue: record.loggingQueue,
+    madeChanges: record.loggingQueue.length > 0,
+  };
 }
 
 function resolveMigrationsCollection(name: string): string {
@@ -889,20 +910,10 @@ function resolveMigrationsCollection(name: string): string {
   if (extname(name)) {
     collectionPath = require.resolve(name);
   } else {
-    let packageJsonPath;
-    try {
-      packageJsonPath = require.resolve(join(name, 'package.json'), {
-        paths: [process.cwd()],
-      });
-    } catch (e) {
-      // workaround for a bug in node 12
-      packageJsonPath = require.resolve(
-        join(process.cwd(), name, 'package.json')
-      );
-    }
+    const { path: packageJsonPath, packageJson } = readModulePackageJson(name, [
+      process.cwd(),
+    ]);
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const packageJson = require(packageJsonPath);
     let pkgJsonSchematics =
       packageJson['nx-migrations'] ?? packageJson['ng-update'];
     if (!pkgJsonSchematics) {
@@ -1022,6 +1033,17 @@ export function wrapAngularDevkitSchematic(
   collectionName: string,
   generatorName: string
 ) {
+  // This is idempotent, if it happens to get called
+  // multiple times its no big deal. It ensures that some
+  // patches are applied to @angular-devkit code which
+  // are necessary. For the most part, our wrapped host hits
+  // the necessary areas, but for some things it wouldn't make
+  // sense for the adapter to be 100% accurate.
+  //
+  // e.g. Angular warns about tags, but some angular CLI schematics
+  // were written with Nx in mind, and may care about tags.
+  require('./compat');
+
   return async (host: Tree, generatorOptions: { [k: string]: any }) => {
     if (
       mockedSchematics &&
@@ -1092,8 +1114,8 @@ export function wrapAngularDevkitSchematic(
 
     // used for testing
     if (collectionResolutionOverrides) {
-      const r = workflow.engineHost.resolve;
-      workflow.engineHost.resolve = (collection, b, c) => {
+      const r = (workflow.engineHost as any).resolve;
+      (workflow.engineHost as any).resolve = (collection, b, c) => {
         if (collectionResolutionOverrides[collection]) {
           return collectionResolutionOverrides[collection];
         } else {

@@ -5,7 +5,7 @@ import {
   Tree,
   updateJson,
 } from '@nrwl/devkit';
-import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
 
 import { nxVersion } from '../../utils/versions';
 import { initGenerator } from './init';
@@ -14,7 +14,7 @@ describe('init', () => {
   let tree: Tree;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyV1Workspace();
   });
 
   it('should add dependencies', async () => {
@@ -39,14 +39,6 @@ describe('init', () => {
     expect(packageJson.dependencies[existing]).toBeDefined();
     expect(packageJson.devDependencies['@nrwl/node']).toBeDefined();
     expect(packageJson.devDependencies[existing]).toBeDefined();
-  });
-
-  describe('defaultCollection', () => {
-    it('should be set if none was set before', async () => {
-      await initGenerator(tree, {});
-      const nxJson = readJson<NxJsonConfiguration>(tree, 'nx.json');
-      expect(nxJson.cli.defaultCollection).toEqual('@nrwl/node');
-    });
   });
 
   it('should not add jest config if unitTestRunner is none', async () => {

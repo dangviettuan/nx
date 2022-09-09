@@ -1,13 +1,14 @@
 import {
   checkFilesDoNotExist,
   checkFilesExist,
+  cleanupProject,
   createFile,
   isNotWindows,
   killPorts,
   newProject,
   readFile,
   removeFile,
-  cleanupProject,
+  rmDist,
   runCLI,
   runCLIAsync,
   runCypressTests,
@@ -37,7 +38,7 @@ describe('Web Components Applications', () => {
     );
 
     expect(readFile(`dist/apps/${appName}/index.html`)).toContain(
-      `<link rel="stylesheet" href="styles.css">`
+      '<link rel="stylesheet" href="styles.css">'
     );
 
     const testResults = await runCLIAsync(`test ${appName}`);
@@ -92,6 +93,11 @@ describe('Web Components Applications', () => {
       `dist/libs/${libName}/_should_remove.txt`
     );
     checkFilesExist(`dist/apps/_should_not_remove.txt`);
+
+    // Asset that React runtime is imported
+    expect(readFile(`dist/libs/${libName}/index.js`)).toMatch(
+      /react\/jsx-runtime/
+    );
 
     // `delete-output-path`
     createFile(`dist/apps/${appName}/_should_keep.txt`);
@@ -181,6 +187,56 @@ describe('Web Components Applications', () => {
       checkFilesDoNotExist('workspace.json', 'angular.json')
     ).not.toThrow();
   }, 1000000);
+
+  it('should support custom webpackConfig option', async () => {
+    const appName = uniq('app');
+    runCLI(`generate @nrwl/web:app ${appName} --no-interactive`);
+
+    updateProjectConfig(appName, (config) => {
+      config.targets.build.options.webpackConfig = `apps/${appName}/webpack.config.js`;
+      return config;
+    });
+
+    // Return sync function
+    updateFile(
+      `apps/${appName}/webpack.config.js`,
+      `
+      module.exports = (config, context) => {
+        return config;
+      };
+    `
+    );
+    runCLI(`build ${appName} --outputHashing none`);
+    checkFilesExist(`dist/apps/${appName}/main.esm.js`);
+
+    rmDist();
+
+    // Return async function
+    updateFile(
+      `apps/${appName}/webpack.config.js`,
+      `
+      module.exports = async (config, context) => {
+        return config;
+      };
+    `
+    );
+    runCLI(`build ${appName} --outputHashing none`);
+    checkFilesExist(`dist/apps/${appName}/main.esm.js`);
+
+    rmDist();
+
+    // Return promise of function
+    updateFile(
+      `apps/${appName}/webpack.config.js`,
+      `
+      module.exports = Promise.resolve((config, context) => {
+        return config;
+      });
+    `
+    );
+    runCLI(`build ${appName} --outputHashing none`);
+    checkFilesExist(`dist/apps/${appName}/main.esm.js`);
+  }, 100000);
 });
 
 describe('CLI - Environment Variables', () => {
@@ -367,7 +423,6 @@ describe('index.html interpolation', () => {
         <meta charset="utf-8" />
         <title>BestReactApp</title>
         <base href="/" />
-
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" type="image/x-icon" href="favicon.ico" />
       </head>

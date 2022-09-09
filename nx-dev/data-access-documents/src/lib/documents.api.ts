@@ -1,6 +1,7 @@
 import { DocumentData, DocumentMetadata } from '@nrwl/nx-dev/models-document';
+import { parseMarkdown } from '@nrwl/nx-dev/ui-markdoc';
 import { readFileSync } from 'fs';
-import matter from 'gray-matter';
+import { load as yamlLoad } from 'js-yaml';
 import { join } from 'path';
 import { extractTitle } from './documents.utils';
 
@@ -9,39 +10,64 @@ export interface StaticDocumentPaths {
 }
 
 export class DocumentsApi {
+  private documents: DocumentMetadata;
   constructor(
     private readonly options: {
       publicDocsRoot: string;
-      documents: DocumentMetadata;
+      documentSources: DocumentMetadata[];
+      addAncestor: { id: string; name: string } | null;
     }
   ) {
     if (!options.publicDocsRoot) {
       throw new Error('public docs root cannot be undefined');
     }
+    if (!options.documentSources) {
+      throw new Error('public document sources cannot be undefined');
+    }
+
+    const itemList: DocumentMetadata[] = options.documentSources.flatMap(
+      (x) => x.itemList
+    ) as DocumentMetadata[];
+
+    this.documents = {
+      id: 'documents',
+      name: 'documents',
+      itemList: !!this.options.addAncestor
+        ? [
+            {
+              id: this.options.addAncestor.id,
+              name: this.options.addAncestor.name,
+              itemList,
+            },
+          ]
+        : itemList,
+    };
   }
 
   getDocument(path: string[]): DocumentData {
     const docPath = this.getFilePath(path);
 
     const originalContent = readFileSync(docPath, 'utf8');
-    const file = matter(originalContent);
+    const ast = parseMarkdown(originalContent);
+    const frontmatter = ast.attributes.frontmatter
+      ? yamlLoad(ast.attributes.frontmatter)
+      : {};
 
     // Set default title if not provided in front-matter section.
-    if (!file.data.title) {
-      file.data.title = extractTitle(originalContent) ?? path[path.length - 1];
-      file.data.description = file.excerpt ?? path[path.length - 1];
+    if (!frontmatter.title) {
+      frontmatter.title =
+        extractTitle(originalContent) ?? path[path.length - 1];
     }
 
     return {
       filePath: docPath,
-      data: file.data,
-      content: file.content,
-      excerpt: file.excerpt,
+      data: frontmatter,
+      content: originalContent,
     };
   }
 
   getDocuments(): DocumentMetadata {
-    const docs = this.options.documents;
+    const docs = this.documents;
     if (docs) return docs;
     throw new Error(`Cannot find any documents`);
   }
@@ -50,52 +76,73 @@ export class DocumentsApi {
     const paths: StaticDocumentPaths[] = [];
 
     function recur(curr, acc) {
+      if (curr.isExternal) return;
       if (curr.itemList) {
         curr.itemList.forEach((ii) => {
           recur(ii, [...acc, curr.id]);
         });
       } else {
-        /*
-         * Do not try to get paths for Packages (done by the PackagesApi).
-         * This should be removed when the packages/schemas menu is inferred directly from PackagesApi.
-         * TODO@ben: Remove this when packages schemas menu is auto-generated.
-         */
-        if (!!curr['path'] && curr['path'].startsWith('/packages/'))
-          return void 0; // Do nothing
-
         paths.push({
           params: {
-            segments: [...acc, curr.id],
+            segments: curr.path
+              ? curr.path.split('/').filter(Boolean).flat()
+              : [...acc, curr.id],
           },
         });
       }
     }
 
-    if (!this.options.documents || !this.options.documents.itemList)
+    if (!this.documents || !this.documents.itemList)
       throw new Error(`Can't find any items`);
-    this.options.documents.itemList.forEach((item) => {
+    this.documents.itemList.forEach((item) => {
       recur(item, []);
     });
 
     return paths;
   }
 
+  /**
+   * Getting the document's filePath is done in 2 steps
+   * - traversing the tree by path segments
+   * - if not found, try searching for it via the complete path string
+   * @param path
+   * @private
+   */
   private getFilePath(path: string[]): string {
-    let items = this.options.documents?.itemList;
+    let items = this.documents?.itemList;
 
     if (!items) {
       throw new Error(`Document not found`);
     }
 
-    let found;
+    let found: DocumentMetadata | null = null;
+    // Traversing the tree by matching item's ids with path's segments
     for (const part of path) {
-      found = items?.find((item) => item.id === part);
+      found = items?.find((item) => item.id === part) || null;
       if (found) {
         items = found.itemList;
-      } else {
-        throw new Error(`Document not found`);
       }
     }
+
+    // If still not found, then attempt to match any item's id with the current path as a string
+    if (!found) {
+      function recur(curr, acc) {
+        if (curr.itemList) {
+          curr.itemList.forEach((ii) => {
+            recur(ii, [...acc, curr.id]);
+          });
+        } else {
+          if (curr.path === '/' + path.join('/')) {
+            found = curr;
+          }
+        }
+      }
+      this.documents.itemList!.forEach((item) => {
+        recur(item, []);
+      });
+    }
+
+    if (!found) throw new Error(`Document not found`);
     const file = found.file ?? ['generated', ...path].join('/');
     return join(this.options.publicDocsRoot, `${file}.md`);
   }

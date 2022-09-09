@@ -1,12 +1,14 @@
+import { getTempTailwindPath } from '../../utils/ct-helpers';
+import { stripIndents } from '@nrwl/devkit';
 import * as path from 'path';
+import { installedCypressVersion } from '../../utils/cypress-version';
 import cypressExecutor, { CypressExecutorOptions } from './cypress.impl';
 
 jest.mock('@nrwl/devkit');
 let devkit = require('@nrwl/devkit');
 
 jest.mock('../../utils/cypress-version');
-import { installedCypressVersion } from '../../utils/cypress-version';
-
+jest.mock('../../utils/ct-helpers');
 const Cypress = require('cypress');
 
 describe('Cypress builder', () => {
@@ -32,6 +34,8 @@ describe('Cypress builder', () => {
     watch: true,
   });
   let runExecutor: any;
+  let mockGetTailwindPath: jest.Mock<ReturnType<typeof getTempTailwindPath>> =
+    getTempTailwindPath as any;
 
   beforeEach(async () => {
     runExecutor = (devkit as any).runExecutor = jest.fn().mockReturnValue([
@@ -148,8 +152,15 @@ describe('Cypress builder', () => {
       },
       mockContext
     );
+    const deprecatedMessage = stripIndents`
+NOTE:
+Support for Cypress versions < 10 is deprecated. Please upgrade to at least Cypress version 10. 
+A generator to migrate from v8 to v10 is provided. See https://nx.dev/cypress/v10-migration-guide
+`;
 
-    expect(devkit.logger.warn).not.toHaveBeenCalled();
+    // expect the warning about the using < v10 but should not also warn about headless
+    expect(devkit.logger.warn).toHaveBeenCalledTimes(1);
+    expect(devkit.logger.warn).toHaveBeenCalledWith(deprecatedMessage);
   });
 
   it('should call `Cypress.run` with provided baseUrl', async () => {
@@ -384,22 +395,6 @@ describe('Cypress builder', () => {
     expect(Object.keys(runExecutor.mock.calls[0][1])).toContain('watch');
   });
 
-  it('should forward testingType', async () => {
-    const { success } = await cypressExecutor(
-      {
-        ...cypressOptions,
-        testingType: 'component',
-      },
-      mockContext
-    );
-    expect(success).toEqual(true);
-    expect(cypressRun).toHaveBeenCalledWith(
-      expect.objectContaining({
-        testingType: 'component',
-      })
-    );
-  });
-
   it('should forward headed', async () => {
     const { success } = await cypressExecutor(
       {
@@ -414,5 +409,26 @@ describe('Cypress builder', () => {
         headed: true,
       })
     );
+  });
+
+  describe('Component Testing', () => {
+    beforeEach(() => {
+      mockGetTailwindPath.mockReturnValue(undefined);
+    });
+    it('should forward testingType', async () => {
+      const { success } = await cypressExecutor(
+        {
+          ...cypressOptions,
+          testingType: 'component',
+        },
+        mockContext
+      );
+      expect(success).toEqual(true);
+      expect(cypressRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          testingType: 'component',
+        })
+      );
+    });
   });
 });

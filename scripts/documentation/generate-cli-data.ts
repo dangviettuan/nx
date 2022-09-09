@@ -2,6 +2,9 @@ import * as chalk from 'chalk';
 import { readFileSync } from 'fs';
 import { readJsonSync } from 'fs-extra';
 import { join } from 'path';
+import { register as registerTsConfigPaths } from 'tsconfig-paths';
+import { dedent } from 'tslint/lib/utils';
+import { examples } from '../../packages/nx/src/command-line/examples';
 import {
   formatDeprecated,
   generateMarkdownFile,
@@ -9,25 +12,13 @@ import {
   getCommands,
   parseCommand,
   ParsedCommand,
-  sortAlphabeticallyFunction,
 } from './utils';
-import { register as registerTsConfigPaths } from 'tsconfig-paths';
-import { examples } from '../../packages/nx/src/command-line/examples';
-import { dedent } from 'tslint/lib/utils';
 
 const importFresh = require('import-fresh');
 
-const sharedCommands = [
-  'build',
-  'e2e',
-  'generate',
-  'lint',
-  'run',
-  'serve',
-  'test',
-];
+const sharedCommands = ['generate', 'run'];
 
-export async function generateCLIDocumentation(
+export async function generateCliDocumentation(
   commandsOutputDirectory: string
 ) {
   /**
@@ -56,7 +47,7 @@ description: "${command.description}"
 ---
 # ${command.name}
 
-${command.description}
+${dedent`${formatDeprecated(command.description, command.deprecated)}`}
 
 ## Usage
 
@@ -64,7 +55,7 @@ ${command.description}
 nx ${command.commandString}
 \`\`\`
 
-[Install \`nx\` globally](/getting-started/nx-setup#install-nx) to invoke the command directly using \`nx\`, or use \`npx nx\`, \`yarn nx\`, or \`pnpx nx\`.\n`;
+Install \`nx\` globally to invoke the command directly using \`nx\`, or use \`npx nx\`, \`yarn nx\`, or \`pnpx nx\`.\n`;
 
     if (examples[command.name] && examples[command.name].length > 0) {
       template += `\n### Examples`;

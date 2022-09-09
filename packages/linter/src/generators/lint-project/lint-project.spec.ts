@@ -1,11 +1,11 @@
 import {
+  Tree,
   addProjectConfiguration,
   readProjectConfiguration,
-  Tree,
 } from '@nrwl/devkit';
-import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 
 import { Linter } from '../utils/linter';
+import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
 import { lintProjectGenerator } from './lint-project';
 
 describe('@nrwl/linter:lint-project', () => {
@@ -16,7 +16,7 @@ describe('@nrwl/linter:lint-project', () => {
   };
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyV1Workspace();
     addProjectConfiguration(tree, 'test-lib', {
       root: 'libs/test-lib',
       targets: {},
@@ -62,6 +62,22 @@ describe('@nrwl/linter:lint-project', () => {
             ],
           }
         `);
+      });
+
+      it('should extend to .eslintrc.js when an .eslintrc.js already exist', async () => {
+        tree.write('.eslintrc.js', '{}');
+
+        await lintProjectGenerator(tree, {
+          ...defaultOptions,
+          linter: Linter.EsLint,
+          eslintFilePatterns: ['**/*.ts'],
+          project: 'test-lib',
+          setParserOptionsProject: false,
+        });
+
+        expect(
+          tree.read('libs/test-lib/.eslintrc.json', 'utf-8')
+        ).toMatchSnapshot();
       });
     });
 

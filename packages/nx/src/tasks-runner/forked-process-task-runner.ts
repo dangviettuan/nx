@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'fs';
 import * as dotenv from 'dotenv';
-import { ChildProcess, fork } from 'child_process';
-import { workspaceRoot } from '../utils/app-root';
+import { ChildProcess, fork, Serializable } from 'child_process';
+import { workspaceRoot } from '../utils/workspace-root';
 import { DefaultTasksRunnerOptions } from './default-tasks-runner';
 import { output } from '../utils/output';
 import {
@@ -18,17 +18,19 @@ import {
 } from './batch/batch-messages';
 import { stripIndents } from '../utils/strip-indents';
 import { Task } from '../config/task-graph';
+import { addCommandPrefixIfNeeded } from '../utils/add-command-prefix';
 
 const workerPath = join(__dirname, './batch/run-batch.js');
 
 export class ForkedProcessTaskRunner {
   workspaceRoot = workspaceRoot;
-  cliPath = getCliPath(this.workspaceRoot);
+  cliPath = getCliPath();
 
+  private readonly verbose = process.env.NX_VERBOSE_LOGGING === 'true';
   private processes = new Set<ChildProcess>();
 
   constructor(private readonly options: DefaultTasksRunnerOptions) {
-    this.setupOnProcessExitListener();
+    this.setupProcessEventListeners();
   }
 
   // TODO: vsavkin delegate terminal output printing
@@ -77,6 +79,16 @@ export class ForkedProcessTaskRunner {
           switch (message.type) {
             case BatchMessageType.Complete: {
               res(message.results);
+              break;
+            }
+            case BatchMessageType.Tasks: {
+              break;
+            }
+            default: {
+              // Re-emit any non-batch messages from the task process
+              if (process.send) {
+                process.send(message);
+              }
             }
           }
         });
@@ -98,15 +110,15 @@ export class ForkedProcessTaskRunner {
     {
       streamOutput,
       temporaryOutputPath,
-    }: { streamOutput: boolean; temporaryOutputPath: string }
+    }: {
+      streamOutput: boolean;
+      temporaryOutputPath: string;
+    }
   ) {
     return new Promise<{ code: number; terminalOutput: string }>((res, rej) => {
       try {
         const args = getPrintableCommandArgsForTask(task);
-        const serializedArgs = getSerializedArgsForTask(
-          task,
-          task.overrides['verbose'] === true
-        );
+        const serializedArgs = getSerializedArgsForTask(task, this.verbose);
         if (streamOutput) {
           output.logCommand(args.join(' '));
           output.addNewline();
@@ -124,18 +136,32 @@ export class ForkedProcessTaskRunner {
           ),
         });
         this.processes.add(p);
+
+        // Re-emit any messages from the task process
+        p.on('message', (message) => {
+          if (process.send) {
+            process.send(message);
+          }
+        });
+
         let out = [];
         let outWithErr = [];
         p.stdout.on('data', (chunk) => {
           if (streamOutput) {
-            process.stdout.write(chunk);
+            process.stdout.write(
+              addCommandPrefixIfNeeded(task.target.project, chunk, 'utf-8')
+                .content
+            );
           }
           out.push(chunk.toString());
           outWithErr.push(chunk.toString());
         });
         p.stderr.on('data', (chunk) => {
           if (streamOutput) {
-            process.stderr.write(chunk);
+            process.stderr.write(
+              addCommandPrefixIfNeeded(task.target.project, chunk, 'utf-8')
+                .content
+            );
           }
           outWithErr.push(chunk.toString());
         });
@@ -168,15 +194,15 @@ export class ForkedProcessTaskRunner {
     {
       streamOutput,
       temporaryOutputPath,
-    }: { streamOutput: boolean; temporaryOutputPath: string }
+    }: {
+      streamOutput: boolean;
+      temporaryOutputPath: string;
+    }
   ) {
     return new Promise<{ code: number; terminalOutput: string }>((res, rej) => {
       try {
         const args = getPrintableCommandArgsForTask(task);
-        const serializedArgs = getSerializedArgsForTask(
-          task,
-          task.overrides['verbose'] === true
-        );
+        const serializedArgs = getSerializedArgsForTask(task, this.verbose);
         if (streamOutput) {
           output.logCommand(args.join(' '));
           output.addNewline();
@@ -191,6 +217,14 @@ export class ForkedProcessTaskRunner {
           ),
         });
         this.processes.add(p);
+
+        // Re-emit any messages from the task process
+        p.on('message', (message) => {
+          if (process.send) {
+            process.send(message);
+          }
+        });
+
         p.on('exit', (code, signal) => {
           if (code === null) code = this.signalToCode(signal);
           // we didn't print any output as we were running the command
@@ -272,7 +306,10 @@ export class ForkedProcessTaskRunner {
     if (!outputPath) {
       delete res.NX_TERMINAL_OUTPUT_PATH;
       delete res.NX_STREAM_OUTPUT;
+      delete res.NX_PREFIX_OUTPUT;
     }
+    delete res.NX_BASE;
+    delete res.NX_HEAD;
     delete res.NX_SET_CLI;
     return res;
   }
@@ -309,6 +346,8 @@ export class ForkedProcessTaskRunner {
     const env: NodeJS.ProcessEnv = {
       NX_TASK_TARGET_PROJECT: task.target.project,
       NX_TASK_HASH: task.hash,
+      // used when Nx is invoked via Lerna
+      LERNA_PACKAGE_NAME: task.target.project,
     };
 
     // TODO: remove this once we have a reasonable way to configure it
@@ -356,7 +395,15 @@ export class ForkedProcessTaskRunner {
     return 128;
   }
 
-  private setupOnProcessExitListener() {
+  private setupProcessEventListeners() {
+    // When the nx process gets a message, it will be sent into the task's process
+    process.on('message', (message: Serializable) => {
+      this.processes.forEach((p) => {
+        p.send(message);
+      });
+    });
+
+    // Terminate any task processes on exit
     process.on('SIGINT', () => {
       this.processes.forEach((p) => {
         p.kill('SIGTERM');

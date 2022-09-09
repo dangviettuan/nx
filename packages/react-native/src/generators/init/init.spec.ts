@@ -1,13 +1,13 @@
-import { logger } from '@nrwl/devkit';
+import { NxJsonConfiguration } from '@nrwl/devkit';
 import { Tree, readJson, updateJson } from '@nrwl/devkit';
-import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
 import { reactNativeInitGenerator } from './init';
 
 describe('init', () => {
   let tree: Tree;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyV1Workspace();
     tree.write('.gitignore', '');
   });
 
@@ -36,36 +36,25 @@ describe('init', () => {
     expect(content).toMatch(/# Nested node_modules/);
   });
 
-  describe('defaultCollection', () => {
-    it('should be set if none was set before', async () => {
-      await reactNativeInitGenerator(tree, { e2eTestRunner: 'none' });
-      const { cli } = readJson(tree, 'nx.json');
-      expect(cli.defaultCollection).toEqual('@nrwl/react-native');
-    });
-
-    it('should not be set if something else was set before', async () => {
-      updateJson(tree, 'nx.json', (json) => {
-        json.cli = {
-          defaultCollection: '@nrwl/react',
-        };
-
-        json.targets = {};
-
-        return json;
-      });
-      await reactNativeInitGenerator(tree, { e2eTestRunner: 'none' });
-      const { cli } = readJson(tree, 'nx.json');
-      expect(cli.defaultCollection).toEqual('@nrwl/react');
-    });
-  });
-
   describe('babel config', () => {
     it('should create babel config if not present', async () => {
+      updateJson<NxJsonConfiguration>(tree, 'nx.json', (json) => {
+        json.namedInputs = {
+          sharedGlobals: ['{workspaceRoot}/exiting-file.json'],
+        };
+        return json;
+      });
+
       await reactNativeInitGenerator(tree, {
         unitTestRunner: 'none',
         e2eTestRunner: 'none',
       });
+
       expect(tree.exists('babel.config.json')).toBe(true);
+      const sharedGloabls = readJson<NxJsonConfiguration>(tree, 'nx.json')
+        .namedInputs.sharedGlobals;
+      expect(sharedGloabls).toContain('{workspaceRoot}/exiting-file.json');
+      expect(sharedGloabls).toContain('{workspaceRoot}/babel.config.json');
     });
 
     it('should not overwrite existing babel config', async () => {

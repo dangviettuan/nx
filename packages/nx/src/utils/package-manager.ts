@@ -4,9 +4,9 @@ import { remove } from 'fs-extra';
 import { dirname, join } from 'path';
 import { dirSync } from 'tmp';
 import { promisify } from 'util';
-import { readJsonFile, writeJsonFile } from './fileutils';
-import { PackageJson } from './package-json';
-import { gte } from 'semver';
+import { writeJsonFile } from './fileutils';
+import { readModulePackageJson } from './package-json';
+import { gte, lt } from 'semver';
 
 const execAsync = promisify(exec);
 
@@ -17,7 +17,6 @@ export interface PackageManagerCommands {
   ciInstall: string;
   add: string;
   addDev: string;
-  addGlobal: string;
   rm: string;
   exec: string;
   list: string;
@@ -50,32 +49,40 @@ export function getPackageManagerCommand(
   packageManager: PackageManager = detectPackageManager()
 ): PackageManagerCommands {
   const commands: { [pm in PackageManager]: () => PackageManagerCommands } = {
-    yarn: () => ({
-      install: 'yarn',
-      ciInstall: 'yarn --frozen-lockfile',
-      add: 'yarn add -W',
-      addDev: 'yarn add -D -W',
-      addGlobal: 'yarn global add',
-      rm: 'yarn remove',
-      exec: 'yarn',
-      run: (script: string, args: string) => `yarn ${script} ${args}`,
-      list: 'yarn list',
-    }),
+    yarn: () => {
+      const yarnVersion = getPackageManagerVersion('yarn');
+      const useBerry = gte(yarnVersion, '2.0.0');
+
+      return {
+        install: 'yarn',
+        ciInstall: useBerry
+          ? 'yarn install --immutable'
+          : 'yarn install --frozen-lockfile',
+        add: useBerry ? 'yarn add' : 'yarn add -W',
+        addDev: useBerry ? 'yarn add -D' : 'yarn add -D -W',
+        rm: 'yarn remove',
+        exec: useBerry ? 'yarn exec' : 'yarn',
+        run: (script: string, args: string) => `yarn ${script} ${args}`,
+        list: useBerry ? 'yarn info --name-only' : 'yarn list',
+      };
+    },
     pnpm: () => {
       const pnpmVersion = getPackageManagerVersion('pnpm');
-      let useExec = false;
-      if (gte(pnpmVersion, '6.13.0')) {
-        useExec = true;
-      }
+      const useExec = gte(pnpmVersion, '6.13.0');
+      const includeDoubleDashBeforeArgs = lt(pnpmVersion, '7.0.0');
+      const isPnpmWorkspace = existsSync('pnpm-workspace.yaml');
+
       return {
         install: 'pnpm install --no-frozen-lockfile', // explicitly disable in case of CI
         ciInstall: 'pnpm install --frozen-lockfile',
-        add: 'pnpm add',
-        addDev: 'pnpm add -D',
-        addGlobal: 'pnpm add -g',
+        add: isPnpmWorkspace ? 'pnpm add -w' : 'pnpm add',
+        addDev: isPnpmWorkspace ? 'pnpm add -Dw' : 'pnpm add -D',
         rm: 'pnpm rm',
         exec: useExec ? 'pnpm exec' : 'pnpx',
-        run: (script: string, args: string) => `pnpm run ${script} -- ${args}`,
+        run: (script: string, args: string) =>
+          includeDoubleDashBeforeArgs
+            ? `pnpm run ${script} -- ${args}`
+            : `pnpm run ${script} ${args}`,
         list: 'pnpm ls --depth 100',
       };
     },
@@ -87,7 +94,6 @@ export function getPackageManagerCommand(
         ciInstall: 'npm ci',
         add: 'npm install',
         addDev: 'npm install -D',
-        addGlobal: 'npm install -g',
         rm: 'npm rm',
         exec: 'npx',
         run: (script: string, args: string) => `npm run ${script} -- ${args}`,
@@ -197,11 +203,9 @@ export async function resolvePackageVersionUsingInstallation(
     const pmc = getPackageManagerCommand();
     await execAsync(`${pmc.add} ${packageName}@${version}`, { cwd: dir });
 
-    const packageJsonPath = require.resolve(`${packageName}/package.json`, {
-      paths: [dir],
-    });
+    const { packageJson } = readModulePackageJson(packageName, [dir]);
 
-    return readJsonFile<PackageJson>(packageJsonPath).version;
+    return packageJson.version;
   } finally {
     await cleanup();
   }

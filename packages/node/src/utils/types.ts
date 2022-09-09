@@ -59,11 +59,20 @@ export interface AdditionalEntryPoint {
   entryPath: string;
 }
 
+export interface WebpackWatchOptions {
+  aggregateTimeout?: number;
+  ignored?: Array<string> | string;
+  poll?: number;
+  followSymlinks?: boolean;
+  stdin?: boolean;
+}
+
 export interface BuildBuilderOptions {
   main: string;
   outputPath: string;
   tsConfig: string;
   watch?: boolean;
+  watchOptions?: WebpackWatchOptions;
   sourceMap?: boolean | SourceMapOptions;
   optimization?: boolean | OptimizationOptions;
   maxWorkers?: number;
@@ -96,6 +105,7 @@ export interface BuildNodeBuilderOptions extends BuildBuilderOptions {
   externalDependencies: 'all' | 'none' | string[];
   buildLibsFromSource?: boolean;
   generatePackageJson?: boolean;
+  deleteOutputPath?: boolean;
 }
 
 export interface NormalizedBuildNodeBuilderOptions

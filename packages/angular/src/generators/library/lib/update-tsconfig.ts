@@ -7,7 +7,10 @@ import {
 import { getRootTsConfigPathInTree } from '@nrwl/workspace/src/utilities/typescript';
 import { NormalizedSchema } from './normalized-schema';
 
-function updateRootConfig(host: Tree, options: NormalizedSchema) {
+function updateRootConfig(
+  host: Tree,
+  options: NormalizedSchema['libraryOptions']
+) {
   updateJson(host, getRootTsConfigPathInTree(host), (json) => {
     const c = json.compilerOptions;
     c.paths = c.paths || {};
@@ -31,17 +34,34 @@ function updateRootConfig(host: Tree, options: NormalizedSchema) {
   });
 }
 
-function updateProjectConfig(host: Tree, options: NormalizedSchema) {
+function updateProjectConfig(
+  host: Tree,
+  options: NormalizedSchema['libraryOptions']
+) {
   updateJson(host, `${options.projectRoot}/tsconfig.lib.json`, (json) => {
     json.include = ['**/*.ts'];
     json.exclude = [
-      ...new Set([...(json.exclude || []), '**/*.test.ts', '**/*.spec.ts']),
+      ...new Set([
+        ...(json.exclude || []),
+        'jest.config.ts',
+        '**/*.test.ts',
+        '**/*.spec.ts',
+      ]),
     ];
     return json;
   });
+
+  // tsconfig.json
+  updateJson(host, `${options.projectRoot}/tsconfig.json`, (json) => ({
+    ...json,
+    compilerOptions: { ...json.compilerOptions, target: 'es2020' },
+  }));
 }
 
-function updateProjectIvyConfig(host: Tree, options: NormalizedSchema) {
+function updateProjectIvyConfig(
+  host: Tree,
+  options: NormalizedSchema['libraryOptions']
+) {
   if (options.buildable || options.publishable) {
     return updateJson(
       host,
@@ -55,7 +75,10 @@ function updateProjectIvyConfig(host: Tree, options: NormalizedSchema) {
   }
 }
 
-export function updateTsConfig(host: Tree, options: NormalizedSchema) {
+export function updateTsConfig(
+  host: Tree,
+  options: NormalizedSchema['libraryOptions']
+) {
   updateRootConfig(host, options);
   updateProjectConfig(host, options);
   updateProjectIvyConfig(host, options);

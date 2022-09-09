@@ -1,5 +1,5 @@
 import * as chalk from 'chalk';
-import { workspaceRoot } from '../utils/app-root';
+import { workspaceRoot } from '../utils/workspace-root';
 import { output } from '../utils/output';
 import { join } from 'path';
 import {
@@ -7,6 +7,12 @@ import {
   getPackageManagerVersion,
 } from '../utils/package-manager';
 import { readJsonFile } from '../utils/fileutils';
+import { PackageJson, readModulePackageJson } from '../utils/package-json';
+import { getLocalWorkspacePlugins } from '../utils/plugins/local-plugins';
+import {
+  createProjectGraphAsync,
+  readProjectsConfigurationFromProjectGraph,
+} from '../project-graph/project-graph';
 
 export const packagesWeCareAbout = [
   'nx',
@@ -31,7 +37,6 @@ export const packagesWeCareAbout = [
   '@nrwl/web',
   '@nrwl/workspace',
   'typescript',
-  'rxjs',
 ];
 
 export const patternsWeIgnoreInCommunityReport: Array<string | RegExp> = [
@@ -49,7 +54,7 @@ export const patternsWeIgnoreInCommunityReport: Array<string | RegExp> = [
  * Must be run within an Nx workspace
  *
  */
-export function reportHandler() {
+export async function reportHandler() {
   const pm = detectPackageManager();
   const pmVersion = getPackageManagerVersion(pm);
 
@@ -66,6 +71,22 @@ export function reportHandler() {
 
   bodyLines.push('---------------------------------------');
 
+  try {
+    const projectGraph = await createProjectGraphAsync({ exitOnError: true });
+    bodyLines.push('Local workspace plugins:');
+    const plugins = getLocalWorkspacePlugins(
+      readProjectsConfigurationFromProjectGraph(projectGraph)
+    ).keys();
+    for (const plugin of plugins) {
+      bodyLines.push(`\t ${chalk.green(plugin)}`);
+    }
+    bodyLines.push(...plugins);
+  } catch {
+    bodyLines.push('Unable to construct project graph');
+  }
+
+  bodyLines.push('---------------------------------------');
+
   const communityPlugins = findInstalledCommunityPlugins();
   bodyLines.push('Community plugins:');
   communityPlugins.forEach((p) => {
@@ -78,19 +99,16 @@ export function reportHandler() {
   });
 }
 
-export function readPackageJson(p: string) {
+export function readPackageJson(p: string): PackageJson | null {
   try {
-    const packageJsonPath = require.resolve(`${p}/package.json`, {
-      paths: [workspaceRoot],
-    });
-    return readJsonFile(packageJsonPath);
+    return readModulePackageJson(p).packageJson;
   } catch {
-    return {};
+    return null;
   }
 }
 
 export function readPackageVersion(p: string): string {
-  return readPackageJson(p).version || 'Not Found';
+  return readPackageJson(p)?.version || 'Not Found';
 }
 
 export function findInstalledCommunityPlugins(): {
@@ -117,7 +135,8 @@ export function findInstalledCommunityPlugins(): {
         return arr;
       }
       try {
-        const depPackageJson = readPackageJson(nextDep);
+        const depPackageJson: Partial<PackageJson> =
+          readPackageJson(nextDep) || {};
         if (
           [
             'ng-update',

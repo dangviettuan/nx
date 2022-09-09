@@ -6,6 +6,9 @@ import {
   names,
   writeJson,
   formatFiles,
+  getPackageManagerVersion,
+  PackageManager,
+  NxJsonConfiguration,
 } from '@nrwl/devkit';
 import { Schema } from './schema';
 import {
@@ -33,13 +36,10 @@ function decorateAngularClI(host: Tree, options: Schema) {
 
 function setPresetProperty(tree: Tree, options: Schema) {
   updateJson(tree, join(options.directory, 'nx.json'), (json) => {
-    if (
-      options.preset === Preset.Core ||
-      options.preset === Preset.TS ||
-      options.preset === Preset.NPM
-    ) {
-      addPropertyWithStableKeys(json, 'extends', 'nx/presets/core.json');
+    if (options.preset === Preset.Core || options.preset === Preset.NPM) {
+      addPropertyWithStableKeys(json, 'extends', 'nx/presets/npm.json');
       delete json.implicitDependencies;
+      delete json.targetDefaults;
       delete json.targetDependencies;
       delete json.workspaceLayout;
     }
@@ -60,8 +60,55 @@ function createAppsAndLibsFolders(host: Tree, options: Schema) {
   }
 }
 
+function createNxJson(
+  host: Tree,
+  { directory, npmScope, cli, packageManager, defaultBase, preset }: Schema
+) {
+  const nxJson: NxJsonConfiguration & { $schema: string } = {
+    $schema: './node_modules/nx/schemas/nx-schema.json',
+    npmScope: npmScope,
+    affected: {
+      defaultBase,
+    },
+    tasksRunnerOptions: {
+      default: {
+        runner: 'nx/tasks-runners/default',
+        options: {
+          cacheableOperations: ['build', 'lint', 'test', 'e2e'],
+        },
+      },
+    },
+  };
+
+  nxJson.targetDefaults = {
+    build: {
+      dependsOn: ['^build'],
+    },
+  };
+
+  if (
+    preset !== Preset.Core &&
+    preset !== Preset.NPM &&
+    preset !== Preset.Empty
+  ) {
+    nxJson.namedInputs = {
+      default: ['{projectRoot}/**/*', 'sharedGlobals'],
+      production: ['default'],
+      sharedGlobals: [],
+    };
+    nxJson.targetDefaults.build.inputs = ['production', '^production'];
+  }
+
+  if (packageManager && cli === 'angular') {
+    nxJson.cli = {
+      packageManager: packageManager,
+    };
+  }
+
+  writeJson<NxJsonConfiguration>(host, join(directory, 'nx.json'), nxJson);
+}
+
 function createFiles(host: Tree, options: Schema) {
-  const npmScope = options.npmScope ?? options.name;
   const formattedNames = names(options.name);
   generateFiles(host, pathJoin(__dirname, './files'), options.directory, {
     formattedNames,
@@ -76,7 +123,6 @@ function createFiles(host: Tree, options: Schema) {
     angularCliVersion,
     ...(options as object),
     nxVersion,
-    npmScope,
     packageManager: options.packageManager,
   });
 }
@@ -86,6 +132,22 @@ function createPrettierrc(host: Tree, options: Schema) {
     host,
     join(options.directory, '.prettierrc'),
     DEFAULT_NRWL_PRETTIER_CONFIG
+  );
+}
+
+// ensure that pnpm install add all the missing peer deps
+function createNpmrc(host: Tree, options: Schema) {
+  host.write(
+    join(options.directory, '.npmrc'),
+    'strict-peer-dependencies=false\nauto-install-peers=true\n'
+  );
+}
+
+// ensure that yarn (berry) install uses classic node linker
+function createYarnrcYml(host: Tree, options: Schema) {
+  host.write(
+    join(options.directory, '.yarnrc.yml'),
+    'nodeLinker: node-modules\n'
   );
 }
 
@@ -142,9 +204,18 @@ export async function workspaceGenerator(host: Tree, options: Schema) {
   }
   options = normalizeOptions(options);
   createFiles(host, options);
+  createNxJson(host, options);
   createPrettierrc(host, options);
   if (options.cli === 'angular') {
     decorateAngularClI(host, options);
+  }
+  const [packageMajor] = getPackageManagerVersion(
+    options.packageManager as PackageManager
+  ).split('.');
+  if (options.packageManager === 'pnpm' && +packageMajor >= 7) {
+    createNpmrc(host, options);
+  } else if (options.packageManager === 'yarn' && +packageMajor >= 2) {
+    createYarnrcYml(host, options);
   }
   setPresetProperty(host, options);
   addNpmScripts(host, options);
@@ -170,6 +241,7 @@ function addPropertyWithStableKeys(obj: any, key: string, value: string) {
 function normalizeOptions(options: Schema) {
   let defaultBase = options.defaultBase || deduceDefaultBase();
   return {
+    npmScope: options.name,
     ...options,
     defaultBase,
   };

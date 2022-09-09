@@ -39,14 +39,6 @@ describe('init', () => {
     expect(packageJson.dependencies[existing]).toBeDefined();
   });
 
-  describe('defaultCollection', () => {
-    it('should be set if none was set before', async () => {
-      await webInitGenerator(tree, {});
-      const { cli } = readJson<NxJsonConfiguration>(tree, 'nx.json');
-      expect(cli.defaultCollection).toEqual('@nrwl/web');
-    });
-  });
-
   it('should not add jest config if unitTestRunner is none', async () => {
     await webInitGenerator(tree, {
       unitTestRunner: 'none',
@@ -56,10 +48,22 @@ describe('init', () => {
 
   describe('babel config', () => {
     it('should create babel config if not present', async () => {
+      updateJson<NxJsonConfiguration>(tree, 'nx.json', (json) => {
+        json.namedInputs = {
+          sharedGlobals: ['{workspaceRoot}/exiting-file.json'],
+        };
+        return json;
+      });
+
       await webInitGenerator(tree, {
         unitTestRunner: 'none',
       });
+
       expect(tree.exists('babel.config.json')).toBe(true);
+      const sharedGloabls = readJson<NxJsonConfiguration>(tree, 'nx.json')
+        .namedInputs.sharedGlobals;
+      expect(sharedGloabls).toContain('{workspaceRoot}/exiting-file.json');
+      expect(sharedGloabls).toContain('{workspaceRoot}/babel.config.json');
     });
 
     it('should not overwrite existing babel config', async () => {

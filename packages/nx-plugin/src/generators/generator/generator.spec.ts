@@ -1,5 +1,6 @@
-import { readJson, Tree } from '@nrwl/devkit';
+import { readJson, readProjectConfiguration, Tree } from '@nrwl/devkit';
 import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
+import { libraryGenerator } from '@nrwl/js';
 import { pluginGenerator } from '../plugin/plugin';
 import { generatorGenerator } from './generator';
 
@@ -9,7 +10,7 @@ describe('NxPlugin Generator Generator', () => {
 
   beforeEach(async () => {
     projectName = 'my-plugin';
-    tree = createTreeWithEmptyWorkspace(2);
+    tree = createTreeWithEmptyWorkspace();
     await pluginGenerator(tree, {
       name: projectName,
     } as any);
@@ -56,6 +57,56 @@ describe('NxPlugin Generator Generator', () => {
     );
     expect(generatorJson.generators['my-generator'].description).toEqual(
       'my-generator description'
+    );
+  });
+
+  it('should update generators.json with the same path as where the generator files folder is located', async () => {
+    const generatorName = 'myGenerator';
+    const generatorFileName = 'my-generator';
+
+    await generatorGenerator(tree, {
+      project: projectName,
+      name: generatorName,
+      description: 'my-generator description',
+      unitTestRunner: 'jest',
+    });
+
+    const generatorJson = readJson(tree, 'libs/my-plugin/generators.json');
+
+    expect(
+      tree.exists(
+        `libs/my-plugin/src/generators/${generatorFileName}/schema.d.ts`
+      )
+    ).toBeTruthy();
+
+    expect(generatorJson.generators[generatorName].factory).toEqual(
+      `./src/generators/${generatorFileName}/generator`
+    );
+    expect(generatorJson.generators[generatorName].schema).toEqual(
+      `./src/generators/${generatorFileName}/schema.json`
+    );
+    expect(generatorJson.generators[generatorName].description).toEqual(
+      `${generatorFileName} description`
+    );
+  });
+
+  it('should create generators.json if it is not present', async () => {
+    await libraryGenerator(tree, {
+      name: 'test-js-lib',
+      buildable: true,
+    });
+    const libConfig = readProjectConfiguration(tree, 'test-js-lib');
+    await generatorGenerator(tree, {
+      project: 'test-js-lib',
+      name: 'test-generator',
+      unitTestRunner: 'jest',
+    });
+
+    expect(() =>
+      tree.exists(`${libConfig.root}/generators.json`)
+    ).not.toThrow();
+    expect(readJson(tree, `${libConfig.root}/package.json`).generators).toBe(
+      'generators.json'
     );
   });
 

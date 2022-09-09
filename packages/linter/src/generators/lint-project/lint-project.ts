@@ -6,8 +6,10 @@ import {
   updateProjectConfiguration,
   writeJson,
 } from '@nrwl/devkit';
-import { join } from 'path';
+
 import { Linter } from '../utils/linter';
+import { findEslintFile } from '../utils/eslint-file';
+import { join } from 'path';
 import { lintInitGenerator } from '../init/init';
 
 interface LintProjectOptions {
@@ -18,6 +20,7 @@ interface LintProjectOptions {
   skipFormat: boolean;
   setParserOptionsProject?: boolean;
   skipPackageJson?: boolean;
+  unitTestRunner?: string;
 }
 
 function createTsLintConfiguration(
@@ -39,8 +42,11 @@ function createEsLintConfiguration(
   projectConfig: ProjectConfiguration,
   setParserOptionsProject: boolean
 ) {
+  const eslintConfig = findEslintFile(tree);
   writeJson(tree, join(projectConfig.root, `.eslintrc.json`), {
-    extends: [`${offsetFromRoot(projectConfig.root)}.eslintrc.json`],
+    extends: eslintConfig
+      ? [`${offsetFromRoot(projectConfig.root)}${eslintConfig}`]
+      : undefined,
     // Include project files to be linted since the global one excludes all files.
     ignorePatterns: ['!**/*'],
     overrides: [
@@ -88,6 +94,7 @@ export async function lintProjectGenerator(
 ) {
   const installTask = lintInitGenerator(tree, {
     linter: options.linter,
+    unitTestRunner: options.unitTestRunner,
     skipPackageJson: options.skipPackageJson,
   });
   const projectConfig = readProjectConfiguration(tree, options.project);

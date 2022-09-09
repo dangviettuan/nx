@@ -1,1 +1,2 @@
-export { appRootPath, workspaceRoot } from 'nx/src/utils/app-root';
+// TODO(v15): Remove this file
+export { appRootPath, workspaceRoot } from '@nrwl/devkit';

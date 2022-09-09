@@ -4,7 +4,7 @@ import {
   getProjects,
   readJson,
 } from '@nrwl/devkit';
-import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
 import { Linter } from '@nrwl/linter';
 import { reactNativeApplicationGenerator } from './application';
 
@@ -12,7 +12,7 @@ describe('app', () => {
   let appTree: Tree;
 
   beforeEach(() => {
-    appTree = createTreeWithEmptyWorkspace();
+    appTree = createTreeWithEmptyV1Workspace();
     appTree.write('.gitignore', '');
   });
 
@@ -22,6 +22,7 @@ describe('app', () => {
       displayName: 'myApp',
       linter: Linter.EsLint,
       e2eTestRunner: 'none',
+      install: false,
     });
     const workspaceJson = readWorkspaceConfiguration(appTree);
     const projects = getProjects(appTree);
@@ -37,6 +38,7 @@ describe('app', () => {
       tags: 'one,two',
       linter: Linter.EsLint,
       e2eTestRunner: 'none',
+      install: false,
     });
 
     const { projects } = readJson(appTree, '/workspace.json');
@@ -53,6 +55,7 @@ describe('app', () => {
       displayName: 'myApp',
       linter: Linter.EsLint,
       e2eTestRunner: 'none',
+      install: false,
     });
     expect(appTree.exists('apps/my-app/src/app/App.tsx')).toBeTruthy();
     expect(appTree.exists('apps/my-app/src/main.tsx')).toBeTruthy();
@@ -71,6 +74,7 @@ describe('app', () => {
       displayName: 'myApp',
       linter: Linter.EsLint,
       e2eTestRunner: 'none',
+      install: false,
     });
 
     const tsconfig = readJson(appTree, 'apps/my-app/tsconfig.json');

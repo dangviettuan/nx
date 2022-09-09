@@ -1,4 +1,5 @@
-module.exports = {
+/* eslint-disable */
+export default {
   displayName: 'typedoc-theme',
 
   globals: {
@@ -12,5 +13,5 @@ module.exports = {
   resolver: '../scripts/patched-jest-resolver.js',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
   coverageDirectory: '../coverage/typedoc-theme',
-  preset: '../jest.preset.ts',
+  preset: '../jest.preset.js',
 };

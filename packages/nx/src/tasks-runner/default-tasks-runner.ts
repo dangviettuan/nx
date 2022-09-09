@@ -1,12 +1,13 @@
 import { TasksRunner, TaskStatus } from './tasks-runner';
 import { TaskOrchestrator } from './task-orchestrator';
 import { performance } from 'perf_hooks';
-import { TaskGraphCreator } from './task-graph-creator';
 import { Hasher } from '../hasher/hasher';
 import { LifeCycle } from './life-cycle';
 import { ProjectGraph } from '../config/project-graph';
 import { NxJsonConfiguration } from '../config/nx-json';
-import { Task } from '../config/task-graph';
+import { Task, TaskGraph } from '../config/task-graph';
+import { NxArgs } from '../utils/command-line-utils';
+import { DaemonClient } from '../daemon/client/client';
 
 export interface RemoteCache {
   retrieve: (hash: string, cacheDirectory: string) => Promise<boolean>;
@@ -35,6 +36,10 @@ export const defaultTasksRunner: TasksRunner<
     initiatingProject?: string;
     projectGraph: ProjectGraph;
     nxJson: NxJsonConfiguration;
+    nxArgs: NxArgs;
+    taskGraph: TaskGraph;
+    hasher: Hasher;
+    daemon: DaemonClient;
   }
 ): Promise<{ [id: string]: TaskStatus }> => {
   if (
@@ -53,10 +58,6 @@ export const defaultTasksRunner: TasksRunner<
   options.lifeCycle.startCommand();
   try {
     return await runAllTasks(tasks, options, context);
-  } catch (e) {
-    console.error('Unexpected error:');
-    console.error(e);
-    process.exit(1);
   } finally {
     options.lifeCycle.endCommand();
   }
@@ -69,17 +70,13 @@ async function runAllTasks(
     initiatingProject?: string;
     projectGraph: ProjectGraph;
     nxJson: NxJsonConfiguration;
+    nxArgs: NxArgs;
+    taskGraph: TaskGraph;
+    hasher: Hasher;
+    daemon: DaemonClient;
   }
 ): Promise<{ [id: string]: TaskStatus }> {
-  const defaultTargetDependencies = context.nxJson.targetDependencies ?? {};
-
-  const taskGraphCreator = new TaskGraphCreator(
-    context.projectGraph,
-    defaultTargetDependencies
-  );
-
-  const taskGraph = taskGraphCreator.createTaskGraph(tasks);
-
+  // TODO: vsavkin: remove this after Nx 16
   performance.mark('task-graph-created');
 
   performance.measure('nx-prep-work', 'init-local', 'task-graph-created');
@@ -89,14 +86,14 @@ async function runAllTasks(
     'task-graph-created'
   );
 
-  const hasher = new Hasher(context.projectGraph, context.nxJson, options);
-
   const orchestrator = new TaskOrchestrator(
-    hasher,
+    context.hasher,
     context.initiatingProject,
     context.projectGraph,
-    taskGraph,
-    options
+    context.taskGraph,
+    options,
+    context.nxArgs?.nxBail,
+    context.daemon
   );
 
   return orchestrator.run();

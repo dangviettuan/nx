@@ -1,19 +1,17 @@
 import * as rollup from 'rollup';
 import * as peerDepsExternal from 'rollup-plugin-peer-deps-external';
 import { getBabelInputPlugin } from '@rollup/plugin-babel';
-import { join, relative } from 'path';
+import { join } from 'path';
 import { from, Observable, of } from 'rxjs';
 import { catchError, concatMap, last, scan, tap } from 'rxjs/operators';
-import { eachValueFrom } from 'rxjs-for-await';
+import { eachValueFrom } from '@nrwl/devkit/src/utils/rxjs-for-await';
 import * as autoprefixer from 'autoprefixer';
-import type { ExecutorContext, ProjectGraphProjectNode } from '@nrwl/devkit';
-import { logger, names, readJsonFile, writeJsonFile } from '@nrwl/devkit';
-import { readCachedProjectGraph } from '@nrwl/devkit';
+import type { ExecutorContext } from '@nrwl/devkit';
+import { logger, names, readJsonFile } from '@nrwl/devkit';
 import {
   calculateProjectDependencies,
   computeCompilerOptionsPaths,
   DependentBuildableProjectNode,
-  updateBuildableProjectPackageJsonDependencies,
 } from '@nrwl/workspace/src/utilities/buildable-libs-utils';
 import resolve from '@rollup/plugin-node-resolve';
 
@@ -28,25 +26,27 @@ import { analyze } from './lib/analyze-plugin';
 import { deleteOutputDir } from '../../utils/fs';
 import { swc } from './lib/swc-plugin';
 import { validateTypes } from './lib/validate-types';
+import { updatePackageJson } from './lib/update-package-json';
 
 // These use require because the ES import isn't correct.
 const commonjs = require('@rollup/plugin-commonjs');
 const image = require('@rollup/plugin-image');
+
 const json = require('@rollup/plugin-json');
 const copy = require('rollup-plugin-copy');
 const postcss = require('rollup-plugin-postcss');
 
 const fileExtensions = ['.js', '.jsx', '.ts', '.tsx'];
-
 export default async function* rollupExecutor(
   rawOptions: WebRollupOptions,
   context: ExecutorContext
 ) {
+  process.env.NODE_ENV ??= 'production';
+
   const project = context.workspace.projects[context.projectName];
-  const projectGraph = readCachedProjectGraph();
   const sourceRoot = project.sourceRoot;
   const { target, dependencies } = calculateProjectDependencies(
-    projectGraph,
+    context.projectGraph,
     context.root,
     context.projectName,
     context.targetName,
@@ -59,9 +59,20 @@ export default async function* rollupExecutor(
     context.root,
     sourceRoot
   );
+
+  // TODO(jack): Remove UMD in Nx 15
+  if (options.format.includes('umd')) {
+    if (options.format.includes('cjs')) {
+      throw new Error(
+        'Cannot use both UMD and CJS. We recommend you use ESM or CJS.'
+      );
+    } else {
+      logger.warn('UMD format is deprecated and will be removed in Nx 15');
+    }
+  }
   const packageJson = readJsonFile(options.project);
 
-  const npmDeps = (projectGraph.dependencies[context.projectName] ?? [])
+  const npmDeps = (context.projectGraph.dependencies[context.projectName] ?? [])
     .filter((d) => d.target.startsWith('npm:'))
     .map((d) => d.target.slice(4));
 
@@ -188,6 +199,7 @@ export function createRollupOptions(
         ),
       }),
       image(),
+      json(),
       useBabel &&
         require('rollup-plugin-typescript2')({
           check: true,
@@ -196,7 +208,6 @@ export function createRollupOptions(
             compilerOptions: createCompilerOptions(options, dependencies),
           },
         }),
-      useSwc && swc(),
       peerDepsExternal({
         packageJsonPath: options.project,
       }),
@@ -205,11 +216,17 @@ export function createRollupOptions(
         extract: options.extractCss,
         autoModules: true,
         plugins: [autoprefixer],
+        use: {
+          less: {
+            javascriptEnabled: options.javascriptEnabled,
+          },
+        },
       }),
       resolve({
         preferBuiltins: true,
         extensions: fileExtensions,
       }),
+      useSwc && swc(),
       useBabel &&
         getBabelInputPlugin({
           // Let's `@nrwl/web/babel` preset know that we are packaging.
@@ -236,7 +253,6 @@ export function createRollupOptions(
         }),
       commonjs(),
       analyze(),
-      json(),
     ];
 
     const globals = options.globals
@@ -261,8 +277,8 @@ export function createRollupOptions(
         format,
         dir: `${options.outputPath}`,
         name: options.umdName || names(context.projectName).className,
-        entryFileNames: `[name].${format}.js`,
-        chunkFileNames: `[name].${format}.js`,
+        entryFileNames: `[name].${format === 'esm' ? 'js' : 'cjs'}`,
+        chunkFileNames: `[name].${format === 'esm' ? 'js' : 'cjs'}`,
         // umd doesn't support code-split bundles
         inlineDynamicImports: format === 'umd',
       },
@@ -291,43 +307,6 @@ function createCompilerOptions(options, dependencies) {
     declaration: true,
     paths: compilerOptionPaths,
   };
-}
-
-function updatePackageJson(
-  options: NormalizedWebRollupOptions,
-  context: ExecutorContext,
-  target: ProjectGraphProjectNode,
-  dependencies: DependentBuildableProjectNode[],
-  packageJson: any
-) {
-  const entryFileTmpl = `./index.<%= extension %>.js`;
-  const typingsFile = relative(options.entryRoot, options.entryFile).replace(
-    /\.[jt]sx?$/,
-    '.d.ts'
-  );
-  if (options.format.includes('umd')) {
-    packageJson.main = entryFileTmpl.replace('<%= extension %>', 'umd');
-  } else if (options.format.includes('cjs')) {
-    packageJson.main = entryFileTmpl.replace('<%= extension %>', 'cjs');
-  }
-  packageJson.module = entryFileTmpl.replace('<%= extension %>', 'esm');
-  packageJson.typings = `./${typingsFile}`;
-  writeJsonFile(`${options.outputPath}/package.json`, packageJson);
-
-  if (
-    dependencies.length > 0 &&
-    options.updateBuildableProjectDepsInPackageJson
-  ) {
-    updateBuildableProjectPackageJsonDependencies(
-      context.root,
-      context.projectName,
-      context.targetName,
-      context.configurationName,
-      target,
-      dependencies,
-      options.buildableProjectDepsInPackageJsonType
-    );
-  }
 }
 
 interface RollupCopyAssetOption {

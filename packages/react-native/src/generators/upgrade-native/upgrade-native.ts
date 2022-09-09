@@ -22,9 +22,16 @@ export async function reactNativeUpgradeNativeGenerator(
   host: Tree,
   schema: UpgradeNativeConfigureSchema
 ): Promise<GeneratorCallback> {
-  const { projectType, root } = readProjectConfiguration(host, schema.name);
-  const iosProjectRoot = joinPathFragments(host.root, root, 'ios');
-  const androidProjectRoot = joinPathFragments(host.root, root, 'android');
+  const { projectType, root: appProjectRoot } = readProjectConfiguration(
+    host,
+    schema.name
+  );
+  const iosProjectRoot = joinPathFragments(host.root, appProjectRoot, 'ios');
+  const androidProjectRoot = joinPathFragments(
+    host.root,
+    appProjectRoot,
+    'android'
+  );
 
   if (
     projectType !== 'application' ||
@@ -34,12 +41,9 @@ export async function reactNativeUpgradeNativeGenerator(
     throw new Error(`Could not upgrade React Native code for ${schema.name}`);
   }
 
-  removeSync(iosProjectRoot);
-  removeSync(androidProjectRoot);
+  createNativeFiles(host, schema, appProjectRoot);
 
-  createNativeFiles(host, schema, root);
-
-  const podInstallTask = runPodInstall(iosProjectRoot);
+  const podInstallTask = runPodInstall(iosProjectRoot, schema.install);
   const chmodTaskGradlew = runChmod(join(androidProjectRoot, 'gradlew'), 0o775);
   const chmodTaskGradlewBat = runChmod(
     join(androidProjectRoot, 'gradlew.bat'),

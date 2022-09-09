@@ -6,7 +6,7 @@ import {
   Tree,
 } from '@nrwl/devkit';
 import { initGenerator as nodeInitGenerator } from '@nrwl/node';
-import { setDefaultCollection } from '@nrwl/workspace/src/utilities/set-default-collection';
+import { tslibVersion } from '@nrwl/node/src/utils/versions';
 import {
   expressTypingsVersion,
   expressVersion,
@@ -21,6 +21,7 @@ function updateDependencies(tree: Tree) {
     tree,
     {
       express: expressVersion,
+      tslib: tslibVersion,
     },
     {
       '@types/express': expressTypingsVersion,
@@ -30,8 +31,6 @@ function updateDependencies(tree: Tree) {
 }
 
 export async function initGenerator(tree: Tree, schema: Schema) {
-  setDefaultCollection(tree, '@nrwl/express');
-
   const initTask = await nodeInitGenerator(tree, schema);
   const installTask = updateDependencies(tree);
   if (!schema.skipFormat) {

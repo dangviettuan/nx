@@ -15,8 +15,8 @@ import {
   readJson,
   writeJson,
 } from '@nrwl/devkit';
+import { getImportPath } from 'nx/src/utils/path';
 import { jestProjectGenerator } from '@nrwl/jest';
-import { findRootJestPreset } from '@nrwl/jest/src/utils/config/find-root-jest-files';
 import { Linter, lintProjectGenerator } from '@nrwl/linter';
 import { runTasksInSerial } from '@nrwl/workspace/src/utilities/run-tasks-in-serial';
 import {
@@ -155,6 +155,7 @@ export function addLint(
     tsConfigPaths: [
       joinPathFragments(options.projectRoot, 'tsconfig.lib.json'),
     ],
+    unitTestRunner: options.unitTestRunner,
     eslintFilePatterns: [
       `${options.projectRoot}/**/*.${options.js ? 'js' : 'ts'}`,
     ],
@@ -216,7 +217,6 @@ function addBabelRc(tree: Tree, options: NormalizedSchema) {
 
 function createFiles(tree: Tree, options: NormalizedSchema, filesDir: string) {
   const { className, name, propertyName } = names(options.name);
-
   generateFiles(tree, filesDir, options.projectRoot, {
     ...options,
     dot: '.',
@@ -290,10 +290,19 @@ function replaceJestConfig(
   options: NormalizedSchema,
   filesDir: string
 ) {
+  // the existing config has to be deleted otherwise the new config won't overwrite it
+  const existingJestConfig = joinPathFragments(
+    filesDir,
+    `jest.config.${options.js ? 'js' : 'ts'}`
+  );
+  if (tree.exists(existingJestConfig)) {
+    tree.delete(existingJestConfig);
+  }
+
   // replace with JS:SWC specific jest config
   generateFiles(tree, filesDir, options.projectRoot, {
-    tmpl: '',
-    ext: findRootJestPreset(tree) === 'jest.preset.js' ? 'js' : 'ts',
+    ext: options.js ? 'js' : 'ts',
+    js: !!options.js,
     project: options.name,
     offsetFromRoot: offsetFromRoot(options.projectRoot),
     projectRoot: options.projectRoot,
@@ -352,8 +361,8 @@ function normalizeOptions(
     ? options.tags.split(',').map((s) => s.trim())
     : [];
 
-  const defaultImportPath = `@${npmScope}/${projectDirectory}`;
-  const importPath = options.importPath || defaultImportPath;
+  const importPath =
+    options.importPath || getImportPath(npmScope, projectDirectory);
 
   return {
     ...options,

@@ -1,5 +1,5 @@
 import { NxJsonConfiguration, readJson, Tree } from '@nrwl/devkit';
-import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
 import { Linter } from '@nrwl/linter';
 
 import init from './init';
@@ -10,7 +10,7 @@ describe('init', () => {
   let host: Tree;
 
   beforeEach(() => {
-    host = createTreeWithEmptyWorkspace();
+    host = createTreeWithEmptyV1Workspace();
   });
 
   it('should add angular dependencies', async () => {
@@ -42,7 +42,7 @@ describe('init', () => {
     expect(devDependencies['codelyzer']).toBeUndefined();
   });
 
-  it('should add a postinstall script for ngcc', async () => {
+  it('should add a postinstall script for ngcc by default', async () => {
     // ACT
     await init(host, {
       unitTestRunner: UnitTestRunner.Karma,
@@ -54,8 +54,23 @@ describe('init', () => {
 
     // ASSERT
     expect(packageJson.scripts.postinstall).toEqual(
-      'ngcc --properties es2015 browser module main'
+      'ngcc --properties es2020 browser module main'
     );
+  });
+
+  it('should not add a postinstall script for ngcc if skipPostInstall=true', async () => {
+    // ACT
+    await init(host, {
+      unitTestRunner: UnitTestRunner.Karma,
+      linter: Linter.EsLint,
+      skipFormat: false,
+      skipPostInstall: true,
+    });
+
+    const packageJson = readJson(host, 'package.json');
+
+    // ASSERT
+    expect(packageJson?.scripts?.postinstall).toBeFalsy();
   });
 
   describe('--unit-test-runner', () => {
@@ -278,42 +293,6 @@ describe('init', () => {
         expect(generators['@nrwl/angular:library'].linter).toEqual('none');
       });
     });
-  });
-
-  describe('defaultCollection', () => {
-    it('should be set if none was set before', async () => {
-      // ACT
-      await init(host, {
-        unitTestRunner: UnitTestRunner.Jest,
-        e2eTestRunner: E2eTestRunner.Cypress,
-        linter: Linter.EsLint,
-        skipFormat: false,
-      });
-
-      const { cli } = readJson<NxJsonConfiguration>(host, 'nx.json');
-
-      // ASSERT
-      expect(cli.defaultCollection).toEqual('@nrwl/angular');
-    });
-
-    it.each(['css', 'scss', 'less'])(
-      'should set "%s" as default style extension for components',
-      async (style: Styles) => {
-        // ACT
-        await init(host, {
-          unitTestRunner: UnitTestRunner.Jest,
-          e2eTestRunner: E2eTestRunner.Cypress,
-          linter: Linter.EsLint,
-          skipFormat: false,
-          style,
-        });
-
-        const { generators } = readJson<NxJsonConfiguration>(host, 'nx.json');
-
-        // ASSERT
-        expect(generators['@nrwl/angular:component']['style']).toBe(style);
-      }
-    );
   });
 
   it('should add .angular to gitignore', async () => {

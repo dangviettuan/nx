@@ -7,8 +7,15 @@ import { JsonSchema1 } from './json-schema.models';
 export interface PackageMetadata {
   githubRoot: string;
   name: string;
+  packageName: string;
   description: string;
-  documentation: { id: string; name: string; content: string; file: string }[];
+  documentation: {
+    id: string;
+    name: string;
+    content: string;
+    file: string;
+    path: string;
+  }[];
   root: string;
   source: string;
   generators: SchemaMetadata[];

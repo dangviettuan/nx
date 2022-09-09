@@ -10,34 +10,43 @@ import {
   getProjects,
   joinPathFragments,
   logger,
-  ProjectType,
+  ProjectConfiguration,
   Tree,
   visitNotIgnoredFiles,
 } from '@nrwl/devkit';
-import { join } from 'path';
+import { basename, join } from 'path';
+import {
+  findStorybookAndBuildTargetsAndCompiler,
+  isTheFileAStory,
+} from '@nrwl/storybook/src/utils/utilities';
+import minimatch = require('minimatch');
 
 export interface StorybookStoriesSchema {
   project: string;
   generateCypressSpecs: boolean;
   js?: boolean;
   cypressProject?: string;
+  ignorePaths?: string[];
 }
 
-export function projectRootPath(
-  tree: Tree,
-  sourceRoot: string,
-  projectType: ProjectType
-): string {
-  let projectDir = '';
-  if (projectType === 'application') {
-    // apps/test-app/src/app
-    projectDir = 'app';
-  } else if (projectType == 'library') {
+export function projectRootPath(config: ProjectConfiguration): string {
+  let projectDir: string;
+  if (config.projectType === 'application') {
+    const { nextBuildTarget } = findStorybookAndBuildTargetsAndCompiler(
+      config.targets
+    );
+    if (!!nextBuildTarget) {
+      // Next.js apps
+      projectDir = 'components';
+    } else {
+      // apps/test-app/src/app
+      projectDir = 'app';
+    }
+  } else if (config.projectType == 'library') {
     // libs/test-lib/src/lib
     projectDir = 'lib';
   }
-
-  return joinPathFragments(sourceRoot, projectDir);
+  return joinPathFragments(config.sourceRoot, projectDir);
 }
 
 export function containsComponentDeclaration(
@@ -67,26 +76,35 @@ export async function createAllStories(
   projectName: string,
   generateCypressSpecs: boolean,
   js: boolean,
-  cypressProject?: string
+  cypressProject?: string,
+  ignorePaths?: string[]
 ) {
   const projects = getProjects(tree);
-  const project = projects.get(projectName);
-
-  const { sourceRoot, projectType } = project;
-  const projectPath = projectRootPath(tree, sourceRoot, projectType);
-
+  const projectConfiguration = projects.get(projectName);
+  const { sourceRoot, root } = projectConfiguration;
   let componentPaths: string[] = [];
-  visitNotIgnoredFiles(tree, projectPath, (path) => {
+
+  visitNotIgnoredFiles(tree, projectRootPath(projectConfiguration), (path) => {
+    // Ignore private files starting with "_".
+    if (basename(path).startsWith('_')) return;
+
+    if (ignorePaths?.some((pattern) => minimatch(path, pattern))) return;
+
     if (
       (path.endsWith('.tsx') && !path.endsWith('.spec.tsx')) ||
       (path.endsWith('.js') && !path.endsWith('.spec.js')) ||
       (path.endsWith('.jsx') && !path.endsWith('.spec.jsx'))
     ) {
-      const ext = path.slice(path.lastIndexOf('.'));
-      const storyPath = `${path.split(ext)[0]}.stories${ext}`;
-      // only add component if a stories file doesnt already exist
-      if (!tree.exists(storyPath)) {
-        componentPaths.push(path);
+      // Check if file is NOT a story (either ts/tsx or js/jsx)
+      if (!isTheFileAStory(tree, path)) {
+        // Since the file is not a story
+        // Let's see if the .stories.* file exists
+        const ext = path.slice(path.lastIndexOf('.'));
+        const storyPath = `${path.split(ext)[0]}.stories${ext}`;
+
+        if (!tree.exists(storyPath)) {
+          componentPaths.push(path);
+        }
       }
     }
   });
@@ -134,7 +152,8 @@ export async function storiesGenerator(
     schema.project,
     schema.generateCypressSpecs,
     schema.js,
-    schema.cypressProject
+    schema.cypressProject,
+    schema.ignorePaths
   );
 }
 

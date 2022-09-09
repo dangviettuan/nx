@@ -1,23 +1,20 @@
 import 'dotenv/config';
 import { ExecutorContext } from '@nrwl/devkit';
-
-import { readCachedProjectGraph } from '@nrwl/devkit';
+import { eachValueFrom } from '@nrwl/devkit/src/utils/rxjs-for-await';
 import {
   calculateProjectDependencies,
-  checkDependentProjectsHaveBeenBuilt,
   createTmpTsConfig,
 } from '@nrwl/workspace/src/utilities/buildable-libs-utils';
 import { getRootTsConfigPath } from '@nrwl/workspace/src/utilities/typescript';
 
 import { map, tap } from 'rxjs/operators';
-import { eachValueFrom } from 'rxjs-for-await';
 import { resolve } from 'path';
 import { register } from 'ts-node';
 
 import { getNodeWebpackConfig } from '../../utils/node.config';
 import { BuildNodeBuilderOptions } from '../../utils/types';
 import { normalizeBuildOptions } from '../../utils/normalize';
-import { generatePackageJson } from '../../utils/generate-package-json';
+import { deleteOutputDir } from '../../utils/fs';
 import { runWebpack } from '../../utils/run-webpack';
 
 export type NodeBuildEvent = {
@@ -50,10 +47,9 @@ export async function* webpackExecutor(
     registerTsNode();
   }
 
-  const projGraph = readCachedProjectGraph();
   if (!options.buildLibsFromSource) {
     const { target, dependencies } = calculateProjectDependencies(
-      projGraph,
+      context.projectGraph,
       context.root,
       context.projectName,
       context.targetName,
@@ -65,22 +61,13 @@ export async function* webpackExecutor(
       target.data.root,
       dependencies
     );
-
-    if (
-      !checkDependentProjectsHaveBeenBuilt(
-        context.root,
-        context.projectName,
-        context.targetName,
-        dependencies
-      )
-    ) {
-      return { success: false } as any;
-    }
   }
 
-  if (options.generatePackageJson) {
-    generatePackageJson(context.projectName, projGraph, options);
+  // Delete output path before bundling
+  if (options.deleteOutputPath) {
+    deleteOutputDir(context.root, options.outputPath);
   }
+
   const config = await options.webpackConfig.reduce(
     async (currentConfig, plugin) => {
       return require(plugin)(await currentConfig, {
@@ -88,7 +75,9 @@ export async function* webpackExecutor(
         configuration: context.configurationName,
       });
     },
-    Promise.resolve(getNodeWebpackConfig(options))
+    Promise.resolve(
+      getNodeWebpackConfig(context, context.projectGraph, options)
+    )
   );
 
   return yield* eachValueFrom(

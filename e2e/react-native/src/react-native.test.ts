@@ -20,7 +20,9 @@ describe('react native', () => {
     const libName = uniq('lib');
     const componentName = uniq('component');
 
-    runCLI(`generate @nrwl/react-native:application ${appName}`);
+    runCLI(
+      `generate @nrwl/react-native:application ${appName} --install=false`
+    );
     runCLI(`generate @nrwl/react-native:library ${libName}`);
     runCLI(
       `generate @nrwl/react-native:component ${componentName} --project=${libName} --export`
@@ -40,26 +42,34 @@ describe('react native', () => {
     const libLintResults = await runCLIAsync(`lint ${libName}`);
     expect(libLintResults.combinedOutput).toContain('All files pass linting.');
 
-    const iosBundleResult = await runCLIAsync(`bundle-ios ${appName}`);
+    const iosBundleResult = await runCLIAsync(
+      `bundle-ios ${appName} --sourcemapOutput=../../dist/apps/${appName}/ios/main.map`
+    );
     expect(iosBundleResult.combinedOutput).toContain(
       'Done writing bundle output'
     );
-    expect(() =>
-      checkFilesExist(`dist/apps/${appName}/ios/main.jsbundle`)
-    ).not.toThrow();
+    expect(() => {
+      checkFilesExist(`dist/apps/${appName}/ios/main.jsbundle`);
+      checkFilesExist(`dist/apps/${appName}/ios/main.map`);
+    }).not.toThrow();
 
-    const androidBundleResult = await runCLIAsync(`bundle-android ${appName}`);
+    const androidBundleResult = await runCLIAsync(
+      `bundle-android ${appName} --sourcemapOutput=../../dist/apps/${appName}/android/main.map`
+    );
     expect(androidBundleResult.combinedOutput).toContain(
       'Done writing bundle output'
     );
-    expect(() =>
-      checkFilesExist(`dist/apps/${appName}/android/main.jsbundle`)
-    ).not.toThrow();
+    expect(() => {
+      checkFilesExist(`dist/apps/${appName}/android/main.jsbundle`);
+      checkFilesExist(`dist/apps/${appName}/android/main.map`);
+    }).not.toThrow();
   }, 1000000);
 
   it('should create storybook with application', async () => {
     const appName = uniq('my-app');
-    runCLI(`generate @nrwl/react-native:application ${appName}`);
+    runCLI(
+      `generate @nrwl/react-native:application ${appName} --install=false`
+    );
     runCLI(
       `generate @nrwl/react-native:storybook-configuration ${appName} --generateStories --no-interactive`
     );
@@ -84,9 +94,24 @@ describe('react native', () => {
     });
   });
 
+  it('should upgrade native for application', async () => {
+    const appName = uniq('my-app');
+    runCLI(
+      `generate @nrwl/react-native:application ${appName} --install=false`
+    );
+
+    expect(() =>
+      runCLI(
+        `generate @nrwl/react-native:upgrade-native ${appName} --install=false`
+      )
+    ).not.toThrow();
+  });
+
   it('sync npm dependencies for autolink', async () => {
     const appName = uniq('my-app');
-    runCLI(`generate @nrwl/react-native:application ${appName}`);
+    runCLI(
+      `generate @nrwl/react-native:application ${appName} --install=false`
+    );
     // Add npm package with native modules
     updateFile(join('package.json'), (content) => {
       const json = JSON.parse(content);

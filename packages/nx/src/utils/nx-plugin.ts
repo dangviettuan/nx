@@ -4,14 +4,18 @@ import * as path from 'path';
 import { ProjectGraphProcessor } from '../config/project-graph';
 import { Workspaces } from '../config/workspaces';
 
-import { workspaceRoot } from '../utils/app-root';
+import { workspaceRoot } from './workspace-root';
 import { readJsonFile } from '../utils/fileutils';
-import { PackageJson } from './package-json';
+import {
+  PackageJson,
+  readModulePackageJson,
+  readModulePackageJsonWithoutFallbacks,
+} from './package-json';
 import { registerTsProject } from './register';
 import {
   ProjectConfiguration,
   TargetConfiguration,
-  WorkspaceJsonConfiguration,
+  ProjectsConfigurations,
 } from '../config/workspace-json-project-json';
 import { findMatchingProjectForPath } from './target-project-locator';
 import { logger } from './logger';
@@ -117,11 +121,12 @@ export function readPluginPackageJson(
   path: string;
   json: PackageJson;
 } {
-  let packageJsonPath: string;
   try {
-    packageJsonPath = require.resolve(`${pluginName}/package.json`, {
-      paths,
-    });
+    const result = readModulePackageJsonWithoutFallbacks(pluginName, paths);
+    return {
+      json: result.packageJson,
+      path: result.path,
+    };
   } catch (e) {
     if (e.code === 'MODULE_NOT_FOUND') {
       const localPluginPath = resolveLocalNxPlugin(pluginName);
@@ -138,7 +143,6 @@ export function readPluginPackageJson(
     }
     throw e;
   }
-  return { json: readJsonFile(packageJsonPath), path: packageJsonPath };
 }
 
 /**
@@ -185,7 +189,7 @@ function lookupLocalPlugin(importPath: string, root = workspaceRoot) {
 
 function findNxProjectForImportPath(
   importPath: string,
-  workspace: WorkspaceJsonConfiguration,
+  workspace: ProjectsConfigurations,
   root = workspaceRoot
 ): string | null {
   const tsConfigPaths: Record<string, string[]> = readTsConfigPaths(root);

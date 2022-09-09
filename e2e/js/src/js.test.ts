@@ -1,6 +1,8 @@
 import {
-  checkFilesExist,
   checkFilesDoNotExist,
+  checkFilesExist,
+  createFile,
+  expectJestTestsToPass,
   newProject,
   readFile,
   readJson,
@@ -232,6 +234,83 @@ describe('js e2e', () => {
     const output = runCLI(`build ${parentLib}`);
     expect(output).toContain('1 task(s) it depends on');
     expect(output).toContain('Successfully compiled: 2 files with swc');
+
+    updateJson(`libs/${lib}/.lib.swcrc`, (json) => {
+      json.jsc.externalHelpers = true;
+      return json;
+    });
+
+    runCLI(`build ${lib}`);
+
+    const rootPackageJson = readJson(`package.json`);
+
+    expect(readJson(`dist/libs/${lib}/package.json`)).toHaveProperty(
+      'peerDependencies.@swc/helpers',
+      rootPackageJson.dependencies['@swc/helpers']
+    );
+
+    updateJson(`libs/${lib}/.lib.swcrc`, (json) => {
+      json.jsc.externalHelpers = false;
+      return json;
+    });
+
+    runCLI(`build ${lib}`);
+
+    expect(readJson(`dist/libs/${lib}/package.json`)).not.toHaveProperty(
+      'peerDependencies.@swc/helpers'
+    );
+  }, 120000);
+
+  it('should allow wildcard ts path alias', async () => {
+    const base = uniq('base');
+    runCLI(`generate @nrwl/js:lib ${base} --buildable`);
+
+    const lib = uniq('lib');
+    runCLI(`generate @nrwl/js:lib ${lib} --buildable`);
+
+    updateFile(`libs/${base}/src/index.ts`, () => {
+      return `
+        import { ${lib} } from '@${scope}/${lib}'
+        export * from './lib/${base}';
+        
+        ${lib}();
+      `;
+    });
+
+    expect(runCLI(`build ${base}`)).toContain(
+      'Done compiling TypeScript files'
+    );
+
+    updateJson('tsconfig.base.json', (json) => {
+      json['compilerOptions']['paths'][`@${scope}/${lib}/*`] = [
+        `libs/${lib}/src/*`,
+      ];
+      return json;
+    });
+
+    createFile(
+      `libs/${lib}/src/${lib}.ts`,
+      `
+export function ${lib}Wildcard() {
+  return '${lib}-wildcard';
+};
+    `
+    );
+
+    updateFile(`libs/${base}/src/index.ts`, () => {
+      return `
+        import { ${lib} } from '@${scope}/${lib}';
+        import { ${lib}Wildcard } from '@${scope}/${lib}/src/${lib}';
+        export * from './lib/${base}';
+        
+        ${lib}();
+        ${lib}Wildcard();
+      `;
+    });
+
+    expect(runCLI(`build ${base}`)).toContain(
+      'Done compiling TypeScript files'
+    );
   }, 120000);
 
   it('should not create a `.babelrc` file when creating libs with js executors (--compiler=tsc)', () => {
@@ -242,4 +321,8 @@ describe('js e2e', () => {
 
     checkFilesDoNotExist(`libs/${lib}/.babelrc`);
   });
+
+  it('should run default jest tests', async () => {
+    await expectJestTestsToPass('@nrwl/js:lib');
+  }, 100000);
 });

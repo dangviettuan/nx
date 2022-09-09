@@ -12,7 +12,7 @@ import { execSync } from 'child_process';
 import { removeSync } from 'fs-extra';
 import * as path from 'path';
 import { dirSync } from 'tmp';
-import { showNxWarning } from './shared';
+import { initializeGitRepo, showNxWarning } from './shared';
 import {
   detectInvokedPackageManager,
   PackageManager,
@@ -20,10 +20,9 @@ import {
 import enquirer = require('enquirer');
 import yargsParser = require('yargs-parser');
 
-const tsVersion = 'TYPESCRIPT_VERSION';
-const cliVersion = 'NX_VERSION';
-const nxVersion = 'NX_VERSION';
-const prettierVersion = 'PRETTIER_VERSION';
+const nxVersion = require('../package.json').version;
+const tsVersion = 'TYPESCRIPT_VERSION'; // This gets replaced with the typescript version in the root package.json during build
+const prettierVersion = 'PRETTIER_VERSION'; // This gets replaced with the prettier version in the root package.json during build
 
 const parsedArgs = yargsParser(process.argv, {
   string: ['pluginName', 'packageManager', 'importPath'],
@@ -41,14 +40,14 @@ function createSandbox(packageManager: string) {
   writeJsonFile(path.join(tmpDir, 'package.json'), {
     dependencies: {
       '@nrwl/workspace': nxVersion,
-      nx: cliVersion,
+      nx: nxVersion,
       typescript: tsVersion,
       prettier: prettierVersion,
     },
     license: 'MIT',
   });
 
-  execSync(`${packageManager} install --silent`, {
+  execSync(`${packageManager} install --silent --ignore-scripts`, {
     cwd: tmpDir,
     stdio: [0, 1, 2],
   });
@@ -122,17 +121,6 @@ function updateWorkspace(workspaceName: string) {
 
   removeSync(path.join(workspaceName, 'apps'));
   removeSync(path.join(workspaceName, 'libs'));
-}
-
-function commitChanges(workspaceName) {
-  execSync('git add .', {
-    cwd: workspaceName,
-    stdio: 'ignore',
-  });
-  execSync('git commit --amend --no-edit', {
-    cwd: workspaceName,
-    stdio: 'ignore',
-  });
 }
 
 function determineWorkspaceName(parsedArgs: any): Promise<string> {
@@ -216,7 +204,8 @@ determineWorkspaceName(parsedArgs).then((workspaceName) => {
     createWorkspace(tmpDir, packageManager, parsedArgs, workspaceName);
     updateWorkspace(workspaceName);
     createNxPlugin(workspaceName, pluginName, packageManager, parsedArgs);
-    commitChanges(workspaceName);
-    showNxWarning(workspaceName);
+    return initializeGitRepo(workspaceName).then(() => {
+      showNxWarning(workspaceName);
+    });
   });
 });

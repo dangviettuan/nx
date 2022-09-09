@@ -3,9 +3,7 @@ import {
   convertNxGenerator,
   GeneratorCallback,
   Tree,
-  updateJson,
 } from '@nrwl/devkit';
-import { setDefaultCollection } from '@nrwl/workspace/src/utilities/set-default-collection';
 import { runTasksInSerial } from '@nrwl/workspace/src/utilities/run-tasks-in-serial';
 import { jestInitGenerator } from '@nrwl/jest';
 import { cypressInitGenerator } from '@nrwl/cypress';
@@ -15,8 +13,10 @@ import {
   eslintConfigNextVersion,
   nextVersion,
   nxVersion,
+  tsLibVersion,
 } from '../../utils/versions';
 import { InitSchema } from './schema';
+import { addGitIgnoreEntry } from '../../utils/add-gitignore-entry';
 
 function updateDependencies(host: Tree) {
   return addDependenciesToPackageJson(
@@ -26,7 +26,7 @@ function updateDependencies(host: Tree) {
       next: nextVersion,
       react: reactVersion,
       'react-dom': reactDomVersion,
-      tslib: '^2.0.0',
+      tslib: tsLibVersion,
     },
     {
       'eslint-config-next': eslintConfigNextVersion,
@@ -36,8 +36,6 @@ function updateDependencies(host: Tree) {
 
 export async function nextInitGenerator(host: Tree, schema: InitSchema) {
   const tasks: GeneratorCallback[] = [];
-
-  setDefaultCollection(host, '@nrwl/next');
 
   if (!schema.unitTestRunner || schema.unitTestRunner === 'jest') {
     const jestTask = jestInitGenerator(host, schema);
@@ -53,6 +51,8 @@ export async function nextInitGenerator(host: Tree, schema: InitSchema) {
 
   const installTask = updateDependencies(host);
   tasks.push(installTask);
+
+  addGitIgnoreEntry(host);
 
   return runTasksInSerial(...tasks);
 }

@@ -7,7 +7,7 @@ import {
   convertAliases,
   convertSmartDefaultsIntoNamedParams,
   convertToCamelCase,
-  lookupUnmatched,
+  getPromptsForSchema,
   Schema,
   setDefaults,
   validateOptsAgainstSchema,
@@ -329,16 +329,40 @@ describe('params', () => {
   });
 
   describe('convertToCamelCase', () => {
-    it('should convert dash case to camel case', () => {
+    it('should convert dash case to camel case if the came case property is present in schema', () => {
       expect(
         convertToCamelCase(
           yargsParser(['--one-two', '1'], {
             number: ['oneTwo'],
-          })
+            configuration: {
+              'camel-case-expansion': false,
+            },
+          }),
+          {
+            properties: { oneTwo: 'some object' },
+          } as any
         )
       ).toEqual({
         _: [],
         oneTwo: 1,
+      });
+    });
+
+    it('should not convert dash case to camel case if the came case property is not present in schema', () => {
+      expect(
+        convertToCamelCase(
+          yargsParser(['--one-two', '1'], {
+            configuration: {
+              'camel-case-expansion': false,
+            },
+          }),
+          {
+            properties: {},
+          } as any
+        )
+      ).toEqual({
+        _: [],
+        'one-two': 1,
       });
     });
 
@@ -347,7 +371,13 @@ describe('params', () => {
         convertToCamelCase(
           yargsParser(['--oneTwo', '1'], {
             number: ['oneTwo'],
-          })
+            configuration: {
+              'camel-case-expansion': false,
+            },
+          }),
+          {
+            properties: { oneTwo: 'some object' },
+          } as any
         )
       ).toEqual({
         _: [],
@@ -360,7 +390,13 @@ describe('params', () => {
         convertToCamelCase(
           yargsParser(['--one-Two', '1'], {
             number: ['oneTwo'],
-          })
+            configuration: {
+              'camel-case-expansion': false,
+            },
+          }),
+          {
+            properties: { oneTwo: 'some object' },
+          } as any
         )
       ).toEqual({
         _: [],
@@ -432,62 +468,6 @@ describe('params', () => {
         )
       ).toEqual({
         d: 'test',
-      });
-    });
-  });
-
-  describe('lookupUnmatched', () => {
-    it('should populate the possible array with near matches', () => {
-      expect(
-        lookupUnmatched(
-          {
-            '--': [
-              {
-                name: 'directoy',
-                possible: [],
-              },
-            ],
-          },
-          {
-            properties: { directory: { type: 'string' } },
-            required: [],
-            description: '',
-          }
-        )
-      ).toEqual({
-        '--': [
-          {
-            name: 'directoy',
-            possible: ['directory'],
-          },
-        ],
-      });
-    });
-
-    it('should NOT populate the possible array with far matches', () => {
-      expect(
-        lookupUnmatched(
-          {
-            '--': [
-              {
-                name: 'directoy',
-                possible: [],
-              },
-            ],
-          },
-          {
-            properties: { faraway: { type: 'string' } },
-            required: [],
-            description: '',
-          }
-        )
-      ).toEqual({
-        '--': [
-          {
-            name: 'directoy',
-            possible: [],
-          },
-        ],
       });
     });
   });
@@ -668,7 +648,7 @@ describe('params', () => {
 
   describe('convertSmartDefaultsIntoNamedParams', () => {
     it('should use argv', () => {
-      const params = {};
+      const params = { _: ['argv-value', 'unused'] };
       convertSmartDefaultsIntoNamedParams(
         params,
         {
@@ -682,12 +662,11 @@ describe('params', () => {
             },
           },
         },
-        ['argv-value'],
         null,
         null
       );
 
-      expect(params).toEqual({ a: 'argv-value' });
+      expect(params).toEqual({ a: 'argv-value', _: ['unused'] });
     });
 
     it('should use projectName', () => {
@@ -704,7 +683,6 @@ describe('params', () => {
             },
           },
         },
-        [],
         'myProject',
         null
       );
@@ -725,12 +703,59 @@ describe('params', () => {
             },
           },
         },
-        [],
         null,
         './somepath'
       );
 
       expect(params).toEqual({ a: './somepath' });
+    });
+
+    it('should set unparsed overrides', () => {
+      const params = { __overrides_unparsed__: ['one'] };
+      convertSmartDefaultsIntoNamedParams(
+        params,
+        {
+          properties: {
+            unparsed: {
+              type: 'array',
+              items: {
+                type: 'string',
+              },
+              $default: {
+                $source: 'unparsed',
+              },
+            },
+          },
+        },
+        null,
+        null
+      );
+
+      expect(params).toEqual({ unparsed: ['one'] });
+    });
+
+    it('should set unparsed overrides (missing)', () => {
+      const params = {};
+      convertSmartDefaultsIntoNamedParams(
+        params,
+        {
+          properties: {
+            unparsed: {
+              type: 'array',
+              items: {
+                type: 'string',
+              },
+              $default: {
+                $source: 'unparsed',
+              },
+            },
+          },
+        },
+        null,
+        null
+      );
+
+      expect(params).toEqual({ unparsed: [] });
     });
   });
 
@@ -768,6 +793,27 @@ describe('params', () => {
           }
         )
       ).toThrow("'b' is not found in schema");
+    });
+
+    it('should throw if found unsupported positional property', () => {
+      expect(() =>
+        validateOptsAgainstSchema(
+          {
+            a: true,
+            _: 'sometext',
+          },
+          {
+            properties: {
+              a: {
+                type: 'boolean',
+              },
+            },
+            additionalProperties: false,
+          }
+        )
+      ).toThrow(
+        "Schema does not support positional arguments. Argument 'sometext' found"
+      );
     });
 
     describe('primitive types', () => {
@@ -1341,6 +1387,357 @@ describe('params', () => {
         false
       );
       expect(options).toEqual({});
+    });
+  });
+
+  describe('getPromptsForSchema', () => {
+    it('should use a input prompt for x-prompt defined as string', () => {
+      const prompts = getPromptsForSchema(
+        {},
+        {
+          properties: {
+            name: {
+              'x-prompt': 'What is your name?',
+            },
+          },
+        },
+        {
+          version: 2,
+          projects: {},
+        }
+      );
+
+      expect(prompts).toEqual([
+        { type: 'input', name: 'name', message: 'What is your name?' },
+      ]);
+    });
+
+    it('should use a confirm prompt for boolean options with x-prompt defined as string', () => {
+      const prompts = getPromptsForSchema(
+        {},
+        {
+          properties: {
+            isAwesome: {
+              type: 'boolean',
+              'x-prompt': 'Is this awesome?',
+            },
+          },
+        },
+        {
+          version: 2,
+          projects: {},
+        }
+      );
+
+      expect(prompts).toEqual([
+        { type: 'confirm', name: 'isAwesome', message: 'Is this awesome?' },
+      ]);
+    });
+
+    it('should use an numeral prompt for x-prompts for numbers', () => {
+      const prompts = getPromptsForSchema(
+        {},
+        {
+          properties: {
+            age: {
+              type: 'number',
+              'x-prompt': 'How old are you?',
+            },
+          },
+        },
+        {
+          version: 2,
+          projects: {},
+        }
+      );
+
+      expect(prompts).toEqual([
+        {
+          type: 'numeral',
+          name: 'age',
+          message: 'How old are you?',
+        },
+      ]);
+    });
+
+    it('should use an multiselect prompt for x-prompts with items', () => {
+      const prompts = getPromptsForSchema(
+        {},
+        {
+          properties: {
+            pets: {
+              type: 'array',
+              'x-prompt': {
+                type: 'multiselect',
+                message: 'What kind of pets do you have?',
+                multiselect: true,
+                items: ['Cat', 'Dog', 'Fish'],
+              },
+            },
+          },
+        },
+        {
+          version: 2,
+          projects: {},
+        }
+      );
+
+      expect(prompts).toEqual([
+        {
+          type: 'multiselect',
+          name: 'pets',
+          message: 'What kind of pets do you have?',
+          choices: ['Cat', 'Dog', 'Fish'],
+        },
+      ]);
+    });
+
+    it('should use an multiselect prompt for x-prompts with items', () => {
+      const prompts = getPromptsForSchema(
+        {},
+        {
+          properties: {
+            pets: {
+              type: 'array',
+              'x-prompt': {
+                type: 'multiselect',
+                message: 'What kind of pets do you have?',
+                multiselect: true,
+                items: [
+                  { label: 'Cat', value: 'cat' },
+                  { label: 'Dog', value: 'dog' },
+                  { label: 'Fish', value: 'fish' },
+                ],
+              },
+            },
+          },
+        },
+        {
+          version: 2,
+          projects: {},
+        }
+      );
+
+      expect(prompts).toEqual([
+        {
+          type: 'multiselect',
+          name: 'pets',
+          message: 'What kind of pets do you have?',
+          choices: [
+            { message: 'Cat', name: 'cat' },
+            { message: 'Dog', name: 'dog' },
+            { message: 'Fish', name: 'fish' },
+          ],
+        },
+      ]);
+    });
+
+    describe('Project prompts', () => {
+      it('should use an autocomplete prompt for a property named project', () => {
+        const prompts = getPromptsForSchema(
+          {},
+          {
+            properties: {
+              project: {
+                type: 'string',
+                'x-prompt': 'Which project?',
+              },
+            },
+          },
+          {
+            version: 2,
+            projects: {
+              projA: null,
+              projB: null,
+            },
+          }
+        );
+
+        expect(prompts).toEqual([
+          {
+            type: 'autocomplete',
+            name: 'project',
+            message: 'Which project?',
+            choices: ['projA', 'projB'],
+          },
+        ]);
+      });
+
+      it('should use an autocomplete prompt for property named projectName', () => {
+        const prompts = getPromptsForSchema(
+          {},
+          {
+            properties: {
+              projectName: {
+                type: 'string',
+                'x-prompt': 'Which project?',
+              },
+            },
+          },
+          {
+            version: 2,
+            projects: {
+              projA: null,
+              projB: null,
+            },
+          }
+        );
+
+        expect(prompts).toEqual([
+          {
+            type: 'autocomplete',
+            name: 'projectName',
+            message: 'Which project?',
+            choices: ['projA', 'projB'],
+          },
+        ]);
+      });
+
+      it('should use an autocomplete prompt for x-dropdown set to projects', () => {
+        const prompts = getPromptsForSchema(
+          {},
+          {
+            properties: {
+              projectName: {
+                type: 'string',
+                'x-prompt': 'Which project?',
+                'x-dropdown': 'projects',
+              },
+            },
+          },
+          {
+            version: 2,
+            projects: {
+              projA: null,
+              projB: null,
+            },
+          }
+        );
+
+        expect(prompts).toEqual([
+          {
+            type: 'autocomplete',
+            name: 'projectName',
+            message: 'Which project?',
+            choices: ['projA', 'projB'],
+          },
+        ]);
+      });
+
+      it('should use a prompt for a project when $default.$source is project', () => {
+        const prompts = getPromptsForSchema(
+          {},
+          {
+            properties: {
+              yourProject: {
+                type: 'string',
+                'x-prompt': 'Which project?',
+                $default: {
+                  $source: 'projectName',
+                },
+              },
+            },
+          },
+          {
+            version: 2,
+            projects: {
+              projA: null,
+              projB: null,
+            },
+          }
+        );
+
+        expect(prompts).toEqual([
+          {
+            type: 'autocomplete',
+            name: 'yourProject',
+            message: 'Which project?',
+            choices: ['projA', 'projB'],
+          },
+        ]);
+      });
+    });
+
+    it('should use an autocomplete prompt for x-prompts for enums', () => {
+      const prompts = getPromptsForSchema(
+        {},
+        {
+          properties: {
+            name: {
+              type: 'string',
+              enum: ['Bob', 'Joe', 'Jeff'],
+              'x-prompt': 'What is your name?',
+            },
+          },
+        },
+        {
+          version: 2,
+          projects: {},
+        }
+      );
+
+      expect(prompts).toEqual([
+        {
+          type: 'autocomplete',
+          name: 'name',
+          message: 'What is your name?',
+          choices: ['Bob', 'Joe', 'Jeff'],
+        },
+      ]);
+    });
+
+    it('should use an autocomplete prompt that defaults to the default value for x-prompts for enums', () => {
+      const prompts = getPromptsForSchema(
+        {},
+        {
+          properties: {
+            name: {
+              type: 'string',
+              enum: ['Bob', 'Joe', 'Jeff'],
+              default: 'Joe',
+              'x-prompt': 'What is your name?',
+            },
+          },
+        },
+        {
+          version: 2,
+          projects: {},
+        }
+      );
+
+      expect(prompts).toEqual([
+        {
+          type: 'autocomplete',
+          name: 'name',
+          message: 'What is your name?',
+          choices: ['Bob', 'Joe', 'Jeff'],
+          initial: 'Joe',
+        },
+      ]);
+    });
+
+    it('should use a input prompt for x-prompts with no items', () => {
+      const prompts = getPromptsForSchema(
+        {},
+        {
+          properties: {
+            name: {
+              'x-prompt': {
+                type: 'string',
+                message: 'What is your name?',
+              },
+            },
+          },
+        },
+        {
+          version: 2,
+          projects: {},
+        }
+      );
+
+      expect(prompts).toEqual([
+        { type: 'input', name: 'name', message: 'What is your name?' },
+      ]);
     });
   });
 });

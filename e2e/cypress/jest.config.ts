@@ -1,4 +1,5 @@
-module.exports = {
+/* eslint-disable */
+export default {
   transform: {
     '^.+\\.[tj]sx?$': 'ts-jest',
   },
@@ -6,5 +7,5 @@ module.exports = {
   maxWorkers: 1,
   globals: { 'ts-jest': { tsconfig: '<rootDir>/tsconfig.spec.json' } },
   displayName: 'e2e-cypress',
-  preset: '../../jest.preset.ts',
+  preset: '../../jest.preset.js',
 };

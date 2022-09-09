@@ -1,5 +1,5 @@
 import { NxJsonConfiguration, readJson, Tree } from '@nrwl/devkit';
-import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
 import reactInitGenerator from './init';
 import { InitSchema } from './schema';
 
@@ -12,7 +12,7 @@ describe('init', () => {
   };
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyV1Workspace();
   });
 
   it('should add react dependencies', async () => {
@@ -24,18 +24,6 @@ describe('init', () => {
     expect(packageJson.devDependencies['@types/react']).toBeDefined();
     expect(packageJson.devDependencies['@types/react-dom']).toBeDefined();
     expect(packageJson.devDependencies['@testing-library/react']).toBeDefined();
-  });
-
-  describe('defaultCollection', () => {
-    it('should be set if none was set before', async () => {
-      await reactInitGenerator(tree, schema);
-      const { cli, generators } = readJson<NxJsonConfiguration>(
-        tree,
-        'nx.json'
-      );
-      expect(cli.defaultCollection).toEqual('@nrwl/react');
-      expect(generators['@nrwl/react'].application.babel).toBe(true);
-    });
   });
 
   it('should not add jest config if unitTestRunner is none', async () => {

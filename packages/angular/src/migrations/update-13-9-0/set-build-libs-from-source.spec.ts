@@ -11,7 +11,7 @@ describe('set-build-libs-from-source migration', () => {
   let tree: Tree;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace(2);
+    tree = createTreeWithEmptyWorkspace();
   });
 
   it('should not error when project does not have targets', async () => {
@@ -26,6 +26,9 @@ describe('set-build-libs-from-source migration', () => {
       targets: { build: { executor: '@nrwl/angular:package' } },
     };
     addProjectConfiguration(tree, 'app1', project);
+
+    // add $schema to projectConfig manually
+    project['$schema'] = '../../node_modules/nx/schemas/project-schema.json';
 
     await migration(tree);
 

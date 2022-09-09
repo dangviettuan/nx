@@ -2,6 +2,8 @@ import { stripIndents } from '@angular-devkit/core/src/utils/literals';
 import {
   checkFilesDoNotExist,
   checkFilesExist,
+  createFile,
+  expectJestTestsToPass,
   killPorts,
   newProject,
   packageInstall,
@@ -259,7 +261,7 @@ describe('Build Node apps', () => {
   beforeEach(() => newProject());
 
   it('should generate a package.json with the `--generatePackageJson` flag', async () => {
-    newProject();
+    const scope = newProject();
     const nestapp = uniq('nestapp');
     runCLI(`generate @nrwl/nest:app ${nestapp} --linter=eslint`);
 
@@ -272,18 +274,77 @@ describe('Build Node apps', () => {
     expect(packageJson).toEqual(
       expect.objectContaining({
         dependencies: {
-          '@nestjs/common': '^8.0.0',
-          '@nestjs/core': '^8.0.0',
-          '@nestjs/platform-express': '^8.0.0',
+          '@nestjs/common': '^9.0.0',
+          '@nestjs/core': '^9.0.0',
+          '@nestjs/platform-express': '^9.0.0',
           'reflect-metadata': '^0.1.13',
           rxjs: '^7.0.0',
+          tslib: '^2.3.0',
         },
         main: 'main.js',
         name: expect.any(String),
         version: '0.0.1',
       })
     );
+
+    const nodeapp = uniq('nodeapp');
+    runCLI(`generate @nrwl/node:app ${nodeapp}`);
+
+    const jslib = uniq('jslib');
+    runCLI(`generate @nrwl/js:lib ${jslib} --buildable`);
+
+    updateFile(
+      `apps/${nodeapp}/src/main.ts`,
+      `
+import { ${jslib} } from '@${scope}/${jslib}';   
+console.log('Hello World!');
+${jslib}();
+`
+    );
+
+    await runCLIAsync(`build ${nodeapp} --generate-package-json`);
+    checkFilesExist(`dist/apps/${nestapp}/package.json`);
+    const nodeAppPackageJson = JSON.parse(
+      readFile(`dist/apps/${nodeapp}/package.json`)
+    );
+
+    expect(nodeAppPackageJson['dependencies']['tslib']).toBeTruthy();
   }, 300000);
+
+  it('should remove previous output before building with the --deleteOutputPath option set', async () => {
+    const appName = uniq('app');
+
+    runCLI(`generate @nrwl/node:app ${appName} --no-interactive`);
+
+    // deleteOutputPath should default to true
+    createFile(`dist/apps/${appName}/_should_remove.txt`);
+    createFile(`dist/apps/_should_not_remove.txt`);
+    checkFilesExist(
+      `dist/apps/${appName}/_should_remove.txt`,
+      `dist/apps/_should_not_remove.txt`
+    );
+    runCLI(`build ${appName} --outputHashing none`); // no explicit deleteOutputPath option set
+    checkFilesDoNotExist(`dist/apps/${appName}/_should_remove.txt`);
+    checkFilesExist(`dist/apps/_should_not_remove.txt`);
+
+    // Explicitly set `deleteOutputPath` to true
+    createFile(`dist/apps/${appName}/_should_remove.txt`);
+    createFile(`dist/apps/_should_not_remove.txt`);
+    checkFilesExist(
+      `dist/apps/${appName}/_should_remove.txt`,
+      `dist/apps/_should_not_remove.txt`
+    );
+    runCLI(`build ${appName} --outputHashing none --deleteOutputPath`);
+    checkFilesDoNotExist(`dist/apps/${appName}/_should_remove.txt`);
+    checkFilesExist(`dist/apps/_should_not_remove.txt`);
+
+    // Explicitly set `deleteOutputPath` to false
+    createFile(`dist/apps/${appName}/_should_keep.txt`);
+    createFile(`dist/apps/_should_keep.txt`);
+    runCLI(`build ${appName} --deleteOutputPath=false --outputHashing none`);
+    checkFilesExist(`dist/apps/${appName}/_should_keep.txt`);
+    checkFilesExist(`dist/apps/_should_keep.txt`);
+  }, 120000);
 
   describe('NestJS', () => {
     it('should have plugin output if specified in `tsPlugins`', async () => {
@@ -301,35 +362,35 @@ describe('Build Node apps', () => {
       updateFile(
         `apps/${nestapp}/src/app/foo.dto.ts`,
         `
-export class FooDto {
-  foo: string;
-  bar: number;
-}`
+  export class FooDto {
+    foo: string;
+    bar: number;
+  }`
       );
       updateFile(
         `apps/${nestapp}/src/app/app.controller.ts`,
         `
-import { Controller, Get } from '@nestjs/common';
-import { FooDto } from './foo.dto';
-import { AppService } from './app.service';
+  import { Controller, Get } from '@nestjs/common';
+  import { FooDto } from './foo.dto';
+  import { AppService } from './app.service';
 
-@Controller()
-export class AppController {
-  constructor(private readonly appService: AppService) {}
+  @Controller()
+  export class AppController {
+    constructor(private readonly appService: AppService) {}
 
-  @Get()
-  getData() {
-    return this.appService.getData();
-  }
+    @Get()
+    getData() {
+      return this.appService.getData();
+    }
 
-  @Get('foo')
-  getFoo(): Promise<FooDto> {
-    return Promise.resolve({
-      foo: 'foo',
-      bar: 123
-    })
-  }
-}`
+    @Get('foo')
+    getFoo(): Promise<FooDto> {
+      return Promise.resolve({
+        foo: 'foo',
+        bar: 123
+      })
+    }
+  }`
       );
 
       await runCLIAsync(`build ${nestapp}`);
@@ -337,13 +398,13 @@ export class AppController {
       const mainJs = readFile(`dist/apps/${nestapp}/main.js`);
       expect(stripIndents`${mainJs}`).toContain(
         stripIndents`
-class FooDto {
-    static _OPENAPI_METADATA_FACTORY() {
-        return { foo: { required: true, type: () => String }, bar: { required: true, type: () => Number } };
-    }
-}
-exports.FooDto = FooDto;
-        `
+  class FooDto {
+      static _OPENAPI_METADATA_FACTORY() {
+          return { foo: { required: true, type: () => String }, bar: { required: true, type: () => Number } };
+      }
+  }
+  exports.FooDto = FooDto;
+          `
       );
     }, 300000);
   });
@@ -359,9 +420,10 @@ describe('nest libraries', function () {
     const jestConfigContent = readFile(`libs/${nestlib}/jest.config.ts`);
 
     expect(stripIndents`${jestConfigContent}`).toEqual(
-      stripIndents`module.exports = {
+      stripIndents`/* eslint-disable */
+              export default {
                 displayName: '${nestlib}',
-                preset: '../../jest.preset.ts',
+                preset: '../../jest.preset.js',
                 globals: {
                   'ts-jest': {
                   tsconfig: '<rootDir>/tsconfig.spec.json',
@@ -481,4 +543,8 @@ exports.FooModel = FooModel;
       checkFilesDoNotExist('workspace.json', 'angular.json')
     ).not.toThrow();
   }, 1000000);
+
+  it('should run default jest tests', async () => {
+    await expectJestTestsToPass('@nrwl/node:lib');
+  }, 100000);
 });

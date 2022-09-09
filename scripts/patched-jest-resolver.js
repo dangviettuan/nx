@@ -62,7 +62,8 @@ module.exports = function (path, options) {
   }
   // Try to use the defaultResolver
   try {
-    if (path.startsWith('@nrwl/')) throw new Error('custom resolution');
+    if (path.startsWith('@nrwl/') && !path.startsWith('@nrwl/nx-cloud'))
+      throw new Error('custom resolution');
     if (path.startsWith('nx/')) throw new Error('custom resolution');
 
     if (path.indexOf('@nrwl/workspace') > -1) {
@@ -70,7 +71,7 @@ module.exports = function (path, options) {
     }
 
     // Global modules which must be resolved by defaultResolver
-    if (['fs', 'http', 'path'].includes(path)) {
+    if (['child_process', 'fs', 'http', 'path'].includes(path)) {
       return options.defaultResolver(path, options);
     }
 

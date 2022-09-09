@@ -6,12 +6,12 @@ export async function promptForNxCloud(): Promise<boolean> {
   const { useNxCloud } = await prompt<{ useNxCloud: 'Yes' | 'No' }>([
     {
       name: 'useNxCloud',
-      message: `Use Nx Cloud? (It's free and doesn't require registration.)`,
-      type: 'select',
+      message: `Enable distributed caching to make your CI faster`,
+      type: 'autocomplete',
       choices: [
         {
           name: 'Yes',
-          hint: 'Yes [Faster builds, run details, Github integration. Learn more at https://nx.app]',
+          hint: 'I want faster builds',
         },
         { name: 'No' },
       ],
@@ -23,7 +23,12 @@ export async function promptForNxCloud(): Promise<boolean> {
 }
 
 export function initNxCloud(): void {
-  execSync(`${getPackageManagerCommand().exec} nx g @nrwl/nx-cloud:init`, {
-    stdio: [0, 1, 2],
-  });
+  execSync(
+    `${
+      getPackageManagerCommand().exec
+    } nx g @nrwl/nx-cloud:init --installationSource=make-angular-cli-faster`,
+    {
+      stdio: [0, 1, 2],
+    }
+  );
 }

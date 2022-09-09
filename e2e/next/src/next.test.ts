@@ -1,8 +1,8 @@
-import { stringUtils } from '@nrwl/workspace';
 import {
+  rmDist,
   checkFilesExist,
   cleanupProject,
-  createFile,
+  expectJestTestsToPass,
   isNotWindows,
   killPorts,
   newProject,
@@ -17,22 +17,32 @@ import {
   updateFile,
   updateProjectConfig,
 } from '@nrwl/e2e/utils';
+import { stringUtils } from '@nrwl/workspace';
 import * as http from 'http';
 
 describe('Next.js Applications', () => {
   let proj: string;
+  let originalEnv: string;
 
   beforeAll(() => (proj = newProject()));
 
   afterAll(() => cleanupProject());
 
+  beforeEach(() => {
+    originalEnv = process.env.NODE_ENV;
+  });
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalEnv;
+  });
+
   it('should generate app + libs', async () => {
     const appName = uniq('app');
-    const reactLib = uniq('reactlib');
+    const nextLib = uniq('nextlib');
     const jsLib = uniq('tslib');
 
     runCLI(`generate @nrwl/next:app ${appName} --no-interactive --style=css`);
-    runCLI(`generate @nrwl/react:lib ${reactLib} --no-interactive`);
+    runCLI(`generate @nrwl/next:lib ${nextLib} --no-interactive`);
     runCLI(`generate @nrwl/js:lib ${jsLib} --no-interactive`);
 
     // Create file in public that should be copied to dist
@@ -96,8 +106,8 @@ describe('Next.js Applications', () => {
           import dynamic from 'next/dynamic';
 
           const TestComponent = dynamic(
-              () => import('@${proj}/${reactLib}').then(d => d.${stringUtils.capitalize(
-        reactLib
+              () => import('@${proj}/${nextLib}').then(d => d.${stringUtils.capitalize(
+        nextLib
       )})
             );
           ${content.replace(
@@ -111,7 +121,7 @@ describe('Next.js Applications', () => {
           )}`
     );
 
-    const e2eTestPath = `apps/${appName}-e2e/src/integration/app.spec.ts`;
+    const e2eTestPath = `apps/${appName}-e2e/src/e2e/app.cy.ts`;
     const e2eContent = readFile(e2eTestPath);
     updateFile(
       e2eTestPath,
@@ -139,13 +149,16 @@ describe('Next.js Applications', () => {
       `dist/apps/${appName}/public/a/b.txt`,
       `dist/apps/${appName}/public/shared/ui/hello.txt`
     );
-  }, 300000);
+  }, 300_000);
 
   it('should be able to serve with a proxy configuration', async () => {
     const appName = uniq('app');
+    const jsLib = uniq('tslib');
+
     const port = 4201;
 
     runCLI(`generate @nrwl/next:app ${appName}`);
+    runCLI(`generate @nrwl/js:lib ${jsLib} --no-interactive`);
 
     const proxyConf = {
       '/external-api': {
@@ -159,13 +172,23 @@ describe('Next.js Applications', () => {
     updateFile('.env.local', 'NX_CUSTOM_VAR=test value from a file');
 
     updateFile(
+      `libs/${jsLib}/src/lib/${jsLib}.ts`,
+      `
+          export function testFn(): string {
+            return process.env.NX_CUSTOM_VAR;
+          };
+          `
+    );
+
+    updateFile(
       `apps/${appName}/pages/index.tsx`,
       `
         import React from 'react';
-        
+        import { testFn } from '@${proj}/${jsLib}';
+
         export const Index = ({ greeting }: any) => {
           return (
-            <p>{process.env.NX_CUSTOM_VAR}</p>
+            <p>{testFn()}</p>
           );
         };
         export default Index;
@@ -200,9 +223,9 @@ describe('Next.js Applications', () => {
     } catch (err) {
       expect(err).toBeFalsy();
     }
-  }, 300000);
+  }, 300_000);
 
-  it('should build with a next.config.js file in the dist folder', async () => {
+  it('should support custom next.config.js and output it in dist', async () => {
     const appName = uniq('app');
 
     runCLI(`generate @nrwl/next:app ${appName} --no-interactive --style=css`);
@@ -210,12 +233,27 @@ describe('Next.js Applications', () => {
     updateFile(
       `apps/${appName}/next.config.js`,
       `
-      module.exports = {
-        webpack: (c) => {
-          console.log('NODE_ENV is', process.env.NODE_ENV);
-          return c;
-        }
-      }
+        const { withNx } = require('@nrwl/next/plugins/with-nx');
+        const nextConfig = {
+          nx: {
+            svgr: false,
+          },
+          webpack: (config, context) => {
+            // Make sure SVGR plugin is disabled if nx.svgr === false (see above)
+            const found = config.module.rules.find(r => {
+              if (!r.test || !r.test.test('test.svg')) return false;
+              if (!r.oneOf || !r.oneOf.use) return false;
+              return r.oneOf.use.some(rr => /svgr/.test(rr.loader));
+            });
+            if (found) throw new Error('Found SVGR plugin');
+
+            console.log('NODE_ENV is', process.env.NODE_ENV);
+            
+            return config;
+          }
+        };
+        
+        module.exports = withNx(nextConfig);
       `
     );
     // deleting `NODE_ENV` value, so that it's `undefined`, and not `"test"`
@@ -226,7 +264,23 @@ describe('Next.js Applications', () => {
 
     checkFilesExist(`dist/apps/${appName}/next.config.js`);
     expect(result).toContain('NODE_ENV is production');
-  }, 300000);
+
+    updateFile(
+      `apps/${appName}/next.config.js`,
+      `
+        const { withNx } = require('@nrwl/next/plugins/with-nx');
+        // Not including "nx" entry should still work.
+        const nextConfig = {};
+        
+        module.exports = withNx(nextConfig);
+      `
+    );
+
+    rmDist();
+    runCLI(`build ${appName}`);
+
+    checkFilesExist(`dist/apps/${appName}/next.config.js`);
+  }, 300_000);
 
   it('should support --js flag', async () => {
     const appName = uniq('app');
@@ -246,7 +300,7 @@ describe('Next.js Applications', () => {
     const libName = uniq('lib');
 
     runCLI(
-      `generate @nrwl/react:lib ${libName} --no-interactive --style=none --js`
+      `generate @nrwl/next:lib ${libName} --no-interactive --style=none --js`
     );
 
     const mainPath = `apps/${appName}/pages/index.js`;
@@ -278,7 +332,7 @@ describe('Next.js Applications', () => {
       checkE2E: false,
       checkExport: false,
     });
-  }, 300000);
+  }, 300_000);
 
   it('should support --no-swc flag', async () => {
     const appName = uniq('app');
@@ -294,69 +348,24 @@ describe('Next.js Applications', () => {
       checkE2E: false,
       checkExport: true,
     });
-  }, 300000);
+  }, 300_000);
 
-  it('should allow using a custom server implementation in TypeScript', async () => {
+  it('should allow using a custom server implementation', async () => {
     const appName = uniq('app');
-    const port = 4202;
 
-    // generate next.js app
-    runCLI(`generate @nrwl/next:app ${appName} --no-interactive`);
-
-    // create custom server
-    createFile(
-      'tools/custom-next-server.ts',
-      `
-      const express = require('express');
-      const path = require('path');
-
-      export default async function nextCustomServer(app, settings, proxyConfig) {
-        const handle = app.getRequestHandler();
-        await app.prepare();
-
-        const x: string = 'custom typescript server running';
-        console.log(x);
-
-        const server = express();
-        server.disable('x-powered-by');
-
-        server.use(
-          express.static(path.resolve(settings.dir, settings.conf.outdir, 'public'))
-        );
-
-        // Default catch-all handler to allow Next.js to handle all other routes
-        server.all('*', (req, res) => handle(req, res));
-
-        server.listen(settings.port, settings.hostname);
-      }
-    `
+    runCLI(
+      `generate @nrwl/next:app ${appName} --style=css --no-interactive --custom-server`
     );
 
-    updateProjectConfig(appName, (config) => {
-      config.targets.serve.options.customServerPath =
-        '../../tools/custom-next-server.ts';
+    checkFilesExist(`apps/${appName}/server/main.ts`);
 
-      return config;
+    await checkApp(appName, {
+      checkUnitTest: false,
+      checkLint: false,
+      checkE2E: true,
+      checkExport: false,
     });
-
-    // serve Next.js
-    const p = await runCommandUntil(
-      `run ${appName}:serve --port=${port}`,
-      (output) => {
-        return output.indexOf(`[ ready ] on http://localhost:${port}`) > -1;
-      }
-    );
-
-    const data = await getData(port);
-    expect(data).toContain(`Welcome`);
-
-    try {
-      await promisifiedTreeKill(p.pid, 'SIGKILL');
-      await killPorts(port);
-    } catch (err) {
-      expect(err).toBeFalsy();
-    }
-  }, 300000);
+  }, 300_000);
 
   it('should support different --style options', async () => {
     const lessApp = uniq('app');
@@ -408,7 +417,10 @@ describe('Next.js Applications', () => {
       checkE2E: false,
       checkExport: false,
     });
-  }, 300000);
+  }, 300_000);
+  it('should run default jest tests', async () => {
+    await expectJestTestsToPass('@nrwl/next:app');
+  }, 100_000);
 });
 
 function getData(port: number, path = ''): Promise<any> {

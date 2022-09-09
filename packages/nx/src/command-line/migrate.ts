@@ -8,7 +8,7 @@ import {
   PackageJsonUpdateForPackage,
 } from '../config/misc-interfaces';
 import { NxJsonConfiguration } from '../config/nx-json';
-import { flushChanges, FsTree } from '../generators/tree';
+import { flushChanges, FsTree, printChanges } from '../generators/tree';
 import {
   extractFileFromTarball,
   JsonReadOptions,
@@ -20,9 +20,12 @@ import {
   NxMigrationsConfiguration,
   PackageGroup,
   PackageJson,
+  readModulePackageJson,
+  readNxMigrateConfig,
 } from '../utils/package-json';
 import {
   createTempNpmDirectory,
+  detectPackageManager,
   getPackageManagerCommand,
   packageRegistryPack,
   packageRegistryView,
@@ -30,6 +33,7 @@ import {
 } from '../utils/package-manager';
 import { handleErrors } from '../utils/params';
 import { connectToNxCloudCommand } from './connect-to-nx-cloud';
+import { output } from '../utils/output';
 
 export interface ResolvedMigrationConfiguration extends MigrationsJson {
   packageGroup?: NxMigrationsConfiguration['packageGroup'];
@@ -392,14 +396,14 @@ function parseTargetPackageAndVersion(args: string) {
     }
   } else {
     if (
-      args.match(/^\d+(?:\.\d+)?(?:\.\d+)?$/) ||
       args === 'latest' ||
-      args === 'next'
+      args === 'next' ||
+      valid(args) ||
+      args.match(/^\d+(?:\.\d+)?(?:\.\d+)?$/)
     ) {
       const targetVersion = normalizeVersionWithTagCheck(args);
       const targetPackage =
-        args.match(/^\d+(?:\.\d+)?(?:\.\d+)?$/) &&
-        lt(targetVersion, '14.0.0-beta.0')
+        !['latest', 'next'].includes(args) && lt(targetVersion, '14.0.0-beta.0')
           ? '@nrwl/workspace'
           : 'nx';
 
@@ -466,10 +470,8 @@ function versions(root: string, from: Record<string, string>) {
       }
 
       if (!cache[packageName]) {
-        const packageJsonPath = require.resolve(`${packageName}/package.json`, {
-          paths: [root],
-        });
-        cache[packageName] = readJsonFile(packageJsonPath).version;
+        const { packageJson } = readModulePackageJson(packageName, [root]);
+        cache[packageName] = packageJson.version;
       }
 
       return cache[packageName];
@@ -538,9 +540,11 @@ function createFetcher() {
 
     let resolvedVersion: string = packageVersion;
     let migrations: Promise<ResolvedMigrationConfiguration>;
+
     function setCache(packageName: string, packageVersion: string) {
       migrationsCache[packageName + '-' + packageVersion] = migrations;
     }
+
     migrations = fetchMigrations(packageName, packageVersion, setCache).then(
       (result) => {
         if (result.schematics) {
@@ -557,6 +561,7 @@ function createFetcher() {
     return migrations;
   };
 }
+
 // testing-fetch-end
 
 async function getPackageMigrationsUsingRegistry(
@@ -593,33 +598,6 @@ async function getPackageMigrationsUsingRegistry(
   );
 }
 
-function resolveNxMigrationConfig(json: Partial<PackageJson>) {
-  const parseNxMigrationsConfig = (
-    fromJson?: string | NxMigrationsConfiguration
-  ): NxMigrationsConfiguration => {
-    if (!fromJson) {
-      return {};
-    }
-    if (typeof fromJson === 'string') {
-      return { migrations: fromJson, packageGroup: [] };
-    }
-
-    return {
-      ...(fromJson.migrations ? { migrations: fromJson.migrations } : {}),
-      ...(fromJson.packageGroup ? { packageGroup: fromJson.packageGroup } : {}),
-    };
-  };
-
-  const config: NxMigrationsConfiguration = {
-    ...parseNxMigrationsConfig(json['ng-update']),
-    ...parseNxMigrationsConfig(json['nx-migrations']),
-    // In case there's a `migrations` field in `package.json`
-    ...parseNxMigrationsConfig(json as any),
-  };
-
-  return config;
-}
-
 async function getPackageMigrationsConfigFromRegistry(
   packageName: string,
   packageVersion: string
@@ -634,7 +612,7 @@ async function getPackageMigrationsConfigFromRegistry(
     return null;
   }
 
-  return resolveNxMigrationConfig(JSON.parse(result));
+  return readNxMigrateConfig(JSON.parse(result));
 }
 
 async function downloadPackageMigrationsFromRegistry(
@@ -680,7 +658,7 @@ async function getPackageMigrationsUsingInstall(
   let result: ResolvedMigrationConfiguration;
 
   try {
-    const pmc = getPackageManagerCommand();
+    const pmc = getPackageManagerCommand(detectPackageManager(dir));
 
     await execAsync(`${pmc.add} ${packageName}@${packageVersion}`, {
       cwd: dir,
@@ -713,11 +691,11 @@ function readPackageMigrationConfig(
   packageName: string,
   dir: string
 ): PackageMigrationConfig {
-  const packageJsonPath = require.resolve(`${packageName}/package.json`, {
-    paths: [dir],
-  });
+  const { path: packageJsonPath, packageJson: json } = readModulePackageJson(
+    packageName,
+    [dir]
+  );
 
-  const json = readJsonFile<PackageJson>(packageJsonPath);
   const migrationConfigOrFile = json['nx-migrations'] || json['ng-update'];
 
   if (!migrationConfigOrFile) {
@@ -804,6 +782,15 @@ async function isMigratingToNewMajor(from: string, to: string) {
   return major(from) < major(to);
 }
 
+function readNxVersion(packageJson: PackageJson) {
+  return (
+    packageJson?.devDependencies?.['nx'] ??
+    packageJson?.dependencies?.['nx'] ??
+    packageJson?.devDependencies?.['@nrwl/workspace'] ??
+    packageJson?.dependencies?.['@nrwl/workspace']
+  );
+}
+
 async function generateMigrationsJsonAndUpdatePackageJson(
   root: string,
   opts: {
@@ -818,20 +805,25 @@ async function generateMigrationsJsonAndUpdatePackageJson(
     let originalPackageJson = readJsonFile<PackageJson>(
       join(root, 'package.json')
     );
-    if (
-      ['nx', '@nrwl/workspace'].includes(opts.targetPackage) &&
-      (await isMigratingToNewMajor(
-        originalPackageJson.devDependencies?.['nx'] ??
-          originalPackageJson.devDependencies?.['@nrwl/workspace'],
-        opts.targetVersion
-      ))
-    ) {
-      await connectToNxCloudCommand(
-        'We noticed you are migrating to a new major version, but are not taking advantage of Nx Cloud. Nx Cloud can make your CI up to 10 times faster. Learn more about it here: nx.app. Would you like to add it?'
-      );
-      originalPackageJson = readJsonFile<PackageJson>(
-        join(root, 'package.json')
-      );
+
+    try {
+      if (
+        ['nx', '@nrwl/workspace'].includes(opts.targetPackage) &&
+        (await isMigratingToNewMajor(
+          readNxVersion(originalPackageJson),
+          opts.targetVersion
+        ))
+      ) {
+        await connectToNxCloudCommand(
+          'We noticed you are migrating to a new major version, but are not taking advantage of Nx Cloud. Nx Cloud can make your CI up to 10 times faster. Learn more about it here: nx.app. Would you like to add it?'
+        );
+        originalPackageJson = readJsonFile<PackageJson>(
+          join(root, 'package.json')
+        );
+      }
+    } catch {
+      // The above code is to remind folks when updating to a new major and not currently using Nx cloud.
+      // If for some reason it fails, it shouldn't affect the overall migration process
     }
 
     logger.info(`Fetching meta data about packages.`);
@@ -855,32 +847,38 @@ async function generateMigrationsJsonAndUpdatePackageJson(
       createMigrationsFile(root, migrations);
     }
 
-    logger.info(`NX The migrate command has run successfully.`);
-    logger.info(`- package.json has been updated`);
-    if (migrations.length > 0) {
-      logger.info(`- migrations.json has been generated`);
-    } else {
-      logger.info(
-        `- there are no migrations to run, so migrations.json has not been created.`
-      );
-    }
-    logger.info(`NX Next steps:`);
-    logger.info(
-      `- Make sure package.json changes make sense and then run '${pmc.install}'`
-    );
-    if (migrations.length > 0) {
-      logger.info(`- Run '${pmc.exec} nx migrate --run-migrations'`);
-    }
-    logger.info(`- To learn more go to https://nx.dev/using-nx/updating-nx`);
+    output.success({
+      title: `The migrate command has run successfully.`,
+      bodyLines: [
+        `- Package.json has been updated.`,
+        migrations.length > 0
+          ? `- Migrations.json has been generated.`
+          : `- There are no migrations to run, so migrations.json has not been created.`,
+      ],
+    });
 
-    if (showConnectToCloudMessage()) {
-      const cmd = pmc.run('nx', 'connect-to-nx-cloud');
-      logger.info(
-        `- You may run '${cmd}' to get faster builds, GitHub integration, and more. Check out https://nx.app`
-      );
-    }
+    output.log({
+      title: 'Next steps:',
+      bodyLines: [
+        `- Make sure package.json changes make sense and then run '${pmc.install}',`,
+        ...(migrations.length > 0
+          ? [`- Run '${pmc.exec} nx migrate --run-migrations'`]
+          : []),
+        `- To learn more go to https://nx.dev/using-nx/updating-nx`,
+        ...(showConnectToCloudMessage()
+          ? [
+              `- You may run '${pmc.run(
+                'nx',
+                'connect-to-nx-cloud'
+              )}' to get faster builds, GitHub integration, and more. Check out https://nx.app`,
+            ]
+          : []),
+      ],
+    });
   } catch (e) {
-    logger.error(`NX The migrate command failed.`);
+    output.error({
+      title: `The migrate command failed.`,
+    });
     throw e;
   }
 }
@@ -903,13 +901,93 @@ function showConnectToCloudMessage() {
 
 function runInstall() {
   const pmCommands = getPackageManagerCommand();
-  logger.info(
-    `NX Running '${pmCommands.install}' to make sure necessary packages are installed`
-  );
+  output.log({
+    title: `Running '${pmCommands.install}' to make sure necessary packages are installed`,
+  });
   execSync(pmCommands.install, { stdio: [0, 1, 2] });
 }
 
-const NO_CHANGES = 'NO_CHANGES';
+export async function executeMigrations(
+  root: string,
+  migrations: {
+    package: string;
+    name: string;
+    description?: string;
+    version: string;
+    cli?: 'nx' | 'angular';
+  }[],
+  isVerbose: boolean,
+  shouldCreateCommits: boolean,
+  commitPrefix: string
+) {
+  const depsBeforeMigrations = getStringifiedPackageJsonDeps(root);
+
+  const migrationsWithNoChanges: typeof migrations = [];
+  for (const m of migrations) {
+    try {
+      if (m.cli === 'nx') {
+        const changes = await runNxMigration(root, m.package, m.name);
+
+        if (changes.length < 1) {
+          migrationsWithNoChanges.push(m);
+          // If no changes are made, continue on without printing anything
+          continue;
+        }
+
+        logger.info(`Ran ${m.name} from ${m.package}`);
+        logger.info(`  ${m.description}\n`);
+        printChanges(changes, '  ');
+      } else {
+        const { madeChanges, loggingQueue } = await (
+          await import('../adapter/ngcli-adapter')
+        ).runMigration(root, m.package, m.name, isVerbose);
+
+        if (!madeChanges) {
+          migrationsWithNoChanges.push(m);
+          // If no changes are made, continue on without printing anything
+          continue;
+        }
+
+        logger.info(`Ran ${m.name} from ${m.package}`);
+        logger.info(`  ${m.description}\n`);
+        loggingQueue.forEach((log) => logger.info('  ' + log));
+      }
+
+      if (shouldCreateCommits) {
+        const commitMessage = `${commitPrefix}${m.name}`;
+        try {
+          const committedSha = commitChanges(commitMessage);
+
+          if (committedSha) {
+            logger.info(
+              chalk.dim(`- Commit created for changes: ${committedSha}`)
+            );
+          } else {
+            logger.info(
+              chalk.red(
+                `- A commit could not be created/retrieved for an unknown reason`
+              )
+            );
+          }
+        } catch (e) {
+          logger.info(chalk.red(`- ${e.message}`));
+        }
+      }
+      logger.info(`---------------------------------------------------------`);
+    } catch (e) {
+      output.error({
+        title: `Failed to run ${m.name} from ${m.package}. This workspace is NOT up to date!`,
+      });
+      throw e;
+    }
+  }
+
+  const depsAfterMigrations = getStringifiedPackageJsonDeps(root);
+  if (depsBeforeMigrations !== depsAfterMigrations) {
+    runInstall();
+  }
+  return migrationsWithNoChanges;
+}
 
 async function runMigrations(
   root: string,
@@ -922,10 +1000,11 @@ async function runMigrations(
     runInstall();
   }
 
-  logger.info(
-    `NX Running migrations from '${opts.runMigrations}'` +
-      (shouldCreateCommits ? ', with each applied in a dedicated commit' : '')
-  );
+  output.log({
+    title:
+      `Running migrations from '${opts.runMigrations}'` +
+      (shouldCreateCommits ? ', with each applied in a dedicated commit' : ''),
+  });
 
   const migrations: {
     package: string;
@@ -934,71 +1013,34 @@ async function runMigrations(
     cli?: 'nx' | 'angular';
   }[] = readJsonFile(join(root, opts.runMigrations)).migrations;
 
-  for (const m of migrations) {
-    logger.info(`Running migration ${m.name}`);
-    if (m.cli === 'nx') {
-      await runNxMigration(root, m.package, m.name);
-    } else {
-      await (
-        await import('../adapter/ngcli-adapter')
-      ).runMigration(root, m.package, m.name, isVerbose);
-    }
-
-    logger.info(`Successfully finished ${m.name}`);
-
-    if (shouldCreateCommits) {
-      const commitMessage = `${commitPrefix}${m.name}`;
-      const { sha: committedSha, reasonForNoCommit } =
-        commitChangesIfAny(commitMessage);
-
-      if (committedSha) {
-        logger.info(chalk.dim(`- Commit created for changes: ${committedSha}`));
-      } else {
-        switch (true) {
-          // Isolate the NO_CHANGES case so that we can render it differently to errors
-          case reasonForNoCommit === NO_CHANGES:
-            logger.info(chalk.dim(`- There were no changes to commit`));
-            break;
-          case typeof reasonForNoCommit === 'string': // Any other string is a specific error we captured
-            logger.info(chalk.red(`- ${reasonForNoCommit}`));
-            break;
-          default:
-            logger.info(
-              chalk.red(
-                `- A commit could not be created/retrieved for an unknown reason`
-              )
-            );
-        }
-      }
-    }
-    logger.info(`---------------------------------------------------------`);
-  }
-
-  logger.info(
-    `NX Successfully finished running migrations from '${opts.runMigrations}'`
+  const migrationsWithNoChanges = await executeMigrations(
+    root,
+    migrations,
+    isVerbose,
+    shouldCreateCommits,
+    commitPrefix
   );
+
+  if (migrationsWithNoChanges.length < migrations.length) {
+    output.success({
+      title: `Successfully finished running migrations from '${opts.runMigrations}'. This workspace is up to date!`,
+    });
+  } else {
+    output.success({
+      title: `No changes were made from running '${opts.runMigrations}'. This workspace is up to date!`,
+    });
+  }
 }
 
-function commitChangesIfAny(commitMessage: string): {
-  sha: string | null;
-  reasonForNoCommit: string | null;
-} {
-  try {
-    if (
-      execSync('git ls-files -m -d -o --exclude-standard').toString() === ''
-    ) {
-      return {
-        sha: null,
-        reasonForNoCommit: NO_CHANGES,
-      };
-    }
-  } catch (err) {
-    return {
-      sha: null,
-      reasonForNoCommit: `Error determining git changes:\n${err.stderr}`,
-    };
-  }
+function getStringifiedPackageJsonDeps(root: string): string {
+  const { dependencies, devDependencies } = readJsonFile<PackageJson>(
+    join(root, 'package.json')
+  );
 
+  return JSON.stringify([dependencies, devDependencies]);
+}
+
+function commitChanges(commitMessage: string): string | null {
   try {
     execSync('git add -A', { encoding: 'utf8', stdio: 'pipe' });
     execSync('git commit --no-verify -F -', {
@@ -1007,16 +1049,10 @@ function commitChangesIfAny(commitMessage: string): {
       input: commitMessage,
     });
   } catch (err) {
-    return {
-      sha: null,
-      reasonForNoCommit: `Error committing changes:\n${err.stderr}`,
-    };
+    throw new Error(`Error committing changes:\n${err.stderr}`);
   }
 
-  return {
-    sha: getLatestCommitSha(),
-    reasonForNoCommit: null,
-  };
+  return getLatestCommitSha();
 }
 
 function getLatestCommitSha(): string | null {
@@ -1038,6 +1074,12 @@ async function runNxMigration(root: string, packageName: string, name: string) {
 
   const collection = readJsonFile<MigrationsJson>(collectionPath);
   const g = collection.generators || collection.schematics;
+  if (!g[name]) {
+    const source = collection.generators ? 'generators' : 'schematics';
+    throw new Error(
+      `Unable to determine implementation path for "${collectionPath}:${name}" using collection.${source}`
+    );
+  }
   const implRelativePath = g[name].implementation || g[name].factory;
 
   let implPath: string;
@@ -1058,10 +1100,15 @@ async function runNxMigration(root: string, packageName: string, name: string) {
   await fn(host, {});
   const changes = host.listChanges();
   flushChanges(root, changes);
+  return changes;
 }
 
 export async function migrate(root: string, args: { [k: string]: any }) {
-  return handleErrors(args['verbose'], async () => {
+  if (args['verbose']) {
+    process.env.NX_VERBOSE_LOGGING = 'true';
+  }
+
+  return handleErrors(process.env.NX_VERBOSE_LOGGING === 'true', async () => {
     const opts = parseMigrationsOptions(args);
     if (opts.type === 'generateMigrations') {
       await generateMigrationsJsonAndUpdatePackageJson(root, opts);

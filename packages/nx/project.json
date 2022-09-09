@@ -1,7 +1,8 @@
 {
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "packages/nx",
   "projectType": "library",
-  "implicitDependencies": ["dep-graph-client"],
+  "implicitDependencies": ["graph-client"],
   "targets": {
     "build-base": {
       "executor": "@nrwl/js:tsc",
@@ -55,12 +56,12 @@
       }
     },
     "build": {
-      "executor": "@nrwl/workspace:run-commands",
+      "executor": "nx:run-commands",
       "outputs": ["build/packages/nx"],
       "options": {
         "commands": [
           {
-            "command": "node ./scripts/copy-dep-graph.js"
+            "command": "node ./scripts/copy-graph-client.js"
           },
           {
             "command": "node ./scripts/chmod build/packages/nx/bin/nx.js"
@@ -88,7 +89,10 @@
           "packages/nx/**/*.spec.tsx",
           "packages/nx/**/*.spec.js",
           "packages/nx/**/*.spec.jsx",
-          "packages/nx/**/*.d.ts"
+          "packages/nx/**/*.d.ts",
+          "packages/nx/executors.json",
+          "packages/nx/package.json",
+          "packages/nx/migrations.json"
         ]
       },
       "outputs": ["{options.outputFile}"]

@@ -4,14 +4,19 @@ import {
   convertNxGenerator,
   formatFiles,
   GeneratorCallback,
+  readWorkspaceConfiguration,
   removeDependenciesFromPackageJson,
   Tree,
+  updateWorkspaceConfiguration,
   writeJson,
 } from '@nrwl/devkit';
 import { jestInitGenerator } from '@nrwl/jest';
 import { runTasksInSerial } from '@nrwl/workspace/src/utilities/run-tasks-in-serial';
-import { setDefaultCollection } from '@nrwl/workspace/src/utilities/set-default-collection';
-import { nxVersion, typesNodeVersion } from '../../utils/versions';
+import {
+  nxVersion,
+  tsLibVersion,
+  typesNodeVersion,
+} from '../../utils/versions';
 import { Schema } from './schema';
 
 function updateDependencies(tree: Tree) {
@@ -22,7 +27,7 @@ function updateDependencies(tree: Tree) {
     {
       'core-js': '^3.6.5',
       'regenerator-runtime': '0.13.7',
-      tslib: '^2.0.0',
+      tslib: tsLibVersion,
     },
     {
       '@nrwl/web': nxVersion,
@@ -39,12 +44,20 @@ function initRootBabelConfig(tree: Tree) {
   writeJson(tree, '/babel.config.json', {
     babelrcRoots: ['*'], // Make sure .babelrc files other than root can be loaded in a monorepo
   });
+
+  const workspaceConfiguration = readWorkspaceConfiguration(tree);
+
+  if (workspaceConfiguration.namedInputs?.sharedGlobals) {
+    workspaceConfiguration.namedInputs.sharedGlobals.push(
+      '{workspaceRoot}/babel.config.json'
+    );
+  }
+  updateWorkspaceConfiguration(tree, workspaceConfiguration);
 }
 
 export async function webInitGenerator(tree: Tree, schema: Schema) {
   let tasks: GeneratorCallback[] = [];
 
-  setDefaultCollection(tree, '@nrwl/web');
   if (!schema.unitTestRunner || schema.unitTestRunner === 'jest') {
     const jestTask = jestInitGenerator(tree, {});
     tasks.push(jestTask);

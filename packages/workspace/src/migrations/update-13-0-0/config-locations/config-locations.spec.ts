@@ -5,18 +5,20 @@ import {
   readWorkspaceConfiguration,
   readJson,
 } from '@nrwl/devkit';
-import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
+import {
+  createTreeWithEmptyV1Workspace,
+  createTreeWithEmptyWorkspace,
+} from '@nrwl/devkit/testing';
 import update from './config-locations';
 
 describe('update to v13 config locations', () => {
   let tree: Tree;
 
   beforeEach(async () => {
-    tree = createTreeWithEmptyWorkspace(2);
+    tree = createTreeWithEmptyWorkspace();
     updateJson(tree, 'workspace.json', (json) => ({
       ...json,
       cli: {
-        defaultCollection: '@nrwl/workspace',
         packageManager: 'npm',
       },
       generators: {},
@@ -40,7 +42,6 @@ describe('update to v13 config locations', () => {
     const workspaceJson = readJson(tree, 'workspace.json');
     const nxJson = readJson(tree, 'nx.json');
     expect(nxJson.projects).not.toBeDefined();
-    expect(nxJson.cli?.defaultCollection).toEqual('@nrwl/workspace');
     expect(nxJson.cli?.packageManager).toEqual('npm');
     expect(nxJson.generators).toEqual({});
     expect(workspaceJson.projects.a.tags).toEqual(['test']);
@@ -50,11 +51,10 @@ describe('update to v13 config locations', () => {
 
   describe('v1 workspace', () => {
     beforeEach(() => {
-      tree = createTreeWithEmptyWorkspace(1);
+      tree = createTreeWithEmptyV1Workspace();
       updateJson(tree, 'workspace.json', (json) => ({
         ...json,
         cli: {
-          defaultCollection: '@nrwl/workspace',
           packageManager: 'npm',
         },
         schematics: {
@@ -82,7 +82,6 @@ describe('update to v13 config locations', () => {
       const workspaceJson = readJson(tree, 'workspace.json');
       const nxJson = readJson(tree, 'nx.json');
       expect(nxJson.projects).not.toBeDefined();
-      expect(nxJson.cli?.defaultCollection).toEqual('@nrwl/workspace');
       expect(nxJson.cli?.packageManager).toEqual('npm');
       expect(nxJson.generators).toEqual({
         '@nrwl/workspace:lib': {

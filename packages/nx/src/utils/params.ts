@@ -2,8 +2,9 @@ import { logger } from './logger';
 import { NxJsonConfiguration } from '../config/nx-json';
 import {
   TargetConfiguration,
-  WorkspaceJsonConfiguration,
+  ProjectsConfigurations,
 } from '../config/workspace-json-project-json';
+import { output } from './output';
 
 type PropertyDescription = {
   type?: string | string[];
@@ -26,12 +27,16 @@ type PropertyDescription = {
     | string[]
     | { [key: string]: string | number | boolean | string[] };
   $ref?: string;
-  $default?: { $source: 'argv'; index: number } | { $source: 'projectName' };
+  $default?:
+    | { $source: 'argv'; index: number }
+    | { $source: 'projectName' }
+    | { $source: 'unparsed' };
   additionalProperties?: boolean;
   'x-prompt'?:
     | string
-    | { message: string; type: string; items: any[]; multiselect?: boolean };
+    | { message: string; type: string; items?: any[]; multiselect?: boolean };
   'x-deprecated'?: boolean | string;
+  'x-dropdown'?: 'projects';
 
   // Numbers Only
   multipleOf?: number;
@@ -72,15 +77,22 @@ export async function handleErrors(isVerbose: boolean, fn: Function) {
   try {
     return await fn();
   } catch (err) {
+    err ??= new Error('Unknown error caught');
     if (err.constructor.name === 'UnsuccessfulWorkflowExecution') {
       logger.error('The generator workflow failed. See above.');
-    } else if (err.message) {
-      logger.error(err.message);
     } else {
-      logger.error(err);
-    }
-    if (isVerbose && err.stack) {
-      logger.info(err.stack);
+      const lines = (err.message ? err.message : err.toString()).split('\n');
+      const bodyLines = lines.slice(1);
+      if (err.stack && !isVerbose) {
+        bodyLines.push('Pass --verbose to see the stacktrace.');
+      }
+      output.error({
+        title: lines[0],
+        bodyLines,
+      });
+      if (err.stack && isVerbose) {
+        logger.info(err.stack);
+      }
     }
     return 1;
   }
@@ -96,11 +108,17 @@ function camelCase(input: string): string {
   }
 }
 
-export function convertToCamelCase(parsed: { [k: string]: any }): Options {
-  return Object.keys(parsed).reduce(
-    (m, c) => ({ ...m, [camelCase(c)]: parsed[c] }),
-    {}
-  );
+export function convertToCamelCase(
+  parsed: { [k: string]: any },
+  schema: Schema
+): Options {
+  return Object.keys(parsed).reduce((m, c) => {
+    if (schema.properties[camelCase(c)]) {
+      return { ...m, [camelCase(c)]: parsed[c] };
+    } else {
+      return { ...m, [c]: parsed[c] };
+    }
+  }, {});
 }
 
 /**
@@ -220,7 +238,13 @@ export function validateObject(
   if (additionalProperties === false) {
     Object.keys(opts).find((p) => {
       if (Object.keys(properties).indexOf(p) === -1) {
-        throw new SchemaError(`'${p}' is not found in schema`);
+        if (p === '_') {
+          throw new SchemaError(
+            `Schema does not support positional arguments. Argument '${opts[p]}' found`
+          );
+        } else {
+          throw new SchemaError(`'${p}' is not found in schema`);
+        }
       }
     });
   }
@@ -520,7 +544,7 @@ export function combineOptionsForExecutor(
   isVerbose = false
 ) {
   const r = convertAliases(
-    coerceTypesInOptions(commandLineOpts, schema),
+    coerceTypesInOptions(convertToCamelCase(commandLineOpts, schema), schema),
     schema,
     false
   );
@@ -533,7 +557,6 @@ export function combineOptionsForExecutor(
   convertSmartDefaultsIntoNamedParams(
     combined,
     schema,
-    (commandLineOpts['_'] as string[]) || [],
     defaultProjectName,
     relativeCwd
   );
@@ -548,7 +571,7 @@ export async function combineOptionsForGenerator(
   commandLineOpts: Options,
   collectionName: string,
   generatorName: string,
-  wc: (WorkspaceJsonConfiguration & NxJsonConfiguration) | null,
+  wc: (ProjectsConfigurations & NxJsonConfiguration) | null,
   schema: Schema,
   isInteractive: boolean,
   defaultProjectName: string | null,
@@ -571,13 +594,12 @@ export async function combineOptionsForGenerator(
   convertSmartDefaultsIntoNamedParams(
     combined,
     schema,
-    (commandLineOpts['_'] as string[]) || [],
     defaultProjectName,
     relativeCwd
   );
 
   if (isInteractive && isTTY()) {
-    combined = await promptForValues(combined, schema);
+    combined = await promptForValues(combined, schema, wc);
   }
 
   warnDeprecations(combined, schema);
@@ -607,10 +629,11 @@ export function warnDeprecations(
 export function convertSmartDefaultsIntoNamedParams(
   opts: { [k: string]: any },
   schema: Schema,
-  argv: string[],
   defaultProjectName: string | null,
   relativeCwd: string | null
 ) {
+  const argv = opts['_'] || [];
+  const usedPositionalArgs = {};
   Object.entries(schema.properties).forEach(([k, v]) => {
     if (
       opts[k] === undefined &&
@@ -618,7 +641,10 @@ export function convertSmartDefaultsIntoNamedParams(
       v.$default.$source === 'argv' &&
       argv[v.$default.index]
     ) {
+      usedPositionalArgs[v.$default.index] = true;
       opts[k] = coerceType(v, argv[v.$default.index]);
+    } else if (v.$default !== undefined && v.$default.$source === 'unparsed') {
+      opts[k] = opts['__overrides_unparsed__'] || [];
     } else if (
       opts[k] === undefined &&
       v.$default !== undefined &&
@@ -635,12 +661,23 @@ export function convertSmartDefaultsIntoNamedParams(
       opts[k] = relativeCwd.replace(/\\/g, '/');
     }
   });
-  delete opts['_'];
+  const leftOverPositionalArgs = [];
+  for (let i = 0; i < argv.length; ++i) {
+    if (!usedPositionalArgs[i]) {
+      leftOverPositionalArgs.push(argv[i]);
+    }
+  }
+  if (leftOverPositionalArgs.length === 0) {
+    delete opts['_'];
+  } else {
+    opts['_'] = leftOverPositionalArgs;
+  }
+  delete opts['__overrides_unparsed__'];
 }
 
 function getGeneratorDefaults(
   projectName: string | null,
-  wc: (WorkspaceJsonConfiguration & NxJsonConfiguration) | null,
+  wc: (ProjectsConfigurations & NxJsonConfiguration) | null,
   collectionName: string,
   generatorName: string
 ) {
@@ -674,15 +711,19 @@ function getGeneratorDefaults(
   return defaults;
 }
 
-async function promptForValues(opts: Options, schema: Schema) {
-  interface Prompt {
-    name: string;
-    type: 'input' | 'select' | 'multiselect' | 'confirm' | 'numeral';
-    message: string;
-    initial?: any;
-    choices?: (string | { name: string; message: string })[];
-  }
+interface Prompt {
+  name: string;
+  type: 'input' | 'autocomplete' | 'multiselect' | 'confirm' | 'numeral';
+  message: string;
+  initial?: any;
+  choices?: (string | { name: string; message: string })[];
+}
 
+export function getPromptsForSchema(
+  opts: Options,
+  schema: Schema,
+  wc: (ProjectsConfigurations & NxJsonConfiguration) | null
+): Prompt[] {
   const prompts: Prompt[] = [];
   Object.entries(schema.properties).forEach(([k, v]) => {
     if (v['x-prompt'] && opts[k] === undefined) {
@@ -694,15 +735,31 @@ async function promptForValues(opts: Options, schema: Schema) {
         question.initial = v.default;
       }
 
+      // Normalize x-prompt
       if (typeof v['x-prompt'] === 'string') {
-        question.message = v['x-prompt'];
-        if (v.type === 'string' && v.enum && Array.isArray(v.enum)) {
-          question.type = 'select';
-          question.choices = [...v.enum];
-        } else {
-          question.type = v.type === 'boolean' ? 'confirm' : 'input';
-        }
-      } else if (v['x-prompt'].type == 'number') {
+        const message = v['x-prompt'];
+        v['x-prompt'] = {
+          type: v.type === 'boolean' ? 'confirm' : 'input',
+          message,
+        };
+      }
+
+      question.message = v['x-prompt'].message;
+
+      if (v.type === 'string' && v.enum && Array.isArray(v.enum)) {
+        question.type = 'autocomplete';
+        question.choices = [...v.enum];
+      } else if (
+        v.type === 'string' &&
+        (v.$default?.$source === 'projectName' ||
+          k === 'project' ||
+          k === 'projectName' ||
+          v['x-dropdown'] === 'projects') &&
+        wc
+      ) {
+        question.type = 'autocomplete';
+        question.choices = Object.keys(wc.projects);
+      } else if (v.type === 'number' || v['x-prompt'].type == 'number') {
         question.message = v['x-prompt'].message;
         question.type = 'numeral';
       } else if (
@@ -711,9 +768,11 @@ async function promptForValues(opts: Options, schema: Schema) {
       ) {
         question.message = v['x-prompt'].message;
         question.type = 'confirm';
-      } else {
+      } else if (v['x-prompt'].items) {
         question.message = v['x-prompt'].message;
-        question.type = v['x-prompt'].multiselect ? 'multiselect' : 'select';
+        question.type = v['x-prompt'].multiselect
+          ? 'multiselect'
+          : 'autocomplete';
         question.choices =
           v['x-prompt'].items &&
           v['x-prompt'].items.map((item) => {
@@ -726,40 +785,31 @@ async function promptForValues(opts: Options, schema: Schema) {
               };
             }
           });
+      } else {
+        question.message = v['x-prompt'].message;
+        question.type = v.type === 'boolean' ? 'confirm' : 'input';
       }
       prompts.push(question);
     }
   });
 
+  return prompts;
+}
+
+async function promptForValues(
+  opts: Options,
+  schema: Schema,
+  wc: (ProjectsConfigurations & NxJsonConfiguration) | null
+) {
   return await (
     await import('enquirer')
   )
-    .prompt(prompts)
+    .prompt(getPromptsForSchema(opts, schema, wc))
     .then((values) => ({ ...opts, ...values }))
     .catch((e) => {
       console.error(e);
       process.exit(0);
     });
-}
-
-/**
- * Tries to find what the user meant by unmatched commands
- *
- * @param opts The options passed in by the user
- * @param schema The schema definition to check against
- *
- */
-export function lookupUnmatched(opts: Options, schema: Schema): Options {
-  if (opts['--']) {
-    const props = Object.keys(schema.properties);
-
-    opts['--'].forEach((unmatched) => {
-      unmatched.possible = props.filter(
-        (p) => levenshtein(p, unmatched.name) < 3
-      );
-    });
-  }
-  return opts;
 }
 
 function findSchemaForProperty(
@@ -782,37 +832,6 @@ function findSchemaForProperty(
     return { name, description };
   }
   return null;
-}
-
-function levenshtein(a: string, b: string) {
-  if (a.length == 0) {
-    return b.length;
-  }
-  if (b.length == 0) {
-    return a.length;
-  }
-  const matrix = [];
-
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) == a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1
-        );
-      }
-    }
-  }
-  return matrix[b.length][a.length];
 }
 
 function isTTY(): boolean {

@@ -9,8 +9,8 @@ import {
   convertNxGenerator,
   Tree,
   formatFiles,
-  joinPathFragments,
   GeneratorCallback,
+  joinPathFragments,
 } from '@nrwl/devkit';
 import { normalizeOptions } from './lib/normalize-options';
 import initGenerator from '../init/init';
@@ -23,20 +23,20 @@ export async function reactNativeApplicationGenerator(
   host: Tree,
   schema: Schema
 ): Promise<GeneratorCallback> {
-  const options = normalizeOptions(schema);
+  const options = normalizeOptions(host, schema);
 
   createApplicationFiles(host, options);
   addProject(host, options);
 
   const initTask = await initGenerator(host, { ...options, skipFormat: true });
-  const lintTask = await addLinting(
-    host,
-    options.projectName,
-    options.appProjectRoot,
-    [joinPathFragments(options.appProjectRoot, 'tsconfig.app.json')],
-    options.linter,
-    options.setParserOptionsProject
-  );
+  const lintTask = await addLinting(host, {
+    ...options,
+    projectRoot: options.appProjectRoot,
+    tsConfigPaths: [
+      joinPathFragments(options.appProjectRoot, 'tsconfig.app.json'),
+    ],
+  });
+
   const jestTask = await addJest(
     host,
     options.unitTestRunner,
@@ -46,7 +46,10 @@ export async function reactNativeApplicationGenerator(
   );
   const detoxTask = await addDetox(host, options);
   const symlinkTask = runSymlink(host.root, options.appProjectRoot);
-  const podInstallTask = runPodInstall(join(host.root, options.iosProjectRoot));
+  const podInstallTask = runPodInstall(
+    join(host.root, options.iosProjectRoot),
+    options.install
+  );
   const chmodTaskGradlew = runChmod(
     join(host.root, options.androidProjectRoot, 'gradlew'),
     0o775

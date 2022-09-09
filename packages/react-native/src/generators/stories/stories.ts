@@ -5,29 +5,46 @@ import {
   visitNotIgnoredFiles,
 } from '@nrwl/devkit';
 import { join } from 'path';
-
 import componentStoryGenerator from '../component-story/component-story';
 import { StorybookStoriesSchema } from './schema';
 import {
   containsComponentDeclaration,
   projectRootPath,
 } from '@nrwl/react/src/generators/stories/stories';
+import { isTheFileAStory } from '@nrwl/storybook/src/utils/utilities';
+import minimatch = require('minimatch');
 
-export async function createAllStories(tree: Tree, projectName: string) {
+export async function createAllStories(
+  tree: Tree,
+  projectName: string,
+  ignorePaths?: string[]
+) {
   const projects = getProjects(tree);
-  const project = projects.get(projectName);
+  const projectConfiguration = projects.get(projectName);
 
-  const { sourceRoot, projectType } = project;
-  const projectPath = projectRootPath(tree, sourceRoot, projectType);
+  const { sourceRoot, root } = projectConfiguration;
+  const projectPath = projectRootPath(projectConfiguration);
 
   let componentPaths: string[] = [];
   visitNotIgnoredFiles(tree, projectPath, (path) => {
+    if (ignorePaths?.some((pattern) => minimatch(path, pattern))) return;
+
     if (
       (path.endsWith('.tsx') && !path.endsWith('.spec.tsx')) ||
       (path.endsWith('.js') && !path.endsWith('.spec.js')) ||
       (path.endsWith('.jsx') && !path.endsWith('.spec.jsx'))
     ) {
-      componentPaths.push(path);
+      // Check if file is NOT a story (either ts/tsx or js/jsx)
+      if (!isTheFileAStory(tree, path)) {
+        // Since the file is not a story
+        // Let's see if the .stories.* file exists
+        const ext = path.slice(path.lastIndexOf('.'));
+        const storyPath = `${path.split(ext)[0]}.stories${ext}`;
+
+        if (!tree.exists(storyPath)) {
+          componentPaths.push(path);
+        }
+      }
     }
   });
 
@@ -51,7 +68,7 @@ export async function storiesGenerator(
   host: Tree,
   schema: StorybookStoriesSchema
 ) {
-  await createAllStories(host, schema.project);
+  await createAllStories(host, schema.project, schema.ignorePaths);
 }
 
 export default storiesGenerator;

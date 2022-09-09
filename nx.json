@@ -1,11 +1,5 @@
 {
-  "implicitDependencies": {
-    "package.json": "*",
-    ".eslintrc.json": "*",
-    "scripts/vercel/*": ["nx-dev"],
-    ".circleci/config.yml": "*",
-    "tools/eslint-rules/**/*": "*"
-  },
+  "$schema": "packages/nx/schemas/nx-schema.json",
   "affected": {
     "defaultBase": "master"
   },
@@ -14,69 +8,74 @@
     "default": {
       "runner": "@nrwl/nx-cloud",
       "options": {
-        "accessToken": "YzVhYjFiNzAtYTYxZS00OWM3LTlkOGYtZjRmOGRlNDY4MTJhfHJlYWQtd3JpdGU=",
+        "accessToken": "NmVmMDViMTgtMjU4Zi00ZGUwLThjMzUtZDY0ZWEwZmNmMWJmfHJlYWQtd3JpdGU=",
         "cacheableOperations": [
           "build",
+          "lint-base",
+          "lint",
           "build-base",
           "test",
-          "lint",
-          "e2e",
-          "sitemap"
-        ],
-        "useDaemonProcess": true,
-        "runtimeCacheInputs": [
-          "echo $SELECTED_CLI",
-          "echo $NX_E2E_CI_CACHE_KEY"
+          "sitemap",
+          "e2e"
         ],
         "cacheDirectory": "/tmp/nx-cache",
-        "parallel": 1
+        "parallel": 1,
+        "url": "https://api.nrwl.io"
       }
     }
-  },
-  "targetDependencies": {
-    "build": [
-      {
-        "target": "build-base",
-        "projects": "self"
-      }
-    ],
-    "build-base": [
-      {
-        "target": "build-base",
-        "projects": "dependencies"
-      }
-    ]
   },
   "workspaceLayout": {
     "libsDir": "",
     "appsDir": ""
   },
-  "cli": {
-    "defaultCollection": "@nrwl/react"
+  "namedInputs": {
+    "default": ["{projectRoot}/**/*", "sharedGlobals"],
+    "production": [
+      "default",
+      "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)",
+      "!{projectRoot}/tsconfig.spec.json",
+      "!{projectRoot}/jest.config.[jt]s",
+      "!{projectRoot}/.eslintrc.json"
+    ],
+    "sharedGlobals": ["{workspaceRoot}/babel.config.json"]
+  },
+  "targetDefaults": {
+    "build": {
+      "dependsOn": ["build-base"],
+      "inputs": ["production", "^production"]
+    },
+    "build-base": {
+      "dependsOn": ["^build-base"],
+      "inputs": ["production", "^production"]
+    },
+    "test": {
+      "inputs": ["default", "^production", "{workspaceRoot}/jest.preset.js"]
+    },
+    "lint": {
+      "inputs": [
+        "default",
+        "{workspaceRoot}/.eslintrc.json",
+        "{workspaceRoot}/tools/eslint-rules/**/*"
+      ]
+    },
+    "e2e": {
+      "inputs": [
+        "default",
+        "^production",
+        {
+          "env": "SELECTED_CLI"
+        },
+        {
+          "env": "NX_E2E_CI_CACHE_KEY"
+        }
+      ]
+    }
   },
   "generators": {
     "@nrwl/react": {
       "application": {
-        "style": "css",
-        "linter": "eslint",
         "babel": true
-      },
-      "component": {
-        "style": "css"
-      },
-      "library": {
-        "style": "css",
-        "linter": "eslint"
       }
     }
-  },
-  "pluginsConfig": {
-    "@nrwl/jest": {
-      "hashingExcludesTestsOfDeps": true
-    },
-    "@nrwl/cypress": {
-      "hashingExcludesTestsOfDeps": true
-    }
-  },
-  "defaultProject": "dep-graph-client"
+  }
 }

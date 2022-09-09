@@ -1,16 +1,26 @@
+import * as chalk from 'chalk';
+import { prompt } from 'enquirer';
+import { readJsonFile } from 'nx/src/utils/fileutils';
+
+import { readNxJson } from '../config/configuration';
+import { NxJsonConfiguration } from '../config/nx-json';
+import { ProjectsConfigurations } from '../config/workspace-json-project-json';
+import { Workspaces } from '../config/workspaces';
+import { FileChange, flushChanges, FsTree } from '../generators/tree';
+import {
+  createProjectGraphAsync,
+  readProjectsConfigurationFromProjectGraph,
+} from '../project-graph/project-graph';
+import { logger } from '../utils/logger';
 import {
   combineOptionsForGenerator,
   handleErrors,
   Options,
   Schema,
 } from '../utils/params';
-import { Workspaces } from '../config/workspaces';
-import { FileChange, flushChanges, FsTree } from '../generators/tree';
-import { logger } from '../utils/logger';
-import * as chalk from 'chalk';
-import { workspaceRoot } from '../utils/app-root';
-import { NxJsonConfiguration } from '../config/nx-json';
+import { getLocalWorkspacePlugins } from '../utils/plugins/local-plugins';
 import { printHelp } from '../utils/print-help';
+import { workspaceRoot } from '../utils/workspace-root';
 
 export interface GenerateOptions {
   collectionName: string;
@@ -22,7 +32,7 @@ export interface GenerateOptions {
   defaults: boolean;
 }
 
-function printChanges(fileChanges: FileChange[]) {
+export function printChanges(fileChanges: FileChange[]) {
   fileChanges.forEach((f) => {
     if (f.type === 'CREATE') {
       console.log(`${chalk.green('CREATE')} ${f.path}`);
@@ -34,21 +44,158 @@ function printChanges(fileChanges: FileChange[]) {
   });
 }
 
-function convertToGenerateOptions(
-  generatorOptions: { [k: string]: any },
+async function promptForCollection(
+  generatorName: string,
+  ws: Workspaces,
+  interactive: boolean,
+  projectsConfiguration: ProjectsConfigurations
+): Promise<string> {
+  const packageJson = readJsonFile(`${workspaceRoot}/package.json`);
+  const localPlugins = getLocalWorkspacePlugins(projectsConfiguration);
+
+  const installedCollections = Array.from(
+    new Set([
+      ...Object.keys(packageJson.dependencies || {}),
+      ...Object.keys(packageJson.devDependencies || {}),
+    ])
+  );
+
+  const choicesMap = new Set<string>();
+  for (const collectionName of installedCollections) {
+    try {
+      const { resolvedCollectionName, normalizedGeneratorName } =
+        ws.readGenerator(collectionName, generatorName);
+
+      choicesMap.add(`${resolvedCollectionName}:${normalizedGeneratorName}`);
+    } catch {}
+  }
+
+  const choicesFromLocalPlugins: {
+    name: string;
+    message: string;
+    value: string;
+  }[] = [];
+  for (const [name] of localPlugins) {
+    try {
+      const { resolvedCollectionName, normalizedGeneratorName } =
+        ws.readGenerator(name, generatorName);
+      const value = `${resolvedCollectionName}:${normalizedGeneratorName}`;
+      if (!choicesMap.has(value)) {
+        choicesFromLocalPlugins.push({
+          name: value,
+          message: chalk.bold(value),
+          value,
+        });
+      }
+    } catch {}
+  }
+  if (choicesFromLocalPlugins.length) {
+    choicesFromLocalPlugins[choicesFromLocalPlugins.length - 1].message += '\n';
+  }
+  const choices = (
+    choicesFromLocalPlugins as (
+      | string
+      | {
+          name: string;
+          message: string;
+          value: string;
+        }
+    )[]
+  ).concat(...choicesMap);
+  if (choices.length === 1) {
+    return typeof choices[0] === 'string' ? choices[0] : choices[0].value;
+  } else if (!interactive && choices.length > 1) {
+    throwInvalidInvocation(Array.from(choicesMap));
+  } else if (interactive && choices.length > 1) {
+    const noneOfTheAbove = `\nNone of the above`;
+    choices.push(noneOfTheAbove);
+    let { generator, customCollection } = await prompt<{
+      generator: string;
+      customCollection?: string;
+    }>([
+      {
+        name: 'generator',
+        message: `Which generator would you like to use?`,
+        type: 'autocomplete',
+        // enquirer's typings are incorrect here... It supports (string | Choice)[], but is typed as (string[] | Choice[])
+        choices: choices as string[],
+      },
+      {
+        name: 'customCollection',
+        type: 'input',
+        message: `Which collection would you like to use?`,
+        skip: function () {
+          // Skip this question if the user did not answer None of the above
+          return this.state.answers.generator !== noneOfTheAbove;
+        },
+        validate: function (value) {
+          if (this.skipped) {
+            return true;
+          }
+          try {
+            ws.readGenerator(value, generatorName);
+            return true;
+          } catch {
+            logger.error(`\nCould not find ${value}:${generatorName}`);
+            return false;
+          }
+        },
+      },
+    ]);
+    return customCollection
+      ? `${customCollection}:${generatorName}`
+      : generator;
+  } else {
+    throw new Error(`Could not find any generators named "${generatorName}"`);
+  }
+}
+
+function parseGeneratorString(value: string): {
+  collection?: string;
+  generator: string;
+} {
+  const separatorIndex = value.lastIndexOf(':');
+
+  if (separatorIndex > 0) {
+    return {
+      collection: value.slice(0, separatorIndex),
+      generator: value.slice(separatorIndex + 1),
+    };
+  } else {
+    return {
+      generator: value,
+    };
+  }
+}
+
+async function convertToGenerateOptions(
+  generatorOptions: { [p: string]: any },
+  ws: Workspaces,
   defaultCollectionName: string,
-  mode: 'generate' | 'new'
-): GenerateOptions {
+  mode: 'generate' | 'new',
+  projectsConfiguration?: ProjectsConfigurations
+): Promise<GenerateOptions> {
   let collectionName: string | null = null;
   let generatorName: string | null = null;
+  const interactive = generatorOptions.interactive as boolean;
 
   if (mode === 'generate') {
     const generatorDescriptor = generatorOptions['generator'] as string;
-    const separatorIndex = generatorDescriptor.lastIndexOf(':');
+    const { collection, generator } = parseGeneratorString(generatorDescriptor);
 
-    if (separatorIndex > 0) {
-      collectionName = generatorDescriptor.slice(0, separatorIndex);
-      generatorName = generatorDescriptor.slice(separatorIndex + 1);
+    if (collection) {
+      collectionName = collection;
+      generatorName = generator;
+    } else if (!defaultCollectionName) {
+      const generatorString = await promptForCollection(
+        generatorDescriptor,
+        ws,
+        interactive,
+        projectsConfiguration
+      );
+      const parsedGeneratorString = parseGeneratorString(generatorString);
+      collectionName = parsedGeneratorString.collection;
+      generatorName = parsedGeneratorString.generator;
     } else {
       collectionName = defaultCollectionName;
       generatorName = generatorDescriptor;
@@ -59,7 +206,7 @@ function convertToGenerateOptions(
   }
 
   if (!collectionName) {
-    throwInvalidInvocation();
+    throwInvalidInvocation(['@nrwl/workspace:library']);
   }
 
   const res = {
@@ -68,7 +215,7 @@ function convertToGenerateOptions(
     generatorOptions,
     help: generatorOptions.help as boolean,
     dryRun: generatorOptions.dryRun as boolean,
-    interactive: generatorOptions.interactive as boolean,
+    interactive,
     defaults: generatorOptions.defaults as boolean,
   };
 
@@ -86,9 +233,11 @@ function convertToGenerateOptions(
   return res;
 }
 
-function throwInvalidInvocation() {
+function throwInvalidInvocation(availableGenerators: string[]) {
   throw new Error(
-    `Specify the generator name (e.g., nx generate @nrwl/workspace:library)`
+    `Specify the generator name (e.g., nx generate ${availableGenerators.join(
+      ', '
+    )})`
   );
 }
 
@@ -119,12 +268,15 @@ export function printGenHelp(
 
 export async function newWorkspace(cwd: string, args: { [k: string]: any }) {
   const ws = new Workspaces(null);
-  const isVerbose = args['verbose'];
 
-  return handleErrors(isVerbose, async () => {
-    const opts = convertToGenerateOptions(args, null, 'new');
+  return handleErrors(false, async () => {
+    const opts = await convertToGenerateOptions(args, ws, null, 'new');
     const { normalizedGeneratorName, schema, implementationFactory } =
       ws.readGenerator(opts.collectionName, opts.generatorName);
+
+    logger.info(
+      `NX Generating ${opts.collectionName}:${normalizedGeneratorName}`
+    );
 
     const combinedOpts = await combineOptionsForGenerator(
       opts.generatorOptions,
@@ -135,11 +287,11 @@ export async function newWorkspace(cwd: string, args: { [k: string]: any }) {
       opts.interactive,
       null,
       null,
-      isVerbose
+      false
     );
 
     if (ws.isNxGenerator(opts.collectionName, normalizedGeneratorName)) {
-      const host = new FsTree(cwd, isVerbose);
+      const host = new FsTree(cwd, false);
       const implementation = implementationFactory();
       const task = await implementation(host, combinedOpts);
       const changes = host.listChanges();
@@ -160,25 +312,42 @@ export async function newWorkspace(cwd: string, args: { [k: string]: any }) {
           ...opts,
           generatorOptions: combinedOpts,
         },
-        isVerbose
+        false
       );
     }
   });
 }
 
 export async function generate(cwd: string, args: { [k: string]: any }) {
-  const ws = new Workspaces(workspaceRoot);
-  const isVerbose = args['verbose'];
+  if (args['verbose']) {
+    process.env.NX_VERBOSE_LOGGING = 'true';
+  }
+  const verbose = process.env.NX_VERBOSE_LOGGING === 'true';
 
-  return handleErrors(isVerbose, async () => {
-    const workspaceDefinition = ws.readWorkspaceConfiguration();
-    const opts = convertToGenerateOptions(
+  const ws = new Workspaces(workspaceRoot);
+  const nxJson = readNxJson();
+  const projectGraph = await createProjectGraphAsync({ exitOnError: true });
+  const projectsConfiguration =
+    readProjectsConfigurationFromProjectGraph(projectGraph);
+
+  const workspaceConfiguration = {
+    ...nxJson,
+    ...projectsConfiguration,
+  };
+  return handleErrors(verbose, async () => {
+    const opts = await convertToGenerateOptions(
       args,
-      readDefaultCollection(workspaceDefinition),
-      'generate'
+      ws,
+      readDefaultCollection(nxJson),
+      'generate',
+      projectsConfiguration
     );
     const { normalizedGeneratorName, schema, implementationFactory, aliases } =
       ws.readGenerator(opts.collectionName, opts.generatorName);
+
+    logger.info(
+      `NX Generating ${opts.collectionName}:${normalizedGeneratorName}`
+    );
 
     if (opts.help) {
       printGenHelp(opts, schema, normalizedGeneratorName, aliases);
@@ -189,16 +358,16 @@ export async function generate(cwd: string, args: { [k: string]: any }) {
       opts.generatorOptions,
       opts.collectionName,
       normalizedGeneratorName,
-      workspaceDefinition,
+      workspaceConfiguration,
       schema,
       opts.interactive,
-      ws.calculateDefaultProjectName(cwd, workspaceDefinition),
+      ws.calculateDefaultProjectName(cwd, workspaceConfiguration),
       ws.relativeCwd(cwd),
-      isVerbose
+      verbose
     );
 
     if (ws.isNxGenerator(opts.collectionName, normalizedGeneratorName)) {
-      const host = new FsTree(workspaceRoot, isVerbose);
+      const host = new FsTree(workspaceRoot, verbose);
       const implementation = implementationFactory();
       const task = await implementation(host, combinedOpts);
       const changes = host.listChanges();
@@ -220,7 +389,7 @@ export async function generate(cwd: string, args: { [k: string]: any }) {
           ...opts,
           generatorOptions: combinedOpts,
         },
-        isVerbose
+        verbose
       );
     }
   });

@@ -1,6 +1,3 @@
-import 'dotenv/config';
-import { basename, dirname, join } from 'path';
-import { installedCypressVersion } from '../../utils/cypress-version';
 import {
   ExecutorContext,
   logger,
@@ -9,6 +6,11 @@ import {
   runExecutor,
   stripIndents,
 } from '@nrwl/devkit';
+import 'dotenv/config';
+import { existsSync, unlinkSync } from 'fs';
+import { basename, dirname, join } from 'path';
+import { getTempTailwindPath } from '../../utils/ct-helpers';
+import { installedCypressVersion } from '../../utils/cypress-version';
 
 const Cypress = require('cypress'); // @NOTE: Importing via ES6 messes the whole test dependencies.
 
@@ -40,13 +42,18 @@ export interface CypressExecutorOptions extends Json {
   tag?: string;
 }
 
+interface NormalizedCypressExecutorOptions extends CypressExecutorOptions {
+  ctTailwindPath?: string;
+}
 export default async function cypressExecutor(
   options: CypressExecutorOptions,
   context: ExecutorContext
 ) {
   options = normalizeOptions(options, context);
-
+  // this is used by cypress component testing presets to build the executor contexts with the correct configuration options.
+  process.env.NX_CYPRESS_TARGET_CONFIGURATION = context.configurationName;
   let success;
+
   for await (const baseUrl of startDevServer(options, context)) {
     try {
       success = await runCypress(baseUrl, options);
@@ -64,15 +71,22 @@ export default async function cypressExecutor(
 function normalizeOptions(
   options: CypressExecutorOptions,
   context: ExecutorContext
-) {
+): NormalizedCypressExecutorOptions {
   options.env = options.env || {};
   if (options.tsConfig) {
     const tsConfigPath = join(context.root, options.tsConfig);
     options.env.tsConfig = tsConfigPath;
     process.env.TS_NODE_PROJECT = tsConfigPath;
   }
+  if (options.testingType === 'component') {
+    const project = context?.projectGraph?.nodes?.[context.projectName];
+    if (project?.data?.root) {
+      options.ctTailwindPath = getTempTailwindPath(context);
+    }
+  }
   checkSupportedBrowser(options);
   warnDeprecatedHeadless(options);
+  warnDeprecatedCypressVersion();
   return options;
 }
 
@@ -120,6 +134,16 @@ function warnDeprecatedHeadless({ headless }: CypressExecutorOptions) {
   }
 }
 
+function warnDeprecatedCypressVersion() {
+  if (installedCypressVersion() < 10) {
+    logger.warn(stripIndents`
+NOTE:
+Support for Cypress versions < 10 is deprecated. Please upgrade to at least Cypress version 10. 
+A generator to migrate from v8 to v10 is provided. See https://nx.dev/cypress/v10-migration-guide
+`);
+  }
+}
+
 async function* startDevServer(
   opts: CypressExecutorOptions,
   context: ExecutorContext
@@ -162,14 +186,16 @@ async function* startDevServer(
  * By default, Cypress will run tests from the CLI without the GUI and provide directly the results in the console output.
  * If `watch` is `true`: Open Cypress in the interactive GUI to interact directly with the application.
  */
-async function runCypress(baseUrl: string, opts: CypressExecutorOptions) {
-  // Cypress expects the folder where a `cypress.json` is present
+async function runCypress(
+  baseUrl: string,
+  opts: NormalizedCypressExecutorOptions
+) {
+  // Cypress expects the folder where a cypress config is present
   const projectFolderPath = dirname(opts.cypressConfig);
   const options: any = {
     project: projectFolderPath,
     configFile: basename(opts.cypressConfig),
   };
-
   // If not, will use the `baseUrl` normally from `cypress.json`
   if (baseUrl) {
     options.config = { baseUrl };
@@ -215,6 +241,9 @@ async function runCypress(baseUrl: string, opts: CypressExecutorOptions) {
     ? Cypress.open(options)
     : Cypress.run(options));
 
+  if (opts.ctTailwindPath && existsSync(opts.ctTailwindPath)) {
+    unlinkSync(opts.ctTailwindPath);
+  }
   /**
    * `cypress.open` is returning `0` and is not of the same type as `cypress.run`.
    * `cypress.open` is the graphical UI, so it will be obvious to know what wasn't

@@ -5,7 +5,7 @@ import * as path from 'path';
 import { dirSync } from 'tmp';
 import * as yargs from 'yargs';
 import { showNxWarning, unparse } from './shared';
-import { output } from './output';
+import { isCI, output } from './output';
 import * as ora from 'ora';
 import {
   detectInvokedPackageManager,
@@ -13,6 +13,7 @@ import {
   getPackageManagerVersion,
   PackageManager,
   packageManagerList,
+  generatePackageManagerFiles,
 } from './package-manager';
 import { validateNpmPackage } from './validate-npm-package';
 import { deduceDefaultBase } from './default-base';
@@ -20,6 +21,9 @@ import { getFileName, stringifyCollection } from './utils';
 import { yargsDecorator } from './decorator';
 import chalk = require('chalk');
 import { ciList } from './ci';
+import { join } from 'path';
+import { initializeGitRepo } from './git';
+import axios from 'axios';
 
 type Arguments = {
   name: string;
@@ -32,13 +36,19 @@ type Arguments = {
   packageManager: PackageManager;
   defaultBase: string;
   ci: string;
+  skipGit: boolean;
+  commit: {
+    message: string;
+    name: string;
+    email: string;
+  };
 };
 
 enum Preset {
   Apps = 'apps',
   Empty = 'empty', // same as apps, deprecated
-  Core = 'core',
-  NPM = 'npm', // same as core, deprecated
+  Core = 'core', // same as npm, deprecated
+  NPM = 'npm',
   TS = 'ts',
   WebComponents = 'web-components',
   Angular = 'angular',
@@ -51,6 +61,37 @@ enum Preset {
   Express = 'express',
 }
 
+class PromptMessages {
+  private messages = {
+    nxCloud: [
+      {
+        code: 'set-up-distributed-caching-ci',
+        message: `Enable distributed caching to make your CI faster`,
+      },
+    ],
+  };
+
+  private selectedMessages = {};
+
+  getPromptMessage(key: string): string {
+    if (this.selectedMessages[key] === undefined) {
+      if (process.env.NX_GENERATE_DOCS_PROCESS === 'true') {
+        this.selectedMessages[key] = 0;
+      } else {
+        this.selectedMessages[key] = Math.floor(
+          Math.random() * this.messages[key].length
+        );
+      }
+    }
+    return this.messages[key][this.selectedMessages[key]].message;
+  }
+
+  codeOfSelectedPromptMessage(key: string): string {
+    if (this.selectedMessages[key] === undefined) return null;
+    return this.messages[key][this.selectedMessages[key]].code;
+  }
+}
+
 const presetOptions: { name: Preset; message: string }[] = [
   {
     name: Preset.Apps,
@@ -58,9 +99,9 @@ const presetOptions: { name: Preset; message: string }[] = [
       'apps              [an empty workspace with no plugins with a layout that works best for building apps]',
   },
   {
-    name: Preset.Core,
+    name: Preset.NPM,
     message:
-      'core              [an empty workspace with no plugins set up to publish npm packages (similar to yarn workspaces)]',
+      'npm               [an empty workspace with no plugins set up to publish npm packages (similar to yarn workspaces)]',
   },
   {
     name: Preset.TS,
@@ -112,16 +153,17 @@ const presetOptions: { name: Preset; message: string }[] = [
   },
 ];
 
-const tsVersion = 'TYPESCRIPT_VERSION';
-const cliVersion = 'NX_VERSION';
-const nxVersion = 'NX_VERSION';
-const prettierVersion = 'PRETTIER_VERSION';
+const nxVersion = require('../package.json').version;
+const tsVersion = 'TYPESCRIPT_VERSION'; // This gets replaced with the typescript version in the root package.json during build
+const prettierVersion = 'PRETTIER_VERSION'; // This gets replaced with the prettier version in the root package.json during build
+
+const messages = new PromptMessages();
 
 export const commandsObject: yargs.Argv<Arguments> = yargs
   .wrap(yargs.terminalWidth())
   .parserConfiguration({
     'strip-dashed': true,
-    'dot-notation': false,
+    'dot-notation': true,
   })
   .command(
     // this is the default and only command
@@ -140,7 +182,7 @@ export const commandsObject: yargs.Argv<Arguments> = yargs
             .map((p) => `"${p}"`)
             .join(
               ', '
-            )}]. To build your own see https://nx.dev/nx-plugin/overview#preset`,
+            )}]. To build your own see https://nx.dev/packages/nx-plugin#preset`,
           type: 'string',
         })
         .option('appName', {
@@ -161,7 +203,7 @@ export const commandsObject: yargs.Argv<Arguments> = yargs
           type: 'string',
         })
         .option('nxCloud', {
-          describe: chalk.dim`Use Nx Cloud`,
+          describe: chalk.dim(messages.getPromptMessage('nxCloud')),
           type: 'boolean',
         })
         .option('ci', {
@@ -187,6 +229,25 @@ export const commandsObject: yargs.Argv<Arguments> = yargs
           defaultDescription: 'main',
           describe: chalk.dim`Default base to use for new projects`,
           type: 'string',
+        })
+        .option('skipGit', {
+          describe: chalk.dim`Skip initializing a git repository.`,
+          type: 'boolean',
+          default: false,
+          alias: 'g',
+        })
+        .option('commit.name', {
+          describe: chalk.dim`Name of the committer`,
+          type: 'string',
+        })
+        .option('commit.email', {
+          describe: chalk.dim`E-mail of the committer`,
+          type: 'string',
+        })
+        .option('commit.message', {
+          describe: chalk.dim`Commit message`,
+          type: 'string',
+          default: 'Initial commit',
         }),
     async (argv: yargs.ArgumentsCamelCase<Arguments>) => {
       await main(argv).catch((error) => {
@@ -218,10 +279,12 @@ async function main(parsedArgs: yargs.Arguments<Arguments>) {
     packageManager,
     defaultBase,
     ci,
+    skipGit,
+    commit,
   } = parsedArgs;
 
   output.log({
-    title: `Nx is creating your v${cliVersion} workspace.`,
+    title: `Nx is creating your v${nxVersion} workspace.`,
     bodyLines: [
       'To make sure the command works reliably in all environments, and that the preset is applied correctly,',
       `Nx will run "${packageManager} install" several times. Please wait.`,
@@ -230,15 +293,20 @@ async function main(parsedArgs: yargs.Arguments<Arguments>) {
 
   const tmpDir = await createSandbox(packageManager);
 
-  await createApp(tmpDir, name, packageManager as PackageManager, {
-    ...parsedArgs,
-    cli,
-    preset,
-    appName,
-    style,
-    nxCloud,
-    defaultBase,
-  });
+  const directory = await createApp(
+    tmpDir,
+    name,
+    packageManager as PackageManager,
+    {
+      ...parsedArgs,
+      cli,
+      preset,
+      appName,
+      style,
+      nxCloud,
+      defaultBase,
+    }
+  );
 
   let nxCloudInstallRes;
   if (nxCloud) {
@@ -255,6 +323,16 @@ async function main(parsedArgs: yargs.Arguments<Arguments>) {
       nxCloud && nxCloudInstallRes.code === 0
     );
   }
+  if (!skipGit) {
+    try {
+      await initializeGitRepo(directory, { defaultBase, commit });
+    } catch (e) {
+      output.error({
+        title: 'Could not initialize git repository',
+        bodyLines: [e.message],
+      });
+    }
+  }
 
   showNxWarning(name);
   pointToTutorialAndCourse(preset as Preset);
@@ -262,6 +340,8 @@ async function main(parsedArgs: yargs.Arguments<Arguments>) {
   if (nxCloud && nxCloudInstallRes.code === 0) {
     printNxCloudSuccessMessage(nxCloudInstallRes.stdout);
   }
+
+  await recordWorkspaceCreationStats(nxCloud);
 }
 
 async function getConfiguration(
@@ -360,7 +440,7 @@ async function determinePackageManager(
           name: 'PackageManager',
           message: `Which package manager to use       `,
           initial: 'npm' as any,
-          type: 'select',
+          type: 'autocomplete',
           choices: [
             { name: 'npm', message: 'NPM' },
             { name: 'yarn', message: 'Yarn' },
@@ -458,7 +538,7 @@ async function determinePreset(parsedArgs: any): Promise<Preset> {
         name: 'Preset',
         message: `What to create in the new workspace`,
         initial: 'empty' as any,
-        type: 'select',
+        type: 'autocomplete',
         choices: presetOptions,
       },
     ])
@@ -599,7 +679,7 @@ async function determineStyle(
           name: 'style',
           message: `Default stylesheet format          `,
           initial: 'css' as any,
-          type: 'select',
+          type: 'autocomplete',
           choices: choices,
         },
       ])
@@ -632,12 +712,12 @@ async function determineNxCloud(
       .prompt([
         {
           name: 'NxCloud',
-          message: `Use Nx Cloud? (It's free and doesn't require registration.)`,
-          type: 'select',
+          message: messages.getPromptMessage('nxCloud'),
+          type: 'autocomplete',
           choices: [
             {
               name: 'Yes',
-              hint: 'Faster builds, run details, GitHub integration. Learn more at https://nx.app',
+              hint: 'I want faster builds',
             },
 
             {
@@ -681,7 +761,7 @@ async function determineCI(
           {
             name: 'CI',
             message: `CI workflow file to generate?      `,
-            type: 'select',
+            type: 'autocomplete',
             initial: '' as any,
             choices: [
               { message: 'none', name: '' },
@@ -714,15 +794,16 @@ async function createSandbox(packageManager: PackageManager) {
       JSON.stringify({
         dependencies: {
           '@nrwl/workspace': nxVersion,
-          nx: cliVersion,
+          nx: nxVersion,
           typescript: tsVersion,
           prettier: prettierVersion,
         },
         license: 'MIT',
       })
     );
+    generatePackageManagerFiles(tmpDir, packageManager);
 
-    await execAndWait(`${install} --silent`, tmpDir);
+    await execAndWait(install, tmpDir);
 
     installSpinner.succeed();
   } catch (e) {
@@ -744,7 +825,7 @@ async function createApp(
   name: string,
   packageManager: PackageManager,
   parsedArgs: any
-) {
+): Promise<string> {
   const { _, cli, ...restArgs } = parsedArgs;
 
   // Ensure to use packageManager for args
@@ -759,7 +840,8 @@ async function createApp(
 
   const command = `new ${name} ${args} --collection=@nrwl/workspace/generators.json --cli=${cli}`;
 
-  let nxWorkspaceRoot = `"${process.cwd().replace(/\\/g, '/')}"`;
+  const workingDir = process.cwd().replace(/\\/g, '/');
+  let nxWorkspaceRoot = `"${workingDir}"`;
 
   // If path contains spaces there is a problem in Windows for npm@6.
   // In this case we have to escape the wrapping quotes.
@@ -773,13 +855,17 @@ async function createApp(
       nxWorkspaceRoot = `\\"${nxWorkspaceRoot.slice(1, -1)}\\"`;
     }
   }
-  let workspaceSetupSpinner = ora('Creating your workspace').start();
+  let workspaceSetupSpinner = ora(
+    `Creating your workspace in ${getFileName(name)}`
+  ).start();
 
   try {
     const fullCommand = `${pmc.exec} nx ${command} --nxWorkspaceRoot=${nxWorkspaceRoot}`;
     await execAndWait(fullCommand, tmpDir);
 
-    workspaceSetupSpinner.succeed('Nx has successfully created the workspace.');
+    workspaceSetupSpinner.succeed(
+      `Nx has successfully created the workspace: ${getFileName(name)}.`
+    );
   } catch (e) {
     workspaceSetupSpinner.fail();
     output.error({
@@ -790,6 +876,7 @@ async function createApp(
   } finally {
     workspaceSetupSpinner.stop();
   }
+  return join(workingDir, getFileName(name));
 }
 
 async function setupNxCloud(name: string, packageManager: PackageManager) {
@@ -797,7 +884,7 @@ async function setupNxCloud(name: string, packageManager: PackageManager) {
   try {
     const pmc = getPackageManagerCommand(packageManager);
     const res = await execAndWait(
-      `${pmc.exec} nx g @nrwl/nx-cloud:init --no-analytics`,
+      `${pmc.exec} nx g @nrwl/nx-cloud:init --no-analytics --installationSource=create-nx-workspace`,
       path.join(process.cwd(), getFileName(name))
     );
     nxCloudSpinner.succeed('NxCloud has been set up successfully');
@@ -855,9 +942,11 @@ async function setupCI(
 }
 
 function printNxCloudSuccessMessage(nxCloudOut: string) {
-  const bodyLines = nxCloudOut.split('Nx Cloud has been enabled')[1].trim();
+  const bodyLines = nxCloudOut
+    .split('Distributed caching via Nx Cloud has been enabled')[1]
+    .trim();
   output.note({
-    title: `Nx Cloud has been enabled`,
+    title: `Distributed caching via Nx Cloud has been enabled`,
     bodyLines: bodyLines.split('\n').map((r) => r.trim()),
   });
 }
@@ -964,4 +1053,33 @@ function pointToFreeCourseOnEgghead(): string[] {
     `Prefer watching videos? Check out this free Nx course on Egghead.io.`,
     `https://egghead.io/playlists/scale-react-development-with-nx-4038`,
   ];
+}
+
+/**
+ * We are incrementing a counter to track how often create-nx-workspace is used in CI
+ * vs dev environments. No personal information is collected.
+ */
+async function recordWorkspaceCreationStats(useCloud: boolean) {
+  try {
+    const major = Number(nxVersion.split('.')[0]);
+    if (process.env.NX_VERBOSE_LOGGING === 'true') {
+      console.log(`Record stat. Major: ${major}`);
+    }
+    if (major < 10 || major > 14) return; // test version, skip it
+    await axios
+      .create({
+        baseURL: 'https://cloud.nx.app',
+        timeout: 400,
+      })
+      .post('/nx-cloud/stats', {
+        command: 'create-nx-workspace',
+        isCI: isCI(),
+        useCloud,
+        meta: messages.codeOfSelectedPromptMessage('nxCloud'),
+      });
+  } catch (e) {
+    if (process.env.NX_VERBOSE_LOGGING === 'true') {
+      console.error(e);
+    }
+  }
 }

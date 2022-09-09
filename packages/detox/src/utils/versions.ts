@@ -1,4 +1,4 @@
-export const nxVersion = '*';
+export const nxVersion = require('../../package.json').version;
 
-export const detoxVersion = '19.6.5';
-export const testingLibraryJestDom = '5.16.4';
+export const detoxVersion = '19.10.0';
+export const testingLibraryJestDom = '5.16.5';

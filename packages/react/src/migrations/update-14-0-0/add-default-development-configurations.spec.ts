@@ -7,7 +7,7 @@ import update from './add-default-development-configurations';
 
 describe('React default development configuration', () => {
   it('should add development configuration if it does not exist', async () => {
-    const tree = createTreeWithEmptyWorkspace(2);
+    const tree = createTreeWithEmptyWorkspace();
     addProjectConfiguration(
       tree,
       'example',
@@ -46,8 +46,51 @@ describe('React default development configuration', () => {
     });
   });
 
+  it('should add development configuration if no configurations at all', async () => {
+    const tree = createTreeWithEmptyWorkspace();
+    addProjectConfiguration(
+      tree,
+      'example',
+      {
+        root: 'apps/example',
+        projectType: 'application',
+        targets: {
+          build: {
+            executor: '@nrwl/web:webpack',
+            defaultConfiguration: 'production',
+            configurations: { production: { sourceMap: false } },
+          },
+          serve: {
+            executor: '@nrwl/web:dev-server',
+          },
+        },
+      },
+      true
+    );
+
+    await update(tree);
+
+    const config = readProjectConfiguration(tree, 'example');
+
+    expect(config.targets.build.defaultConfiguration).toEqual('production');
+    expect(config.targets.build.configurations.production).toEqual({
+      sourceMap: false,
+    });
+    expect(config.targets.build.configurations.development).toEqual({
+      extractLicenses: false,
+      optimization: false,
+      sourceMap: true,
+      vendorChunk: true,
+    });
+
+    expect(config.targets.serve.defaultConfiguration).toEqual('development');
+    expect(config.targets.serve.configurations.development).toEqual({
+      buildTarget: `example:build:development`,
+    });
+  });
+
   it('should work without targets', async () => {
-    const tree = createTreeWithEmptyWorkspace(2);
+    const tree = createTreeWithEmptyWorkspace();
     addProjectConfiguration(
       tree,
       'example',
@@ -62,6 +105,7 @@ describe('React default development configuration', () => {
 
     const config = readProjectConfiguration(tree, 'example');
     expect(config).toEqual({
+      $schema: '../../node_modules/nx/schemas/project-schema.json',
       root: 'apps/example',
       projectType: 'application',
     });

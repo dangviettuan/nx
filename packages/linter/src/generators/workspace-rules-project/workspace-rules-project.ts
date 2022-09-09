@@ -1,4 +1,5 @@
 import {
+  addDependenciesToPackageJson,
   addProjectConfiguration,
   convertNxGenerator,
   formatFiles,
@@ -14,10 +15,11 @@ import { addPropertyToJestConfig, jestProjectGenerator } from '@nrwl/jest';
 import { getRelativePathToRootTsConfig } from '@nrwl/workspace/src/utilities/typescript';
 import { join } from 'path';
 import { workspaceLintPluginDir } from '../../utils/workspace-lint-rules';
+import { swcCoreVersion, swcNodeVersion } from 'nx/src/utils/versions';
 
 export const WORKSPACE_RULES_PROJECT_NAME = 'eslint-rules';
 
-const WORKSPACE_PLUGIN_DIR = 'tools/eslint-rules';
+export const WORKSPACE_PLUGIN_DIR = 'tools/eslint-rules';
 
 export async function lintWorkspaceRulesProjectGenerator(tree: Tree) {
   // Noop if the workspace rules project already exists
@@ -45,22 +47,30 @@ export async function lintWorkspaceRulesProjectGenerator(tree: Tree) {
    * TODO: Explore writing a ProjectGraph plugin to make this more surgical.
    */
   const workspaceConfig = readWorkspaceConfiguration(tree);
-  updateWorkspaceConfiguration(tree, {
-    ...workspaceConfig,
-    implicitDependencies: {
-      ...workspaceConfig.implicitDependencies,
-      [`${WORKSPACE_PLUGIN_DIR}/**/*`]: '*',
-    },
-  });
+
+  if (workspaceConfig.targetDefaults?.lint?.inputs) {
+    workspaceConfig.targetDefaults.lint.inputs.push(
+      `{workspaceRoot}/${WORKSPACE_PLUGIN_DIR}/**/*`
+    );
+
+    updateWorkspaceConfiguration(tree, workspaceConfig);
+  }
 
   // Add jest to the project and return installation task
-  const jestInstallationTask = await jestProjectGenerator(tree, {
+  const installTask = await jestProjectGenerator(tree, {
     project: WORKSPACE_RULES_PROJECT_NAME,
     supportTsx: false,
     skipSerializers: true,
     setupFile: 'none',
     compiler: 'tsc',
   });
+
+  // Add swc dependencies
+  addDependenciesToPackageJson(
+    tree,
+    {},
+    { '@swc-node/register': swcNodeVersion, '@swc/core': swcCoreVersion }
+  );
 
   // Add extra config to the jest.config.ts file to allow ESLint 8 exports mapping to work with jest
   addPropertyToJestConfig(
@@ -74,7 +84,7 @@ export async function lintWorkspaceRulesProjectGenerator(tree: Tree) {
 
   await formatFiles(tree);
 
-  return jestInstallationTask;
+  return installTask;
 }
 
 export const lintWorkspaceRulesProjectSchematic = convertNxGenerator(

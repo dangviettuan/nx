@@ -5,7 +5,10 @@ import {
   Tree,
   updateJson,
 } from '@nrwl/devkit';
-import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
+import {
+  createTreeWithEmptyV1Workspace,
+  createTreeWithEmptyWorkspace,
+} from '@nrwl/devkit/testing';
 
 import { libraryGenerator } from './library';
 import { Schema } from './schema.d';
@@ -25,12 +28,12 @@ describe('lib', () => {
   };
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyV1Workspace();
   });
 
   describe('workspace v2', () => {
     beforeEach(() => {
-      tree = createTreeWithEmptyWorkspace(2);
+      tree = createTreeWithEmptyWorkspace();
     });
 
     it('should default to standalone project for first project', async () => {
@@ -60,7 +63,7 @@ describe('lib', () => {
 
   // describe('workspace v1', () => {
   //   beforeEach(() => {
-  //     tree = createTreeWithEmptyWorkspace(1);
+  //     tree = createTreeWithEmptyV1Workspace();
   //   });
   //
   //   it('should default to inline project for first project', async () => {
@@ -195,9 +198,10 @@ describe('lib', () => {
       expect(tree.exists(`libs/my-lib/jest.config.ts`)).toBeTruthy();
       expect(tree.read(`libs/my-lib/jest.config.ts`, 'utf-8'))
         .toMatchInlineSnapshot(`
-        "module.exports = {
+        "/* eslint-disable */
+        export default {
           displayName: 'my-lib',
-          preset: '../../jest.preset.ts',
+          preset: '../../jest.preset.js',
           globals: {
             'ts-jest': {
               tsconfig: '<rootDir>/tsconfig.spec.json',
@@ -227,9 +231,9 @@ describe('lib', () => {
         name: 'myLib',
       });
       const expectedRootJestConfig = `
-        "const { getJestProjects } = require('@nrwl/jest');
+        "import { getJestProjects } from '@nrwl/jest';
 
-        module.exports = {
+        export default {
         projects: getJestProjects()
         };"
       `;
@@ -829,9 +833,10 @@ describe('lib', () => {
 
       expect(tree.read(`libs/my-lib/jest.config.ts`, 'utf-8'))
         .toMatchInlineSnapshot(`
-        "module.exports = {
+        "/* eslint-disable */
+        export default {
           displayName: 'my-lib',
-          preset: '../../jest.preset.ts',
+          preset: '../../jest.preset.js',
           transform: {
             '^.+\\\\\\\\.[tj]sx?$': 'babel-jest'
           },

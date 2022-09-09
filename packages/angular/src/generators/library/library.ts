@@ -1,7 +1,9 @@
 import {
+  addDependenciesToPackageJson,
   formatFiles,
   installPackagesTask,
   moveFilesToNewDirectory,
+  removeDependenciesFromPackageJson,
   Tree,
 } from '@nrwl/devkit';
 import { wrapAngularDevkitSchematic } from '@nrwl/devkit/ngcli-adapter';
@@ -9,6 +11,8 @@ import { jestProjectGenerator } from '@nrwl/jest';
 import { Linter } from '@nrwl/linter';
 import { convertToNxProjectGenerator } from '@nrwl/workspace/generators';
 import init from '../../generators/init/init';
+import { E2eTestRunner } from '../../utils/test-runners';
+import { ngPackagrVersion } from '../../utils/versions';
 import addLintingGenerator from '../add-linting/add-linting';
 import karmaProjectGenerator from '../karma-project/karma-project';
 import setupTailwindGenerator from '../setup-tailwind/setup-tailwind';
@@ -23,9 +27,10 @@ import { NormalizedSchema } from './lib/normalized-schema';
 import { updateLibPackageNpmScope } from './lib/update-lib-package-npm-scope';
 import { updateProject } from './lib/update-project';
 import { updateTsConfig } from './lib/update-tsconfig';
+import { addStandaloneComponent } from './lib/add-standalone-component';
 import { Schema } from './schema';
 
-export async function libraryGenerator(host: Tree, schema: Partial<Schema>) {
+export async function libraryGenerator(tree: Tree, schema: Partial<Schema>) {
   // Do some validation checks
   if (!schema.routing && schema.lazy) {
     throw new Error(`To use "--lazy" option, "--routing" must also be set.`);
@@ -43,70 +48,90 @@ export async function libraryGenerator(host: Tree, schema: Partial<Schema>) {
     );
   }
 
-  const options = normalizeOptions(host, schema);
+  const options = normalizeOptions(tree, schema);
+  const { libraryOptions, componentOptions } = options;
 
-  await init(host, {
-    ...options,
+  await init(tree, {
+    ...libraryOptions,
     skipFormat: true,
+    e2eTestRunner: E2eTestRunner.None,
   });
 
   const runAngularLibrarySchematic = wrapAngularDevkitSchematic(
     '@schematics/angular',
     'library'
   );
-  await runAngularLibrarySchematic(host, {
-    name: options.name,
-    prefix: options.prefix,
+  await runAngularLibrarySchematic(tree, {
+    name: libraryOptions.name,
+    prefix: libraryOptions.prefix,
     entryFile: 'index',
     skipPackageJson:
-      options.skipPackageJson || !(options.publishable || options.buildable),
+      libraryOptions.skipPackageJson ||
+      !(libraryOptions.publishable || libraryOptions.buildable),
     skipTsConfig: true,
   });
 
-  if (options.ngCliSchematicLibRoot !== options.projectRoot) {
+  if (libraryOptions.ngCliSchematicLibRoot !== libraryOptions.projectRoot) {
     moveFilesToNewDirectory(
-      host,
-      options.ngCliSchematicLibRoot,
-      options.projectRoot
+      tree,
+      libraryOptions.ngCliSchematicLibRoot,
+      libraryOptions.projectRoot
     );
   }
-  await updateProject(host, options);
-  updateTsConfig(host, options);
-  await addUnitTestRunner(host, options);
-  updateNpmScopeIfBuildableOrPublishable(host, options);
-  addModule(host, options);
-  setStrictMode(host, options);
-  await addLinting(host, options);
+  await updateProject(tree, libraryOptions);
+  updateTsConfig(tree, libraryOptions);
+  await addUnitTestRunner(tree, libraryOptions);
+  updateNpmScopeIfBuildableOrPublishable(tree, libraryOptions);
 
-  if (options.addTailwind) {
-    await setupTailwindGenerator(host, {
-      project: options.name,
+  if (!libraryOptions.standalone) {
+    addModule(tree, libraryOptions);
+  } else {
+    await addStandaloneComponent(tree, options);
+  }
+
+  setStrictMode(tree, libraryOptions);
+  await addLinting(tree, libraryOptions);
+
+  if (libraryOptions.addTailwind) {
+    await setupTailwindGenerator(tree, {
+      project: libraryOptions.name,
       skipFormat: true,
     });
   }
 
-  if (options.buildable || options.publishable) {
-    addBuildableLibrariesPostCssDependencies(host);
+  if (libraryOptions.buildable || libraryOptions.publishable) {
+    removeDependenciesFromPackageJson(tree, [], ['ng-packagr']);
+    addDependenciesToPackageJson(
+      tree,
+      {},
+      {
+        'ng-packagr': ngPackagrVersion,
+      }
+    );
+    addBuildableLibrariesPostCssDependencies(tree);
   }
 
-  if (options.standaloneConfig) {
-    await convertToNxProjectGenerator(host, {
-      project: options.name,
+  if (libraryOptions.standaloneConfig) {
+    await convertToNxProjectGenerator(tree, {
+      project: libraryOptions.name,
       all: false,
       skipFormat: true,
     });
   }
 
-  if (!options.skipFormat) {
-    await formatFiles(host);
+  if (!libraryOptions.skipFormat) {
+    await formatFiles(tree);
   }
 
   return () => {
-    installPackagesTask(host);
+    installPackagesTask(tree);
   };
 }
 
-async function addUnitTestRunner(host: Tree, options: NormalizedSchema) {
+async function addUnitTestRunner(
+  host: Tree,
+  options: NormalizedSchema['libraryOptions']
+) {
   if (options.unitTestRunner === 'jest') {
     await jestProjectGenerator(host, {
       project: options.name,
@@ -125,14 +150,17 @@ async function addUnitTestRunner(host: Tree, options: NormalizedSchema) {
 
 function updateNpmScopeIfBuildableOrPublishable(
   host: Tree,
-  options: NormalizedSchema
+  options: NormalizedSchema['libraryOptions']
 ) {
   if (options.buildable || options.publishable) {
     updateLibPackageNpmScope(host, options);
   }
 }
 
-function setStrictMode(host: Tree, options: NormalizedSchema) {
+function setStrictMode(
+  host: Tree,
+  options: NormalizedSchema['libraryOptions']
+) {
   if (options.strict) {
     enableStrictTypeChecking(host, options);
   } else {
@@ -140,7 +168,10 @@ function setStrictMode(host: Tree, options: NormalizedSchema) {
   }
 }
 
-async function addLinting(host: Tree, options: NormalizedSchema) {
+async function addLinting(
+  host: Tree,
+  options: NormalizedSchema['libraryOptions']
+) {
   if (options.linter === Linter.None) {
     return;
   }
@@ -148,6 +179,7 @@ async function addLinting(host: Tree, options: NormalizedSchema) {
     projectName: options.name,
     projectRoot: options.projectRoot,
     prefix: options.prefix,
+    unitTestRunner: options.unitTestRunner,
     setParserOptionsProject: options.setParserOptionsProject,
     skipFormat: true,
   });

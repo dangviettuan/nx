@@ -1,9 +1,9 @@
 import type { Tree } from '@nrwl/devkit';
 import * as devkit from '@nrwl/devkit';
 import { wrapAngularDevkitSchematic } from '@nrwl/devkit/ngcli-adapter';
-import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
 import { libraryGenerator } from '../library/library';
-import * as storybookUtils from '../utils/storybook';
+import * as storybookUtils from '../utils/storybook-ast/storybook-inputs';
 import { componentStoryGenerator } from './component-story';
 
 describe('componentStory generator', () => {
@@ -12,7 +12,7 @@ describe('componentStory generator', () => {
   const storyFile = `libs/${libName}/src/lib/test-button/test-button.component.stories.ts`;
 
   beforeEach(async () => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyV1Workspace();
 
     const componentGenerator = wrapAngularDevkitSchematic(
       '@schematics/angular',

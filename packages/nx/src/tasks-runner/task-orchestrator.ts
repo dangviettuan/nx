@@ -2,7 +2,7 @@ import { Workspaces } from '../config/workspaces';
 import { performance } from 'perf_hooks';
 import { Hasher } from '../hasher/hasher';
 import { ForkedProcessTaskRunner } from './forked-process-task-runner';
-import { workspaceRoot } from '../utils/app-root';
+import { workspaceRoot } from '../utils/workspace-root';
 import { Cache } from './cache';
 import { DefaultTasksRunnerOptions } from './default-tasks-runner';
 import { TaskStatus } from './tasks-runner';
@@ -18,13 +18,17 @@ import { Batch, TasksSchedule } from './tasks-schedule';
 import { TaskMetadata } from './life-cycle';
 import { ProjectGraph } from '../config/project-graph';
 import { Task, TaskGraph } from '../config/task-graph';
+import { DaemonClient } from '../daemon/client/client';
 
 export class TaskOrchestrator {
   private cache = new Cache(this.options);
   private workspace = new Workspaces(workspaceRoot);
   private forkedProcessTaskRunner = new ForkedProcessTaskRunner(this.options);
+  private readonly nxJson = this.workspace.readNxJson();
+
   private tasksSchedule = new TasksSchedule(
     this.hasher,
+    this.nxJson,
     this.projectGraph,
     this.taskGraph,
     this.workspace,
@@ -40,6 +44,8 @@ export class TaskOrchestrator {
 
   private groups = [];
 
+  private bailed = false;
+
   // endregion internal state
 
   constructor(
@@ -47,7 +53,9 @@ export class TaskOrchestrator {
     private readonly initiatingProject: string | undefined,
     private readonly projectGraph: ProjectGraph,
     private readonly taskGraph: TaskGraph,
-    private readonly options: DefaultTasksRunnerOptions
+    private readonly options: DefaultTasksRunnerOptions,
+    private readonly bail: boolean,
+    private readonly daemon: DaemonClient
   ) {}
 
   async run() {
@@ -76,7 +84,7 @@ export class TaskOrchestrator {
 
   private async executeNextBatchOfTasksUsingTaskSchedule() {
     // completed all the tasks
-    if (!this.tasksSchedule.hasTasks()) {
+    if (!this.tasksSchedule.hasTasks() || this.bailed) {
       return null;
     }
 
@@ -138,10 +146,7 @@ export class TaskOrchestrator {
     const outputs = getOutputs(this.projectGraph.nodes, task);
     const shouldCopyOutputsFromCache =
       !!outputs.length &&
-      (await this.cache.shouldCopyOutputsFromCache(
-        { task, cachedResult },
-        outputs
-      ));
+      (await this.shouldCopyOutputsFromCache(outputs, task.hash));
     if (shouldCopyOutputsFromCache) {
       await this.cache.copyFilesFromCache(task.hash, cachedResult, outputs);
     }
@@ -187,12 +192,6 @@ export class TaskOrchestrator {
         results.map(({ task }) => task.id)
       );
 
-      // cache prep
-      for (const task of Object.values(unrunTaskGraph.tasks)) {
-        const taskOutputs = getOutputs(this.projectGraph.nodes, task);
-        await this.cache.removeRecordedOutputsHashes(taskOutputs);
-      }
-
       const batchResults = await this.runBatch({
         executorName: batch.executorName,
         taskGraph: unrunTaskGraph,
@@ -201,7 +200,7 @@ export class TaskOrchestrator {
       results.push(...batchResults);
     }
 
-    await this.postRunSteps(results, { groupId });
+    await this.postRunSteps(tasks, results, { groupId });
 
     const tasksCompleted = taskEntries.filter(
       ([taskId]) => this.completedTasks[taskId]
@@ -262,9 +261,6 @@ export class TaskOrchestrator {
     // the task wasn't cached
     if (results.length === 0) {
       // cache prep
-      const taskOutputs = getOutputs(this.projectGraph.nodes, task);
-      await this.cache.removeRecordedOutputsHashes(taskOutputs);
-
       const { code, terminalOutput } = await this.runTaskInForkedProcess(task);
 
       results.push({
@@ -273,7 +269,7 @@ export class TaskOrchestrator {
         terminalOutput,
       });
     }
-    await this.postRunSteps(results, { groupId });
+    await this.postRunSteps([task], results, { groupId });
   }
 
   private async runTaskInForkedProcess(task: Task) {
@@ -285,6 +281,7 @@ export class TaskOrchestrator {
         this.initiatingProject,
         this.options
       );
+
       const pipeOutput = this.pipeOutputCapture(task);
 
       // execution
@@ -323,6 +320,7 @@ export class TaskOrchestrator {
   }
 
   private async postRunSteps(
+    tasks: Task[],
     results: {
       task: Task;
       status: TaskStatus;
@@ -330,6 +328,10 @@ export class TaskOrchestrator {
     }[],
     { groupId }: { groupId: number }
   ) {
+    for (const task of tasks) {
+      await this.recordOutputsHash(task);
+    }
+
     // cache the results
     await Promise.all(
       results
@@ -353,9 +355,9 @@ export class TaskOrchestrator {
         }))
         .filter(({ task, code }) => this.shouldCacheTaskResult(task, code))
         .filter(({ terminalOutput, outputs }) => terminalOutput || outputs)
-        .map(async ({ task, code, terminalOutput, outputs }) => {
-          await this.cache.put(task, terminalOutput, outputs, code);
-        })
+        .map(async ({ task, code, terminalOutput, outputs }) =>
+          this.cache.put(task, terminalOutput, outputs, code)
+        )
     );
 
     this.options.lifeCycle.endTasks(
@@ -403,15 +405,23 @@ export class TaskOrchestrator {
     for (const { taskId, status } of taskResults) {
       if (this.completedTasks[taskId] === undefined) {
         this.completedTasks[taskId] = status;
-      }
 
-      if (status === 'failure' || status === 'skipped') {
-        this.complete(
-          this.reverseTaskDeps[taskId].map((depTaskId) => ({
-            taskId: depTaskId,
-            status: 'skipped',
-          }))
-        );
+        if (status === 'failure' || status === 'skipped') {
+          if (this.bail) {
+            // mark the execution as bailed which will stop all further execution
+            // only the tasks that are currently running will finish
+            this.bailed = true;
+          } else {
+            // only mark the packages that depend on the current task as skipped
+            // other tasks will continue to execute
+            this.complete(
+              this.reverseTaskDeps[taskId].map((depTaskId) => ({
+                taskId: depTaskId,
+                status: 'skipped',
+              }))
+            );
+          }
+        }
       }
     }
   }
@@ -423,7 +433,9 @@ export class TaskOrchestrator {
   private pipeOutputCapture(task: Task) {
     try {
       return (
-        getExecutorForTask(task, this.workspace).schema.outputCapture === 'pipe'
+        getExecutorForTask(task, this.workspace, this.projectGraph, this.nxJson)
+          .schema.outputCapture === 'pipe' ||
+        process.env.NX_STREAM_OUTPUT === 'true'
       );
     } catch (e) {
       return false;
@@ -448,6 +460,23 @@ export class TaskOrchestrator {
 
   private openGroup(id: number) {
     this.groups[id] = false;
+  }
+
+  private async shouldCopyOutputsFromCache(outputs: string[], hash: string) {
+    if (this.daemon?.enabled()) {
+      return !(await this.daemon.outputsHashesMatch(outputs, hash));
+    } else {
+      return true;
+    }
+  }
+
+  private async recordOutputsHash(task: Task) {
+    if (this.daemon?.enabled()) {
+      return this.daemon.recordOutputsHash(
+        getOutputs(this.projectGraph.nodes, task),
+        task.hash
+      );
+    }
   }
 
   // endregion utils

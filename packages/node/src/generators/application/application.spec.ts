@@ -1,6 +1,6 @@
 import { NxJsonConfiguration, readJson, Tree, getProjects } from '@nrwl/devkit';
 import * as devkit from '@nrwl/devkit';
-import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
 
 // nx-ignore-next-line
 import { applicationGenerator as angularApplicationGenerator } from '@nrwl/angular/generators';
@@ -13,7 +13,7 @@ describe('app', () => {
   let tree: Tree;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyV1Workspace();
 
     overrideCollectionResolutionForTesting({
       '@nrwl/cypress': join(__dirname, '../../../../cypress/generators.json'),
@@ -70,6 +70,11 @@ describe('app', () => {
             builder: '@nrwl/node:node',
             options: {
               buildTarget: 'my-node-app:build',
+            },
+            configurations: {
+              production: {
+                buildTarget: 'my-node-app:build:production',
+              },
             },
           },
         })
@@ -374,9 +379,10 @@ describe('app', () => {
 
       expect(tree.read(`apps/my-node-app/jest.config.ts`, 'utf-8'))
         .toMatchInlineSnapshot(`
-        "module.exports = {
+        "/* eslint-disable */
+        export default {
           displayName: 'my-node-app',
-          preset: '../../jest.preset.ts',
+          preset: '../../jest.preset.js',
           testEnvironment: 'node',
           transform: {
             '^.+\\\\\\\\.[tj]s$': 'babel-jest'

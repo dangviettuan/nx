@@ -1,7 +1,5 @@
-const nxPreset = require('@nrwl/jest/preset');
-module.exports = {
-  ...nxPreset,
-  setupFilesAfterEnv: ['<rootDir>/src/test-setup.ts'],
+/* eslint-disable */
+export default {
   displayName: 'nx-dev-data-access-packages',
   globals: {
     'ts-jest': {
@@ -13,4 +11,5 @@ module.exports = {
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
   coverageDirectory: '../../coverage/nx-dev/data-access-packages',
+  preset: '../../jest.preset.js',
 };
