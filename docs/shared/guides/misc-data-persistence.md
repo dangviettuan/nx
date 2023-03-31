@@ -133,10 +133,12 @@ class TodoEffects {
 
         // provides an action
         run: (todo: GetTodo) => {
-          return this.backend.getTodo(todo.id).map((response) => ({
-            type: 'LOAD_TODO_SUCCESS',
-            todo: response.todo,
-          }));
+          return this.backend.getTodo(todo.id).pipe(
+            map((response) => ({
+              type: 'LOAD_TODO_SUCCESS',
+              todo: response.todo,
+            }))
+          );
         },
 
         onError: (action: GetTodo, error: any) => {
@@ -196,19 +198,19 @@ class TodoEffects {
 }
 ```
 
-The StoreRouterConnectingModule must be configured with an appropriate serializer. The `DefaultRouterStateSerializer` provides the full router state instead of the `MinimalRouterStateSerializer` that is used without configuration.
+The StoreRouterConnectingModule must be configured with an appropriate serializer. The `FullRouterStateSerializer` provides the full router state instead of the `MinimalRouterStateSerializer` that is used without configuration.
 
 ```typescript
 import { NgModule } from '@angular/core';
 import {
   StoreRouterConnectingModule,
-  DefaultRouterStateSerializer,
+  FullRouterStateSerializer,
 } from '@ngrx/router-store';
 
 @NgModule({
   imports: [
     StoreRouterConnectingModule.forRoot({
-      serializer: DefaultRouterStateSerializer,
+      serializer: FullRouterStateSerializer,
     }),
   ],
 })

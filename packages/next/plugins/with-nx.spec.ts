@@ -1,15 +1,23 @@
-import { withNx } from './with-nx';
+import { NextConfigComplete } from 'next/dist/server/config-shared';
+import { getNextConfig } from './with-nx';
 
 describe('withNx', () => {
   describe('svgr', () => {
     it('should be used by default', () => {
-      const config = withNx({});
+      const config = getNextConfig();
 
       const result = config.webpack(
         {
           module: { rules: [{ oneOf: [] }] },
         },
         {
+          buildId: 'build-id',
+          config: config as NextConfigComplete,
+          dev: true,
+          dir: 'dir',
+          isServer: false,
+          totalPages: 0,
+          webpack: undefined,
           defaultLoaders: {
             babel: {
               options: {},
@@ -24,7 +32,7 @@ describe('withNx', () => {
     });
 
     it('should not be used when disabled', () => {
-      const config = withNx({
+      const config = getNextConfig({
         nx: {
           svgr: false,
         },
@@ -35,6 +43,13 @@ describe('withNx', () => {
           module: { rules: [{ oneOf: [] }] },
         },
         {
+          buildId: 'build-id',
+          config: config as NextConfigComplete,
+          dev: true,
+          dir: 'dir',
+          isServer: false,
+          totalPages: 0,
+          webpack: undefined,
           defaultLoaders: {
             babel: {
               options: {},

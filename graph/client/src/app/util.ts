@@ -1,9 +1,47 @@
 // nx-ignore-next-line
-import { ProjectGraphDependency } from '@nrwl/devkit';
+import { ProjectGraphDependency, ProjectGraphProjectNode } from '@nrwl/devkit';
+import { getEnvironmentConfig } from './hooks/use-environment-config';
+import { To, useParams, useSearchParams } from 'react-router-dom';
 
-export function trimBackSlash(value: string): string {
-  return value.replace(/\/$/, '');
-}
+export const useRouteConstructor = (): ((
+  to: To,
+  retainSearchParams: boolean
+) => To) => {
+  const { environment } = getEnvironmentConfig();
+  const { selectedWorkspaceId } = useParams();
+  const [searchParams] = useSearchParams();
+
+  return (to: To, retainSearchParams: true) => {
+    let pathname = '';
+
+    if (typeof to === 'object') {
+      if (environment === 'dev') {
+        pathname = `/${selectedWorkspaceId}${to.pathname}`;
+      } else {
+        pathname = to.pathname;
+      }
+      return {
+        ...to,
+        pathname,
+        search: to.search
+          ? to.search.toString()
+          : retainSearchParams
+          ? searchParams.toString()
+          : '',
+      };
+    } else if (typeof to === 'string') {
+      if (environment === 'dev') {
+        pathname = `/${selectedWorkspaceId}${to}`;
+      } else {
+        pathname = to;
+      }
+      return {
+        pathname,
+        search: retainSearchParams ? searchParams.toString() : '',
+      };
+    }
+  };
+};
 
 export function parseParentDirectoriesFromFilePath(
   path: string,
@@ -47,4 +85,52 @@ export function hasPath(
   }
 
   return false;
+}
+
+export function getProjectsByType(
+  type: string,
+  projects: ProjectGraphProjectNode[]
+): ProjectGraphProjectNode[] {
+  return projects
+    .filter((project) => project.type === type)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function groupProjectsByDirectory(
+  projects: ProjectGraphProjectNode[],
+  workspaceLayout: { appsDir: string; libsDir: string }
+): Record<string, ProjectGraphProjectNode[]> {
+  let groups: Record<string, ProjectGraphProjectNode[]> = {};
+
+  projects.forEach((project) => {
+    const workspaceRoot =
+      project.type === 'app' || project.type === 'e2e'
+        ? workspaceLayout.appsDir
+        : workspaceLayout.libsDir;
+    const directories = parseParentDirectoriesFromFilePath(
+      (project.data as any).root,
+      workspaceRoot
+    );
+
+    const directory = directories.join('/');
+
+    if (!groups.hasOwnProperty(directory)) {
+      groups[directory] = [];
+    }
+    groups[directory].push(project);
+  });
+
+  return groups;
+}
+
+export function createTaskName(
+  project: string,
+  target: string,
+  configuration?: string
+) {
+  if (configuration) {
+    return `${project}:${target}:${configuration}`;
+  } else {
+    return `${project}:${target}`;
+  }
 }

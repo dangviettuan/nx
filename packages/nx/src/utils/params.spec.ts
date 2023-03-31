@@ -776,6 +776,107 @@ describe('params', () => {
       ).toThrow("Required property 'a' is missing");
     });
 
+    it('should throw if none of the oneOf conditions are met', () => {
+      expect(() =>
+        validateOptsAgainstSchema(
+          {},
+
+          {
+            properties: {
+              a: {
+                type: 'boolean',
+              },
+
+              b: {
+                type: 'boolean',
+              },
+            },
+
+            oneOf: [
+              {
+                required: ['a'],
+              },
+
+              {
+                required: ['b'],
+              },
+            ],
+          }
+        )
+      ).toThrowErrorMatchingInlineSnapshot(`
+        "Options did not match schema. Please fix 1 of the following errors:
+         - Required property 'a' is missing
+         - Required property 'b' is missing"
+      `);
+    });
+
+    it('should throw if more than one of the oneOf conditions are met', () => {
+      expect(() =>
+        validateOptsAgainstSchema(
+          {
+            a: true,
+            b: false,
+          },
+
+          {
+            properties: {
+              a: {
+                type: 'boolean',
+              },
+
+              b: {
+                type: 'boolean',
+              },
+            },
+
+            oneOf: [
+              {
+                required: ['a'],
+              },
+
+              {
+                required: ['b'],
+              },
+            ],
+          }
+        )
+      ).toThrowErrorMatchingInlineSnapshot(`"Options did not match schema."`);
+    });
+
+    it('should throw if none of the anyOf conditions are met', () => {
+      expect(() =>
+        validateOptsAgainstSchema(
+          {},
+
+          {
+            properties: {
+              a: {
+                type: 'boolean',
+              },
+
+              b: {
+                type: 'boolean',
+              },
+            },
+
+            anyOf: [
+              {
+                required: ['a'],
+              },
+
+              {
+                required: ['b'],
+              },
+            ],
+          }
+        )
+      ).toThrowErrorMatchingInlineSnapshot(`
+        "Options did not match schema. Please fix any of the following errors:
+         - Required property 'a' is missing
+         - Required property 'b' is missing"
+      `);
+    });
+
     it('should throw if found an unknown property', () => {
       expect(() =>
         validateOptsAgainstSchema(
@@ -1400,6 +1501,7 @@ describe('params', () => {
               'x-prompt': 'What is your name?',
             },
           },
+          required: ['name'],
         },
         {
           version: 2,
@@ -1408,7 +1510,12 @@ describe('params', () => {
       );
 
       expect(prompts).toEqual([
-        { type: 'input', name: 'name', message: 'What is your name?' },
+        {
+          type: 'input',
+          name: 'name',
+          message: 'What is your name?',
+          validate: expect.any(Function),
+        },
       ]);
     });
 
@@ -1430,7 +1537,12 @@ describe('params', () => {
       );
 
       expect(prompts).toEqual([
-        { type: 'confirm', name: 'isAwesome', message: 'Is this awesome?' },
+        {
+          type: 'confirm',
+          name: 'isAwesome',
+          message: 'Is this awesome?',
+          validate: expect.any(Function),
+        },
       ]);
     });
 
@@ -1456,11 +1568,12 @@ describe('params', () => {
           type: 'numeral',
           name: 'age',
           message: 'How old are you?',
+          validate: expect.any(Function),
         },
       ]);
     });
 
-    it('should use an multiselect prompt for x-prompts with items', () => {
+    it('should use a multiselect prompt for x-prompts with items', () => {
       const prompts = getPromptsForSchema(
         {},
         {
@@ -1488,11 +1601,52 @@ describe('params', () => {
           name: 'pets',
           message: 'What kind of pets do you have?',
           choices: ['Cat', 'Dog', 'Fish'],
+          validate: expect.any(Function),
         },
       ]);
     });
 
-    it('should use an multiselect prompt for x-prompts with items', () => {
+    it('should use a multiselect prompt for array properties', () => {
+      const prompts = getPromptsForSchema(
+        {},
+        {
+          properties: {
+            pets: {
+              type: 'array',
+              'x-prompt': {
+                type: 'list',
+                message: 'What kind of pets do you have?',
+                items: [
+                  { label: 'Cat', value: 'cat' },
+                  { label: 'Dog', value: 'dog' },
+                  { label: 'Fish', value: 'fish' },
+                ],
+              },
+            },
+          },
+        },
+        {
+          version: 2,
+          projects: {},
+        }
+      );
+
+      expect(prompts).toEqual([
+        {
+          type: 'multiselect',
+          name: 'pets',
+          message: 'What kind of pets do you have?',
+          choices: [
+            { message: 'Cat', name: 'cat' },
+            { message: 'Dog', name: 'dog' },
+            { message: 'Fish', name: 'fish' },
+          ],
+          validate: expect.any(Function),
+        },
+      ]);
+    });
+
+    it('should use a multiselect prompt for x-prompts with items', () => {
       const prompts = getPromptsForSchema(
         {},
         {
@@ -1528,6 +1682,7 @@ describe('params', () => {
             { message: 'Dog', name: 'dog' },
             { message: 'Fish', name: 'fish' },
           ],
+          validate: expect.any(Function),
         },
       ]);
     });
@@ -1559,6 +1714,7 @@ describe('params', () => {
             name: 'project',
             message: 'Which project?',
             choices: ['projA', 'projB'],
+            validate: expect.any(Function),
           },
         ]);
       });
@@ -1589,6 +1745,7 @@ describe('params', () => {
             name: 'projectName',
             message: 'Which project?',
             choices: ['projA', 'projB'],
+            validate: expect.any(Function),
           },
         ]);
       });
@@ -1620,6 +1777,7 @@ describe('params', () => {
             name: 'projectName',
             message: 'Which project?',
             choices: ['projA', 'projB'],
+            validate: expect.any(Function),
           },
         ]);
       });
@@ -1653,6 +1811,7 @@ describe('params', () => {
             name: 'yourProject',
             message: 'Which project?',
             choices: ['projA', 'projB'],
+            validate: expect.any(Function),
           },
         ]);
       });
@@ -1682,6 +1841,7 @@ describe('params', () => {
           name: 'name',
           message: 'What is your name?',
           choices: ['Bob', 'Joe', 'Jeff'],
+          validate: expect.any(Function),
         },
       ]);
     });
@@ -1712,6 +1872,7 @@ describe('params', () => {
           message: 'What is your name?',
           choices: ['Bob', 'Joe', 'Jeff'],
           initial: 'Joe',
+          validate: expect.any(Function),
         },
       ]);
     });
@@ -1736,7 +1897,12 @@ describe('params', () => {
       );
 
       expect(prompts).toEqual([
-        { type: 'input', name: 'name', message: 'What is your name?' },
+        {
+          type: 'input',
+          name: 'name',
+          message: 'What is your name?',
+          validate: expect.any(Function),
+        },
       ]);
     });
   });

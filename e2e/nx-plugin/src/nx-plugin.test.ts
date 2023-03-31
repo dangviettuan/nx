@@ -14,15 +14,23 @@ import {
   createFile,
   readFile,
   removeFile,
+  cleanupProject,
+  runCommand,
+  getPackageManagerCommand,
+  updateJson,
 } from '@nrwl/e2e/utils';
+import type { PackageJson } from 'nx/src/utils/package-json';
 
 import { ASYNC_GENERATOR_EXECUTOR_CONTENTS } from './nx-plugin.fixtures';
 
 describe('Nx Plugin', () => {
   let npmScope: string;
-  beforeEach(() => {
+
+  beforeAll(() => {
     npmScope = newProject();
   });
+
+  afterAll(() => cleanupProject());
 
   it('should be able to generate a Nx Plugin ', async () => {
     const plugin = uniq('plugin');
@@ -64,15 +72,13 @@ describe('Nx Plugin', () => {
   // which walks up the directory to find it in the next repo itself, so it
   // doesn't use the collection we are building
   // we should change it to point to the right collection using relative path
+  // TODO: Re-enable this to work with pnpm
   it(`should run the plugin's e2e tests`, async () => {
     const plugin = uniq('plugin-name');
     runCLI(`generate @nrwl/nx-plugin:plugin ${plugin} --linter=eslint`);
-
-    if (isNotWindows()) {
-      const e2eResults = runCLI(`e2e ${plugin}-e2e`);
-      expect(e2eResults).toContain('Successfully ran target e2e');
-      expect(await killPorts()).toBeTruthy();
-    }
+    const e2eResults = runCLI(`e2e ${plugin}-e2e`);
+    expect(e2eResults).toContain('Successfully ran target e2e');
+    expect(await killPorts()).toBeTruthy();
   }, 250000);
 
   it('should be able to generate a migration', async () => {
@@ -273,27 +279,27 @@ describe('Nx Plugin', () => {
     expect(results).not.toContain(goodMigration);
   });
 
+  /**
+   * @todo(@AgentEnder): reenable after figuring out @swc-node
+   */
   describe('local plugins', () => {
-    const plugin = uniq('plugin');
+    let plugin: string;
     beforeEach(() => {
+      plugin = uniq('plugin');
       runCLI(`generate @nrwl/nx-plugin:plugin ${plugin} --linter=eslint`);
     });
 
     it('should be able to infer projects and targets', async () => {
-      // Cache workspace json, to test inference and restore afterwards
-      const workspaceJsonContents = readFile('workspace.json');
-      removeFile('workspace.json');
-
       // Setup project inference + target inference
       updateFile(
         `libs/${plugin}/src/index.ts`,
         `import {basename} from 'path'
-  
+
   export function registerProjectTargets(f) {
     if (basename(f) === 'my-project-file') {
       return {
         build: {
-          executor: "@nrwl/workspace:run-commands",
+          executor: "nx:run-commands",
           options: {
             command: "echo 'custom registered target'"
           }
@@ -301,7 +307,7 @@ describe('Nx Plugin', () => {
       }
     }
   }
-  
+
   export const projectFilePatterns = ['my-project-file'];
   `
       );
@@ -321,9 +327,6 @@ describe('Nx Plugin', () => {
       expect(runCLI(`build ${inferredProject}`)).toContain(
         'custom registered target'
       );
-
-      // Restore workspace.json
-      createFile('workspace.json', workspaceJsonContents);
     });
 
     it('should be able to use local generators and executors', async () => {
@@ -359,6 +362,30 @@ describe('Nx Plugin', () => {
       expect(() => checkFilesExist(`libs/${generatedProject}`)).not.toThrow();
       expect(() => runCLI(`execute ${generatedProject}`)).not.toThrow();
     });
+
+    it('should work with ts-node only', async () => {
+      const oldPackageJson: PackageJson = readJson('package.json');
+      updateJson<PackageJson>('package.json', (j) => {
+        delete j.dependencies['@swc-node/register'];
+        delete j.devDependencies['@swc-node/register'];
+        return j;
+      });
+      runCommand(getPackageManagerCommand().install);
+
+      const generator = uniq('generator');
+
+      expect(() => {
+        runCLI(
+          `generate @nrwl/nx-plugin:generator ${generator} --project=${plugin}`
+        );
+
+        runCLI(
+          `generate @${npmScope}/${plugin}:${generator} --name ${uniq('test')}`
+        );
+      }).not.toThrow();
+      updateFile('package.json', JSON.stringify(oldPackageJson, null, 2));
+      runCommand(getPackageManagerCommand().install);
+    });
   });
 
   describe('--directory', () => {
@@ -375,7 +402,7 @@ describe('Nx Plugin', () => {
     }, 90000);
   });
   describe('--tags', () => {
-    it('should add tags to workspace.json', async () => {
+    it('should add tags to project configuration', async () => {
       const plugin = uniq('plugin');
       runCLI(
         `generate @nrwl/nx-plugin:plugin ${plugin} --linter=eslint --tags=e2etag,e2ePackage `

@@ -1,19 +1,20 @@
-import { ExecutorContext, joinPathFragments, logger } from '@nrwl/devkit';
-import { findNodes } from '@nrwl/workspace/src/utilities/typescript/find-nodes';
+import { joinPathFragments, logger } from '@nrwl/devkit';
+import { findNodes } from 'nx/src/utils/typescript';
 import 'dotenv/config';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { gte } from 'semver';
 import ts = require('typescript');
-import { findOrCreateConfig } from '../utils/utilities';
-import { CommonNxStorybookConfig } from './models';
+import { CommonNxStorybookConfig, UiFramework } from '../utils/models';
+import { CLIOptions } from '@storybook/types';
 
 export interface NodePackage {
   name: string;
   version: string;
 }
 
-export function getStorybookFrameworkPath(uiFramework) {
+// TODO(katerina): Remove when Storybook 7
+export function getStorybookFrameworkPath(uiFramework: UiFramework) {
   const serverOptionsPaths = {
     '@storybook/react': '@storybook/react/dist/cjs/server/options',
     '@storybook/html': '@storybook/html/dist/cjs/server/options',
@@ -31,63 +32,99 @@ export function getStorybookFrameworkPath(uiFramework) {
   }
 }
 
-function isStorybookV62onwards(uiFramework) {
-  const storybookPackageVersion = require(join(
-    uiFramework,
-    'package.json'
-  )).version;
-
-  return gte(storybookPackageVersion, '6.2.0-rc.4');
+// TODO(katerina): Remove when Storybook 7
+function isStorybookV62onwards(uiFramework: string) {
+  try {
+    const storybookPackageVersion = require(join(
+      uiFramework,
+      'package.json'
+    )).version;
+    return gte(storybookPackageVersion, '6.2.0-rc.4');
+  } catch (e) {
+    try {
+      const storybookPackageVersion = require(join(
+        '@storybook/core-server',
+        'package.json'
+      )).version;
+      return gte(storybookPackageVersion, '6.2.0-rc.4');
+    } catch (e) {
+      throw new Error(
+        `Error: ${e}
+        
+        It looks like you don\'t have Storybook installed. 
+        Please run the @nrwl/storybook:configuration generator, 
+        or run "npm/yarn" again to install your dependencies.`
+      );
+    }
+  }
 }
 
-export function runStorybookSetupCheck(options: CommonNxStorybookConfig) {
+// TODO(katerina): Remove when Storybook 7
+export function runStorybookSetupCheck(
+  options: CLIOptions & CommonNxStorybookConfig
+) {
   webpackFinalPropertyCheck(options);
   reactWebpack5Check(options);
 }
 
-function reactWebpack5Check(options: CommonNxStorybookConfig) {
+// TODO(katerina): Remove when Storybook 7
+function reactWebpack5Check(options: CLIOptions & CommonNxStorybookConfig) {
   if (options.uiFramework === '@storybook/react') {
-    let storybookConfigFilePath = joinPathFragments(
-      options.config.configFolder,
-      'main.js'
-    );
-
-    if (!existsSync(storybookConfigFilePath)) {
-      storybookConfigFilePath = joinPathFragments(
-        options.config.configFolder,
-        'main.ts'
-      );
-    }
-
-    if (!existsSync(storybookConfigFilePath)) {
-      // looks like there's no main config file, so skip
-      return;
-    }
-
+    const source = mainJsTsFileContent(options.configDir);
+    const rootSource = mainJsTsFileContent('.storybook');
     // check whether the current Storybook configuration has the webpack 5 builder enabled
-    const storybookConfig = readFileSync(storybookConfigFilePath, {
-      encoding: 'utf8',
-    });
-
-    const source = ts.createSourceFile(
-      storybookConfigFilePath,
-      storybookConfig,
-      ts.ScriptTarget.Latest,
-      true
-    );
-
-    findBuilderInMainJsTs(source);
+    if (
+      builderIsWebpackButNotWebpack5(source) &&
+      builderIsWebpackButNotWebpack5(rootSource)
+    ) {
+      logger.warn(`
+      It looks like you use Webpack 5 but your Storybook setup is not configured to leverage that
+      and thus falls back to Webpack 4.
+      Make sure you upgrade your Storybook config to use Webpack 5.
+      
+        - https://gist.github.com/shilman/8856ea1786dcd247139b47b270912324#upgrade
+            
+      `);
+    }
   }
 }
 
-function webpackFinalPropertyCheck(options: CommonNxStorybookConfig) {
+// TODO(katerina): Remove when Storybook 7
+function mainJsTsFileContent(configFolder: string): ts.SourceFile {
+  let storybookConfigFilePath = joinPathFragments(configFolder, 'main.js');
+
+  if (!existsSync(storybookConfigFilePath)) {
+    storybookConfigFilePath = joinPathFragments(configFolder, 'main.ts');
+  }
+
+  if (!existsSync(storybookConfigFilePath)) {
+    // looks like there's no main config file, so skip
+    return;
+  }
+
+  const storybookConfig = readFileSync(storybookConfigFilePath, {
+    encoding: 'utf8',
+  });
+
+  return ts.createSourceFile(
+    storybookConfigFilePath,
+    storybookConfig,
+    ts.ScriptTarget.Latest,
+    true
+  );
+}
+
+// TODO(katerina): Remove when Storybook 7
+function webpackFinalPropertyCheck(
+  options: CLIOptions & CommonNxStorybookConfig
+) {
   let placesToCheck = [
     {
       path: joinPathFragments('.storybook', 'webpack.config.js'),
       result: false,
     },
     {
-      path: joinPathFragments(options.config.configFolder, 'webpack.config.js'),
+      path: joinPathFragments(options.configDir, 'webpack.config.js'),
       result: false,
     },
   ];
@@ -118,50 +155,26 @@ function webpackFinalPropertyCheck(options: CommonNxStorybookConfig) {
   }
 }
 
-export function resolveCommonStorybookOptionMapper(
-  builderOptions: CommonNxStorybookConfig,
-  frameworkOptions: any,
-  context: ExecutorContext
-) {
-  const storybookConfig = findOrCreateConfig(builderOptions.config, context);
-  const storybookOptions = {
-    workspaceRoot: context.root,
-    configDir: storybookConfig,
-    ...frameworkOptions,
-    frameworkPresets: [...(frameworkOptions.frameworkPresets || [])],
-    watch: false,
-  };
-
-  return storybookOptions;
-}
-
-export function findBuilderInMainJsTs(storybookConfig: ts.SourceFile) {
+// TODO(katerina): Remove when Storybook 7
+export function builderIsWebpackButNotWebpack5(
+  storybookConfig: ts.SourceFile
+): boolean {
   const importArray = findNodes(storybookConfig, [
     ts.SyntaxKind.PropertyAssignment,
   ]);
-  let builderIsSpecified = false;
+  let builderIsWebpackNot5 = false;
   importArray.forEach((parent) => {
     const identifier = findNodes(parent, ts.SyntaxKind.Identifier);
     const sbBuilder = findNodes(parent, ts.SyntaxKind.StringLiteral);
     const builderText = sbBuilder?.[0]?.getText() ?? '';
-    if (identifier[0].getText() === 'builder') {
-      builderIsSpecified = true;
-      if (
-        builderText.includes('webpack') &&
-        !builderText.includes('webpack5')
-      ) {
-        builderIsSpecified = false;
-      }
+    if (
+      identifier?.[0]?.getText() === 'builder' &&
+      builderText.includes('webpack') &&
+      !builderText.includes('webpack5')
+    ) {
+      builderIsWebpackNot5 = true;
     }
   });
-  if (!builderIsSpecified) {
-    logger.warn(`
-    It looks like you use Webpack 5 but your Storybook setup is not configured to leverage that
-    and thus falls back to Webpack 4.
-    Make sure you upgrade your Storybook config to use Webpack 5.
-    
-      - https://gist.github.com/shilman/8856ea1786dcd247139b47b270912324#upgrade
-          
-    `);
-  }
+
+  return builderIsWebpackNot5;
 }

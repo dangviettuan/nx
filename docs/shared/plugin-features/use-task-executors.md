@@ -12,7 +12,7 @@ There are two main differences between an executor and a shell script or an npm 
 
 Executors are associated with specific targets in a project's `project.json` file.
 
-```json
+```jsonc {% fileName="project.json" %}
 {
   "root": "apps/cart",
   "sourceRoot": "apps/cart/src",
@@ -56,54 +56,50 @@ Each executor definition has an `executor` property and, optionally, an `options
 
 ## Running executors
 
-The [`nx run`](/nx/run) cli command (or the shorthand versions) can be used to run executors.
+The [`nx run`](/packages/nx/documents/run) cli command (or the shorthand versions) can be used to run executors.
 
-```bash
+```shell
 nx run [project]:[command]
 nx run cart:build
 ```
 
 As long as your command name doesn't conflict with an existing nx cli command, you can use this short hand:
 
-```bash
+```shell
 nx [command] [project]
 nx build cart
 ```
 
 You can also use a specific configuration preset like this:
 
-```bash
+```shell
 nx [command] [project] --configuration=[configuration]
 nx build cart --configuration=production
 ```
 
 Or you can overwrite individual executor options like this:
 
-```bash
+```shell
 nx [command] [project] --[optionNameInCamelCase]=[value]
 nx build cart --outputPath=some/other/path
 ```
 
-## Related Documentation
+## Running a single command
 
-### Concepts
+If defining a new target that needs to run a single shell command, there is a shorthand for the `nx:run-commands` executor that can be used.
 
-- [Task Pipeline Configuration](/concepts/task-pipeline-configuration)
-- [Incremental Builds](/more-concepts/incremental-builds)
+```jsonc {% fileName="project.json" %}
+{
+  "root": "apps/cart",
+  "sourceRoot": "apps/cart/src",
+  "projectType": "application",
+  "generators": {},
+  "targets": {
+    "echo": {
+      "command": "echo 'hello world'"
+    }
+  }
+}
+```
 
-### Recipes
-
-- [Use Executor Configurations](/recipe/use-executor-configurations)
-- [Running Custom Commands](/recipe/run-commands-executor)
-- [Creating Custom Executors](/recipe/creating-custom-executors)
-- [Compose Executors](/recipe/compose-executors)
-- [Faster Builds with Module Federation](/recipe/faster-builds)
-- [Customizing Webpack Config](/recipe/customize-webpack)
-- [Profiling Performance](/recipe/performance-profiling)
-
-### Reference
-
-- [run command](/nx/run)
-- [run-many command](/nx/run-many)
-- [affected command](/nx/affected)
-- [Project Configuration](/reference/project-configuration)
+For more info, see the [run-commands documentation](/packages/nx/executors/run-commands)

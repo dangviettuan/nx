@@ -1,41 +1,36 @@
 import * as chalk from 'chalk';
-import { workspaceRoot } from '../utils/workspace-root';
 import { output } from '../utils/output';
 import { join } from 'path';
 import {
   detectPackageManager,
   getPackageManagerVersion,
+  PackageManager,
 } from '../utils/package-manager';
 import { readJsonFile } from '../utils/fileutils';
-import { PackageJson, readModulePackageJson } from '../utils/package-json';
+import {
+  PackageJson,
+  readModulePackageJson,
+  readNxMigrateConfig,
+} from '../utils/package-json';
 import { getLocalWorkspacePlugins } from '../utils/plugins/local-plugins';
 import {
   createProjectGraphAsync,
   readProjectsConfigurationFromProjectGraph,
 } from '../project-graph/project-graph';
+import { gt, valid } from 'semver';
+import { findInstalledPlugins } from '../utils/plugins/installed-plugins';
+import { getNxRequirePaths } from '../utils/installation-directory';
+
+const nxPackageJson = readJsonFile<typeof import('../../package.json')>(
+  join(__dirname, '../../package.json')
+);
 
 export const packagesWeCareAbout = [
-  'nx',
-  '@nrwl/angular',
-  '@nrwl/cypress',
-  '@nrwl/detox',
-  '@nrwl/devkit',
-  '@nrwl/eslint-plugin-nx',
-  '@nrwl/express',
-  '@nrwl/jest',
-  '@nrwl/js',
-  '@nrwl/linter',
-  '@nrwl/nest',
-  '@nrwl/next',
-  '@nrwl/node',
-  '@nrwl/nx-cloud',
-  '@nrwl/nx-plugin',
-  '@nrwl/react',
-  '@nrwl/react-native',
-  '@nrwl/schematics',
-  '@nrwl/storybook',
-  '@nrwl/web',
-  '@nrwl/workspace',
+  'lerna',
+  ...nxPackageJson['nx-migrations'].packageGroup.map((x) =>
+    typeof x === 'string' ? x : x.package
+  ),
+  '@nrwl/schematics', // manually added since we don't publish it anymore.
   'typescript',
 ];
 
@@ -46,6 +41,7 @@ export const patternsWeIgnoreInCommunityReport: Array<string | RegExp> = [
   '@nestjs/schematics',
 ];
 
+const LINE_SEPARATOR = '---------------------------------------';
 /**
  * Reports relevant version numbers for adding to an Nx issue report
  *
@@ -55,8 +51,15 @@ export const patternsWeIgnoreInCommunityReport: Array<string | RegExp> = [
  *
  */
 export async function reportHandler() {
-  const pm = detectPackageManager();
-  const pmVersion = getPackageManagerVersion(pm);
+  const {
+    pm,
+    pmVersion,
+    localPlugins,
+    communityPlugins,
+    packageVersionsWeCareAbout,
+    outOfSyncPackageGroup,
+    projectGraphError,
+  } = await getReportData();
 
   const bodyLines = [
     `Node : ${process.versions.node}`,
@@ -65,33 +68,55 @@ export async function reportHandler() {
     ``,
   ];
 
-  packagesWeCareAbout.forEach((p) => {
-    bodyLines.push(`${chalk.green(p)} : ${chalk.bold(readPackageVersion(p))}`);
+  let padding =
+    Math.max(...packageVersionsWeCareAbout.map((x) => x.package.length)) + 1;
+  packageVersionsWeCareAbout.forEach((p) => {
+    bodyLines.push(
+      `${chalk.green(p.package.padEnd(padding))} : ${chalk.bold(p.version)}`
+    );
   });
 
-  bodyLines.push('---------------------------------------');
-
-  try {
-    const projectGraph = await createProjectGraphAsync({ exitOnError: true });
-    bodyLines.push('Local workspace plugins:');
-    const plugins = getLocalWorkspacePlugins(
-      readProjectsConfigurationFromProjectGraph(projectGraph)
-    ).keys();
-    for (const plugin of plugins) {
-      bodyLines.push(`\t ${chalk.green(plugin)}`);
-    }
-    bodyLines.push(...plugins);
-  } catch {
-    bodyLines.push('Unable to construct project graph');
+  if (communityPlugins.length) {
+    bodyLines.push(LINE_SEPARATOR);
+    padding = Math.max(...communityPlugins.map((x) => x.name.length)) + 1;
+    bodyLines.push('Community plugins:');
+    communityPlugins.forEach((p) => {
+      bodyLines.push(
+        `${chalk.green(p.name.padEnd(padding))}: ${chalk.bold(p.version)}`
+      );
+    });
   }
 
-  bodyLines.push('---------------------------------------');
+  if (localPlugins.length) {
+    bodyLines.push(LINE_SEPARATOR);
 
-  const communityPlugins = findInstalledCommunityPlugins();
-  bodyLines.push('Community plugins:');
-  communityPlugins.forEach((p) => {
-    bodyLines.push(`\t ${chalk.green(p.package)}: ${chalk.bold(p.version)}`);
-  });
+    bodyLines.push('Local workspace plugins:');
+
+    for (const plugin of localPlugins) {
+      bodyLines.push(`\t ${chalk.green(plugin)}`);
+    }
+  }
+
+  if (outOfSyncPackageGroup) {
+    bodyLines.push(LINE_SEPARATOR);
+    bodyLines.push(
+      `The following packages should match the installed version of ${outOfSyncPackageGroup.basePackage}`
+    );
+    for (const pkg of outOfSyncPackageGroup.misalignedPackages) {
+      bodyLines.push(`  - ${pkg.name}@${pkg.version}`);
+    }
+    bodyLines.push('');
+    bodyLines.push(
+      `To fix this, run \`nx migrate ${outOfSyncPackageGroup.migrateTarget}\``
+    );
+  }
+
+  if (projectGraphError) {
+    bodyLines.push(LINE_SEPARATOR);
+    bodyLines.push('⚠️ Unable to construct project graph.');
+    bodyLines.push(projectGraphError.message);
+    bodyLines.push(projectGraphError.stack);
+  }
 
   output.log({
     title: 'Report complete - copy this into the issue template',
@@ -99,64 +124,152 @@ export async function reportHandler() {
   });
 }
 
-export function readPackageJson(p: string): PackageJson | null {
+export interface ReportData {
+  pm: PackageManager;
+  pmVersion: string;
+  localPlugins: string[];
+  communityPlugins: PackageJson[];
+  packageVersionsWeCareAbout: {
+    package: string;
+    version: string;
+  }[];
+  outOfSyncPackageGroup?: {
+    basePackage: string;
+    misalignedPackages: {
+      name: string;
+      version: string;
+    }[];
+    migrateTarget: string;
+  };
+  projectGraphError?: Error | null;
+}
+
+export async function getReportData(): Promise<ReportData> {
+  const pm = detectPackageManager();
+  const pmVersion = getPackageManagerVersion(pm);
+
+  const localPlugins = await findLocalPlugins();
+  const communityPlugins = findInstalledCommunityPlugins();
+
+  let projectGraphError: Error | null = null;
   try {
-    return readModulePackageJson(p).packageJson;
+    await createProjectGraphAsync();
+  } catch (e) {
+    projectGraphError = e;
+  }
+
+  const packageVersionsWeCareAbout = findInstalledPackagesWeCareAbout();
+  packageVersionsWeCareAbout.unshift({
+    package: 'nx',
+    version: nxPackageJson.version,
+  });
+  if (globalThis.GLOBAL_NX_VERSION) {
+    packageVersionsWeCareAbout.unshift({
+      package: 'nx (global)',
+      version: globalThis.GLOBAL_NX_VERSION,
+    });
+  }
+
+  const outOfSyncPackageGroup = findMisalignedPackagesForPackage(nxPackageJson);
+
+  return {
+    pm,
+    pmVersion,
+    localPlugins,
+    communityPlugins,
+    packageVersionsWeCareAbout,
+    outOfSyncPackageGroup,
+    projectGraphError,
+  };
+}
+
+async function findLocalPlugins() {
+  try {
+    const projectGraph = await createProjectGraphAsync({ exitOnError: true });
+    const localPlugins = await getLocalWorkspacePlugins(
+      readProjectsConfigurationFromProjectGraph(projectGraph)
+    );
+    return Array.from(localPlugins.keys());
+  } catch {
+    return [];
+  }
+}
+
+function readPackageJson(p: string): PackageJson | null {
+  try {
+    return readModulePackageJson(p, getNxRequirePaths()).packageJson;
   } catch {
     return null;
   }
 }
 
-export function readPackageVersion(p: string): string {
-  return readPackageJson(p)?.version || 'Not Found';
+function readPackageVersion(p: string): string | null {
+  return readPackageJson(p)?.version;
 }
 
-export function findInstalledCommunityPlugins(): {
-  package: string;
-  version: string;
-}[] {
-  const { dependencies, devDependencies } = readJsonFile(
-    join(workspaceRoot, 'package.json')
-  );
-  const deps = [
-    Object.keys(dependencies || {}),
-    Object.keys(devDependencies || {}),
-  ].flat();
+interface OutOfSyncPackageGroup {
+  basePackage: string;
+  misalignedPackages: {
+    name: string;
+    version: string;
+  }[];
+  migrateTarget: string;
+}
 
-  return deps.reduce(
-    (arr: any[], nextDep: string): { project: string; version: string }[] => {
-      if (
-        patternsWeIgnoreInCommunityReport.some((pattern) =>
-          typeof pattern === 'string'
-            ? pattern === nextDep
-            : pattern.test(nextDep)
-        )
-      ) {
-        return arr;
-      }
-      try {
-        const depPackageJson: Partial<PackageJson> =
-          readPackageJson(nextDep) || {};
-        if (
-          [
-            'ng-update',
-            'nx-migrations',
-            'schematics',
-            'generators',
-            'builders',
-            'executors',
-          ].some((field) => field in depPackageJson)
-        ) {
-          arr.push({ package: nextDep, version: depPackageJson.version });
-          return arr;
-        } else {
-          return arr;
+export function findMisalignedPackagesForPackage(
+  base: PackageJson
+): undefined | OutOfSyncPackageGroup {
+  const misalignedPackages: { name: string; version: string }[] = [];
+
+  let migrateTarget = base.version;
+
+  const { packageGroup } = readNxMigrateConfig(base);
+
+  for (const entry of packageGroup ?? []) {
+    const { package: packageName, version } = entry;
+    // should be aligned
+    if (version === '*') {
+      const installedVersion = readPackageVersion(packageName);
+
+      if (installedVersion && installedVersion !== base.version) {
+        if (valid(installedVersion) && gt(installedVersion, migrateTarget)) {
+          migrateTarget = installedVersion;
         }
-      } catch {
-        console.warn(`Error parsing packageJson for ${nextDep}`);
-        return arr;
+        misalignedPackages.push({
+          name: packageName,
+          version: installedVersion,
+        });
       }
-    },
-    []
+    }
+  }
+
+  return misalignedPackages.length
+    ? {
+        basePackage: base.name,
+        misalignedPackages,
+        migrateTarget: `${base.name}@${migrateTarget}`,
+      }
+    : undefined;
+}
+
+export function findInstalledCommunityPlugins(): PackageJson[] {
+  const installedPlugins = findInstalledPlugins();
+  return installedPlugins.filter(
+    (dep) =>
+      dep.name !== 'nx' &&
+      !patternsWeIgnoreInCommunityReport.some((pattern) =>
+        typeof pattern === 'string'
+          ? pattern === dep.name
+          : pattern.test(dep.name)
+      )
   );
+}
+export function findInstalledPackagesWeCareAbout() {
+  return packagesWeCareAbout.reduce((acc, next) => {
+    const v = readPackageVersion(next);
+    if (v) {
+      acc.push({ package: next, version: v });
+    }
+    return acc;
+  }, [] as { package: string; version: string }[]);
 }

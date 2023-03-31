@@ -1,5 +1,5 @@
 import { readJson, Tree } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { applicationGenerator } from './application';
 import { Schema } from './schema';
 
@@ -7,7 +7,7 @@ describe('app', () => {
   let appTree: Tree;
 
   beforeEach(() => {
-    appTree = createTreeWithEmptyV1Workspace();
+    appTree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
   });
 
   it('should generate files', async () => {
@@ -16,11 +16,14 @@ describe('app', () => {
     } as Schema);
 
     const mainFile = appTree.read('apps/my-node-app/src/main.ts').toString();
-    expect(mainFile).toContain(`import * as express from 'express';`);
+    expect(mainFile).toContain(`import express from 'express';`);
 
     const tsconfig = readJson(appTree, 'apps/my-node-app/tsconfig.json');
     expect(tsconfig).toMatchInlineSnapshot(`
       Object {
+        "compilerOptions": Object {
+          "esModuleInterop": true,
+        },
         "extends": "../../tsconfig.base.json",
         "files": Array [],
         "include": Array [],
@@ -91,12 +94,12 @@ Object {
   },
   "exclude": Array [
     "jest.config.ts",
-    "**/*.spec.ts",
-    "**/*.test.ts",
+    "src/**/*.spec.ts",
+    "src/**/*.test.ts",
   ],
   "extends": "./tsconfig.json",
   "include": Array [
-    "**/*.ts",
+    "src/**/*.ts",
   ],
 }
 `);
@@ -111,25 +114,26 @@ Object {
 
       expect(appTree.exists('apps/my-node-app/src/main.js')).toBeTruthy();
       expect(appTree.read('apps/my-node-app/src/main.js').toString()).toContain(
-        `import * as express from 'express';`
+        `import express from 'express';`
       );
 
       const tsConfig = readJson(appTree, 'apps/my-node-app/tsconfig.json');
       expect(tsConfig.compilerOptions).toEqual({
         allowJs: true,
+        esModuleInterop: true,
       });
 
       const tsConfigApp = readJson(
         appTree,
         'apps/my-node-app/tsconfig.app.json'
       );
-      expect(tsConfigApp.include).toEqual(['**/*.ts', '**/*.js']);
+      expect(tsConfigApp.include).toEqual(['src/**/*.ts', 'src/**/*.js']);
       expect(tsConfigApp.exclude).toEqual([
         'jest.config.ts',
-        '**/*.spec.ts',
-        '**/*.test.ts',
-        '**/*.spec.js',
-        '**/*.test.js',
+        'src/**/*.spec.ts',
+        'src/**/*.test.ts',
+        'src/**/*.spec.js',
+        'src/**/*.test.js',
       ]);
     });
   });

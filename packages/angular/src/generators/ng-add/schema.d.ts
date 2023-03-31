@@ -5,7 +5,6 @@ import type { Styles } from '../utils/types';
 export interface GeneratorOptions {
   skipInstall?: boolean;
   npmScope?: string;
-  preserveAngularCliLayout?: boolean;
   defaultBase?: string;
 
   unitTestRunner?: UnitTestRunner;
@@ -14,6 +13,6 @@ export interface GeneratorOptions {
   skipInstall?: boolean;
   skipPostInstall?: boolean;
   style?: Styles;
-  linter?: Exclude<Linter, Linter.TsLint>;
+  linter?: Linter;
   skipPackageJson?: boolean;
 }

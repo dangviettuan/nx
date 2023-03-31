@@ -1,4 +1,6 @@
 {
+  "version": 2,
+  "outputCapture": "direct-nodejs",
   "cli": "nx",
   "title": "Next Export",
   "description": "Export a Next.js application. The exported application is located at `dist/$outputPath/exported`.",
@@ -6,7 +8,8 @@
   "properties": {
     "buildTarget": {
       "type": "string",
-      "description": "Target which builds the application"
+      "description": "Target which builds the application",
+      "x-priority": "important"
     },
     "silent": {
       "type": "boolean",

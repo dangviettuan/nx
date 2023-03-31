@@ -1,20 +1,17 @@
 import { Canvas, Image, SKRSContext2D } from '@napi-rs/canvas';
+import { PackageMetadata } from '../../../nx-dev/models-package/src/lib/package.models';
 import { ensureDir, readFile, readJSONSync, writeFileSync } from 'fs-extra';
 import { resolve } from 'path';
 
-const mapJson = readJSONSync('./docs/map.json', 'utf8');
+const mapJson = readJSONSync('./docs/map.json', 'utf8').content;
 
 const documents: any[] = [
   ...mapJson.find((x) => x.id === 'nx-documentation')?.['itemList'],
-  ...mapJson.find((x) => x.id === 'additional-api-references')?.['itemList'],
 ].filter(Boolean);
 
-const packages: {
-  name: string;
-  packageName: string;
-  path: string;
-  schemas: { executors: string[]; generators: string[] };
-}[] = readJSONSync('./docs/packages.json');
+const packages: PackageMetadata[] = readJSONSync(
+  resolve(__dirname, '../../../', `./docs/generated/packages-metadata.json`)
+);
 const targetFolder: string = resolve(
   __dirname,
   '../../../',
@@ -23,32 +20,44 @@ const targetFolder: string = resolve(
 
 const data: { title: string; content: string; filename: string }[] = [];
 documents.map((category) => {
+  data.push({
+    title: category.name,
+    content: category.description,
+    filename: [category.id].join('-'),
+  });
   category.itemList.map((item) =>
     data.push({
-      title: category.name,
-      content: item.name,
+      title: item.name,
+      content: category.name,
       filename: [category.id, item.id].join('-'),
     })
   );
 });
 packages.map((pkg) => {
   data.push({
-    title: 'Package details',
-    content: pkg.packageName,
+    title: pkg.packageName,
+    content: 'Package details',
     filename: ['packages', pkg.name].join('-'),
   });
-  pkg.schemas.executors.map((schema) => {
+  pkg.documents.map((document) => {
     data.push({
-      title: 'Executor details',
-      content: `${pkg.packageName}:${schema}`,
-      filename: ['packages', pkg.name, 'executors', schema].join('-'),
+      title: document.name,
+      content: pkg.packageName,
+      filename: ['packages', pkg.name, 'documents', document.id].join('-'),
     });
   });
-  pkg.schemas.generators.map((schema) => {
+  pkg.executors.map((executor) => {
     data.push({
-      title: 'Generator details',
-      content: `${pkg.packageName}:${schema}`,
-      filename: ['packages', pkg.name, 'generators', schema].join('-'),
+      title: executor.name,
+      content: pkg.packageName,
+      filename: ['packages', pkg.name, 'executors', executor.name].join('-'),
+    });
+  });
+  pkg.generators.map((generator) => {
+    data.push({
+      title: generator.name,
+      content: pkg.packageName,
+      filename: ['packages', pkg.name, 'generators', generator.name].join('-'),
     });
   });
 });
@@ -74,23 +83,23 @@ function createOpenGraphImage(
     const context = canvas.getContext('2d');
     context.drawImage(image, 0, 0, 1200, 630);
 
-    context.font = 'bold 60px sans-serif';
+    context.font = 'bold 50px system-ui';
     context.textAlign = 'center';
     context.textBaseline = 'top';
-    context.fillStyle = '#fff';
+    context.fillStyle = '#0F172A';
     context.fillText(title.toUpperCase(), 600, 220);
 
-    context.font = 'bold 42px sans-serif';
+    context.font = 'normal 32px system-ui';
     context.textAlign = 'center';
     context.textBaseline = 'top';
-    context.fillStyle = '#fff';
+    context.fillStyle = '#334155';
 
     const lines = splitLines(context, content, 1100);
     lines.forEach((line, index) => {
       context.fillText(line, 600, 310 + index * 55);
     });
 
-    console.log('Generating: ' + resolve(targetFolder + `/${filename}.jpg`));
+    console.log('Generating: ', `${filename}.jpg`);
 
     return writeFileSync(
       resolve(targetFolder + `/${filename}.jpg`),
@@ -127,6 +136,10 @@ function splitLines(
   return lines;
 }
 
+console.log(
+  'Generated images will be on this path:\n',
+  resolve(targetFolder, '\n\n')
+);
 ensureDir(targetFolder).then(() =>
   data.map((item) =>
     createOpenGraphImage(

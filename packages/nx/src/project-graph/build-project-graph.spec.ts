@@ -1,27 +1,24 @@
-import { vol, fs } from 'memfs';
+import { TempFs } from '../utils/testing/temp-fs';
+const tempFs = new TempFs('explicit-package-json');
 
-jest.mock('fs', () => require('memfs').fs);
-jest.mock('nx/src/utils/workspace-root', () => ({
-  workspaceRoot: '/root',
-}));
 import { buildProjectGraph } from './build-project-graph';
+import * as fastGlob from 'fast-glob';
 import { defaultFileHasher } from '../hasher/file-hasher';
-import { WorkspaceJsonConfiguration } from '../config/workspace-json-project-json';
 import { NxJsonConfiguration } from '../config/nx-json';
 import { stripIndents } from '../utils/strip-indents';
 import { DependencyType } from '../config/project-graph';
 
 describe('project graph', () => {
   let packageJson: any;
-  let workspaceJson: WorkspaceJsonConfiguration;
+  let packageLockJson: any;
   let nxJson: NxJsonConfiguration;
   let tsConfigJson: any;
   let filesJson: any;
 
-  beforeEach(() => {
-    defaultFileHasher.ensureInitialized();
+  beforeEach(async () => {
     packageJson = {
       name: '@nrwl/workspace-src',
+      version: '0.0.0',
       dependencies: {
         express: '4.0.0',
         'happy-nrwl': '1.0.0',
@@ -30,64 +27,111 @@ describe('project graph', () => {
         '@nrwl/workspace': '*',
       },
     };
-    workspaceJson = {
-      version: 2,
-      projects: {
-        demo: {
-          root: 'apps/demo/',
-          sourceRoot: 'apps/demo/src',
-          projectType: 'application',
-          implicitDependencies: ['api'],
-          targets: {},
+    packageLockJson = {
+      name: '@nrwl/workspace-src',
+      version: '0.0.0',
+      lockfileVersion: 2,
+      requires: true,
+      packages: {
+        '': packageJson,
+        'node_modules/@nrwl/workspace': {
+          version: '15.0.0',
+          resolved:
+            'https://registry.npmjs.org/@nrwl/workspace/-/@nrwl/workspace-15.0.0.tgz',
+          integrity: 'sha512-12345678==',
+          dev: true,
         },
-        'demo-e2e': {
-          root: 'apps/demo-e2e/',
-          sourceRoot: 'apps/demo-e2e/src',
-          projectType: 'application',
-          targets: {},
-        },
-        ui: {
-          root: 'libs/ui/',
-          sourceRoot: 'libs/ui/src',
-          projectType: 'library',
-          targets: {},
-        },
-        'shared-util': {
-          root: 'libs/shared/util/',
-          sourceRoot: 'libs/shared/util/src',
-          projectType: 'library',
-          targets: {},
-        },
-        'shared-util-data': {
-          root: 'libs/shared/util/data',
-          sourceRoot: 'libs/shared/util/data/src',
-          projectType: 'library',
-          targets: {},
-        },
-        'lazy-lib': {
-          root: 'libs/lazy-lib',
-          sourceRoot: 'libs/lazy-lib',
-          projectType: 'library',
-          targets: {},
-        },
-        api: {
-          root: 'apps/api/',
-          sourceRoot: 'apps/api/src',
-          projectType: 'application',
-          targets: {},
-        },
-      },
-    };
-    nxJson = {
-      npmScope: 'nrwl',
-      implicitDependencies: {
-        'package.json': {
-          scripts: {
-            deploy: '*',
+        'node_modules/express': {
+          version: '4.0.0',
+          resolved: 'https://registry.npmjs.org/express/-/express-4.0.0.tgz',
+          integrity: 'sha512-12345678==',
+          engines: {
+            node: '>=4.2.0',
           },
         },
+        'node_modules/happy-nrwl': {
+          version: '4.0.0',
+          resolved:
+            'https://registry.npmjs.org/happy-nrwl/-/happy-nrwl-1.0.0.tgz',
+          integrity: 'sha512-12345678==',
+        },
+      },
+      dependencies: {
+        '@nrwl/workspace': {
+          version: '15.0.0',
+          resolved:
+            'https://registry.npmjs.org/@nrwl/workspace/-/@nrwl/workspace-15.0.0.tgz',
+          integrity: 'sha512-12345678==',
+          dev: true,
+        },
+        express: {
+          version: '4.0.0',
+          resolved: 'https://registry.npmjs.org/express/-/express-4.0.0.tgz',
+          integrity: 'sha512-12345678==',
+        },
+        'happy-nrwl': {
+          version: '1.0.0',
+          resolved:
+            'https://registry.npmjs.org/happy-nrwl/-/happy-nrwl-1.0.0.tgz',
+          integrity: 'sha512-12345678==',
+        },
       },
     };
+
+    const demoProjectJson = {
+      root: 'apps/demo',
+      sourceRoot: 'apps/demo/src',
+      projectType: 'application',
+      implicitDependencies: ['api'],
+      targets: {},
+    };
+
+    const demoE2eProjectJson = {
+      root: 'apps/demo-e2e',
+      sourceRoot: 'apps/demo-e2e/src',
+      projectType: 'application',
+      targets: {},
+    };
+
+    const uiProjectJson = {
+      root: 'libs/ui',
+      sourceRoot: 'libs/ui/src',
+      projectType: 'library',
+      targets: {},
+    };
+
+    const sharedUtilProjectJson = {
+      name: 'shared-util',
+      root: 'libs/shared/util',
+      sourceRoot: 'libs/shared/util/src',
+      projectType: 'library',
+      targets: {},
+    };
+
+    const sharedUtilDataProjectJson = {
+      name: 'shared-util-data',
+      root: 'libs/shared/util/data',
+      sourceRoot: 'libs/shared/util/data/src',
+      projectType: 'library',
+      targets: {},
+    };
+
+    const lazyLibProjectJson = {
+      root: 'libs/lazy-lib',
+      sourceRoot: 'libs/lazy-lib',
+      projectType: 'library',
+      targets: {},
+    };
+
+    const apiProjectJson = {
+      root: 'apps/api',
+      sourceRoot: 'apps/api/src',
+      projectType: 'application',
+      targets: {},
+    };
+
+    nxJson = {};
+
     tsConfigJson = {
       compilerOptions: {
         baseUrl: '.',
@@ -99,6 +143,7 @@ describe('project graph', () => {
         },
       },
     };
+
     filesJson = {
       './apps/api/src/index.ts': stripIndents`
         require('express');
@@ -125,24 +170,35 @@ describe('project graph', () => {
         export const LAZY = 'lazy lib';
       `,
       './package.json': JSON.stringify(packageJson),
+      './package-lock.json': JSON.stringify(packageLockJson),
       './nx.json': JSON.stringify(nxJson),
-      './workspace.json': JSON.stringify(workspaceJson),
       './tsconfig.base.json': JSON.stringify(tsConfigJson),
+      './apps/demo/project.json': JSON.stringify(demoProjectJson),
+      './apps/demo-e2e/project.json': JSON.stringify(demoE2eProjectJson),
+      './libs/ui/project.json': JSON.stringify(uiProjectJson),
+      './libs/shared/util/project.json': JSON.stringify(sharedUtilProjectJson),
+      './libs/shared/util/data/project.json': JSON.stringify(
+        sharedUtilDataProjectJson
+      ),
+      './libs/lazy-lib/project.json': JSON.stringify(lazyLibProjectJson),
+      './apps/api/project.json': JSON.stringify(apiProjectJson),
     };
-    vol.reset();
-    vol.fromJSON(filesJson, '/root');
-  });
 
-  it('should throw an appropriate error for an invalid json config', async () => {
-    vol.appendFileSync('/root/tsconfig.base.json', 'invalid');
-    try {
-      await buildProjectGraph();
-      fail('Invalid tsconfigs should cause project graph to throw error');
-    } catch (e) {
-      expect(e.message).toMatchInlineSnapshot(
-        `"InvalidSymbol in /root/tsconfig.base.json at position 247"`
-      );
-    }
+    tempFs.reset();
+    await tempFs.createFiles(filesJson);
+    await defaultFileHasher.init();
+
+    const globResults = [
+      demoProjectJson,
+      demoE2eProjectJson,
+      uiProjectJson,
+      sharedUtilProjectJson,
+      sharedUtilDataProjectJson,
+      lazyLibProjectJson,
+      apiProjectJson,
+    ].map((r) => `${r.root}/project.json`);
+
+    jest.spyOn(fastGlob, 'sync').mockImplementation(() => globResults);
   });
 
   it('should create nodes and dependencies with workspace projects', async () => {
@@ -176,7 +232,6 @@ describe('project graph', () => {
     expect(graph.dependencies).toEqual({
       api: [{ source: 'api', target: 'npm:express', type: 'static' }],
       demo: [
-        { source: 'demo', target: 'api', type: 'implicit' },
         {
           source: 'demo',
           target: 'ui',
@@ -186,8 +241,9 @@ describe('project graph', () => {
         {
           source: 'demo',
           target: 'lazy-lib',
-          type: 'static',
+          type: 'dynamic',
         },
+        { source: 'demo', target: 'api', type: 'implicit' },
       ],
       'demo-e2e': [],
       'lazy-lib': [],
@@ -200,29 +256,15 @@ describe('project graph', () => {
         {
           source: 'ui',
           target: 'lazy-lib',
-          type: 'static',
+          type: 'dynamic',
         },
       ],
     });
   });
 
-  it('should update the graph if a project got renamed', async () => {
-    let graph = await buildProjectGraph();
-    expect(graph.nodes).toMatchObject({
-      demo: { name: 'demo', type: 'app' },
-    });
-    workspaceJson.projects.renamed = workspaceJson.projects.demo;
-    fs.writeFileSync('/root/workspace.json', JSON.stringify(workspaceJson));
-
-    graph = await buildProjectGraph();
-    expect(graph.nodes).toMatchObject({
-      renamed: { name: 'renamed', type: 'app' },
-    });
-  });
-
   it('should handle circular dependencies', async () => {
-    fs.writeFileSync(
-      '/root/libs/shared/util/src/index.ts',
+    tempFs.writeFile(
+      'libs/shared/util/src/index.ts',
       `import * as ui from '@nrwl/ui';`
     );
 
@@ -242,7 +284,7 @@ describe('project graph', () => {
         target: 'shared-util',
       },
       {
-        type: DependencyType.static,
+        type: DependencyType.dynamic,
         source: 'ui',
         target: 'lazy-lib',
       },

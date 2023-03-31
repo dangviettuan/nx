@@ -20,6 +20,8 @@ import * as log from 'ng-packagr/lib/utils/log';
 import { dirname, extname, join } from 'path';
 import * as postcssPresetEnv from 'postcss-preset-env';
 import * as postcssUrl from 'postcss-url';
+import { pathToFileURL } from 'url';
+import { getInstalledAngularVersionInfo } from '../../../utilities/angular-version-utils';
 import {
   getTailwindPostCssPlugins,
   getTailwindSetup,
@@ -62,7 +64,7 @@ export class StylesheetProcessor {
     // We change the default query to browsers that Angular support.
     // https://angular.io/guide/browser-support
     (browserslist.defaults as string[]) = [
-      'last 1 Chrome version',
+      'last 2 Chrome version',
       'last 1 Firefox version',
       'last 2 Edge major versions',
       'last 2 Safari major versions',
@@ -242,13 +244,24 @@ export class StylesheetProcessor {
     switch (ext) {
       case '.sass':
       case '.scss': {
+        const angularVersion = getInstalledAngularVersionInfo();
+        if (angularVersion && angularVersion.major < 15) {
+          return (await import('sass'))
+            .renderSync({
+              file: filePath,
+              data: css,
+              indentedSyntax: '.sass' === ext,
+              importer: customSassImporter,
+              includePaths: this.styleIncludePaths,
+            })
+            .css.toString();
+        }
+
         return (await import('sass'))
-          .renderSync({
-            file: filePath,
-            data: css,
-            indentedSyntax: '.sass' === ext,
-            importer: customSassImporter,
-            includePaths: this.styleIncludePaths,
+          .compileString(css, {
+            url: pathToFileURL(filePath),
+            syntax: '.sass' === ext ? 'indented' : 'scss',
+            loadPaths: this.styleIncludePaths,
           })
           .css.toString();
       }
@@ -263,27 +276,6 @@ export class StylesheetProcessor {
         });
 
         return content;
-      }
-      case '.styl':
-      case '.stylus': {
-        const stylus = await import('stylus');
-
-        return (
-          stylus(css)
-            // add paths for resolve
-            .set('paths', [
-              this.basePath,
-              '.',
-              ...this.styleIncludePaths,
-              'node_modules',
-            ])
-            // add support for resolving plugins from node_modules
-            .set('filename', filePath)
-            // turn on url resolver in stylus, same as flag --resolve-url
-            .set('resolve url', true)
-            .define('url', stylus.resolver(undefined))
-            .render()
-        );
       }
       case '.css':
       default:
@@ -321,7 +313,7 @@ function transformSupportedBrowsersToTargets(
     if (browserName === 'ie') {
       transformed.push('edge12');
     } else if (esBuildSupportedBrowsers.has(browserName)) {
-      if (browserName === 'safari' && version === 'TP') {
+      if (browserName === 'safari' && version === 'tp') {
         // esbuild only supports numeric versions so `TP` is converted to a high number (999) since
         // a Technology Preview (TP) of Safari is assumed to support all currently known features.
         version = '999';
@@ -345,7 +337,7 @@ function customSassImporter(
   }
 
   return {
-    file: url.substring(1),
+    file: url.slice(1),
     prev,
   };
 }

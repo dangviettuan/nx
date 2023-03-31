@@ -8,7 +8,7 @@ import {
   calculateProjectDependencies,
   checkDependentProjectsHaveBeenBuilt,
   createTmpTsConfig,
-} from '@nrwl/workspace/src/utilities/buildable-libs-utils';
+} from '@nrwl/js/src/utils/buildable-libs-utils';
 import type { DelegateBuildExecutorSchema } from './schema';
 
 export async function* delegateBuildExecutor(
@@ -42,7 +42,7 @@ export async function* delegateBuildExecutor(
   }
 
   const { buildTarget, ...targetOptions } = options;
-  const delegateTarget = parseTargetString(buildTarget);
+  const delegateTarget = parseTargetString(buildTarget, context.projectGraph);
 
   yield* await runExecutor(delegateTarget, targetOptions, context);
 }

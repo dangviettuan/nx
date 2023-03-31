@@ -1,5 +1,5 @@
 import { addProjectConfiguration, Tree } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 
 import update from './change-main-to-class-name-14-0-2';
 
@@ -7,7 +7,7 @@ describe('Change from main tag to className tag', () => {
   let tree: Tree;
 
   beforeEach(async () => {
-    tree = createTreeWithEmptyV1Workspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
     addProjectConfiguration(tree, 'products', {
       root: 'apps/products',
       sourceRoot: 'apps/products/src',
@@ -30,7 +30,7 @@ describe('Change from main tag to className tag', () => {
     await update(tree);
 
     expect(tree.read('apps/products/src/main.tsx', 'utf-8')).toEqual(
-      `AppRegistry.registerComponent('Products', () => App);`
+      `AppRegistry.registerComponent('Products', () => App);\n`
     );
   });
 

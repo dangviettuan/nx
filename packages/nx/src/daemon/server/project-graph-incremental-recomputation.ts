@@ -1,29 +1,31 @@
 import { performance } from 'perf_hooks';
-import { readAllWorkspaceConfiguration } from '../../config/configuration';
+import { FileData, ProjectFileMap } from '../../config/project-graph';
 import { defaultFileHasher } from '../../hasher/file-hasher';
-import { serverLogger } from './logger';
+import { HashingImpl } from '../../hasher/hashing-impl';
 import { buildProjectGraphUsingProjectFileMap } from '../../project-graph/build-project-graph';
+import {
+  createProjectFileMap,
+  updateProjectFileMap,
+} from '../../project-graph/file-map-utils';
 import {
   nxDepsPath,
   ProjectGraphCache,
   readCache,
 } from '../../project-graph/nx-deps-cache';
 import { fileExists } from '../../utils/fileutils';
-import { HashingImpl } from '../../hasher/hashing-impl';
-import {
-  createProjectFileMap,
-  updateProjectFileMap,
-} from '../../project-graph/file-map-utils';
-import { FileData, ProjectFileMap } from '../../config/project-graph';
+import { notifyFileWatcherSockets } from './file-watching/file-watcher-sockets';
+import { serverLogger } from './logger';
+import { Workspaces } from '../../config/workspaces';
+import { workspaceRoot } from '../../utils/workspace-root';
 
 let cachedSerializedProjectGraphPromise: Promise<{
   error: Error | null;
   serializedProjectGraph: string | null;
 }>;
-let projectFileMapWithFiles:
+export let projectFileMapWithFiles:
   | { projectFileMap: ProjectFileMap; allWorkspaceFiles: FileData[] }
   | undefined;
-let currentProjectGraphCache: ProjectGraphCache | undefined;
+export let currentProjectGraphCache: ProjectGraphCache | undefined;
 
 const collectedUpdatedFiles = new Set<string>();
 const collectedDeletedFiles = new Set<string>();
@@ -58,10 +60,11 @@ export async function getCachedSerializedProjectGraphPromise() {
 }
 
 export function addUpdatedAndDeletedFiles(
+  createdFiles: string[],
   updatedFiles: string[],
   deletedFiles: string[]
 ) {
-  for (let f of updatedFiles) {
+  for (let f of [...createdFiles, ...updatedFiles]) {
     collectedDeletedFiles.delete(f);
     collectedUpdatedFiles.add(f);
   }
@@ -71,20 +74,34 @@ export function addUpdatedAndDeletedFiles(
     collectedDeletedFiles.add(f);
   }
 
+  if (updatedFiles.length > 0 || deletedFiles.length > 0) {
+    notifyFileWatcherSockets(null, updatedFiles, deletedFiles);
+  }
+
+  if (createdFiles.length > 0) {
+    waitPeriod = 100; // reset it to process the graph faster
+  }
+
   if (!scheduledTimeoutId) {
-    scheduledTimeoutId = setTimeout(() => {
+    scheduledTimeoutId = setTimeout(async () => {
       scheduledTimeoutId = undefined;
       if (waitPeriod < 4000) {
         waitPeriod = waitPeriod * 2;
       }
+
       cachedSerializedProjectGraphPromise =
         processFilesAndCreateAndSerializeProjectGraph();
+      await cachedSerializedProjectGraphPromise;
+
+      if (createdFiles.length > 0) {
+        notifyFileWatcherSockets(createdFiles, null, null);
+      }
     }, waitPeriod);
   }
 }
 
-function computeWorkspaceConfigHash(workspaceJson: any) {
-  return new HashingImpl().hashArray([JSON.stringify(workspaceJson)]);
+function computeWorkspaceConfigHash(projectsConfigurations: any) {
+  return new HashingImpl().hashArray([JSON.stringify(projectsConfigurations)]);
 }
 
 async function processCollectedUpdatedAndDeletedFiles() {
@@ -101,8 +118,12 @@ async function processCollectedUpdatedAndDeletedFiles() {
       'hash-watched-changes-end'
     );
     defaultFileHasher.incrementalUpdate(updatedFiles, deletedFiles);
-    const workspaceJson = readAllWorkspaceConfiguration();
-    const workspaceConfigHash = computeWorkspaceConfigHash(workspaceJson);
+    const projectsConfiguration = new Workspaces(
+      workspaceRoot
+    ).readProjectsConfigurations();
+    const workspaceConfigHash = computeWorkspaceConfigHash(
+      projectsConfiguration
+    );
     serverLogger.requestLog(
       `Updated file-hasher based on watched changes, recomputing project graph...`
     );
@@ -110,26 +131,29 @@ async function processCollectedUpdatedAndDeletedFiles() {
     if (workspaceConfigHash !== storedWorkspaceConfigHash) {
       storedWorkspaceConfigHash = workspaceConfigHash;
       projectFileMapWithFiles = createProjectFileMap(
-        workspaceJson,
+        projectsConfiguration,
         defaultFileHasher.allFileData()
       );
     } else {
       projectFileMapWithFiles = projectFileMapWithFiles
         ? updateProjectFileMap(
-            workspaceJson,
+            projectsConfiguration,
             projectFileMapWithFiles.projectFileMap,
             projectFileMapWithFiles.allWorkspaceFiles,
             updatedFiles,
             deletedFiles
           )
-        : createProjectFileMap(workspaceJson, defaultFileHasher.allFileData());
+        : createProjectFileMap(
+            projectsConfiguration,
+            defaultFileHasher.allFileData()
+          );
     }
 
     collectedUpdatedFiles.clear();
     collectedDeletedFiles.clear();
   } catch (e) {
     // this is expected
-    // for instance, workspace.json can be incorrect or a file we are trying to has
+    // for instance, project.json can be incorrect or a file we are trying to has
     // has been deleted
     // we are resetting internal state to start from scratch next time a file changes
     // given the user the opportunity to fix the error
@@ -170,10 +194,12 @@ function copyFileMap(m: ProjectFileMap) {
 async function createAndSerializeProjectGraph() {
   try {
     performance.mark('create-project-graph-start');
-    const workspaceJson = readAllWorkspaceConfiguration();
+    const projectsConfigurations = new Workspaces(
+      workspaceRoot
+    ).readProjectsConfigurations();
     const { projectGraph, projectGraphCache } =
       await buildProjectGraphUsingProjectFileMap(
-        workspaceJson,
+        projectsConfigurations,
         copyFileMap(projectFileMapWithFiles.projectFileMap),
         copyFileData(projectFileMapWithFiles.allWorkspaceFiles),
         currentProjectGraphCache || readCache(),

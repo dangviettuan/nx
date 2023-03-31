@@ -2,6 +2,7 @@ import { execSync } from 'child_process';
 import { getPackageManagerCommand } from '../../utils/package-manager';
 import type { ExecutorContext } from '../../config/misc-interfaces';
 import * as path from 'path';
+import { env as appendLocalEnv } from 'npm-run-path';
 
 export interface RunScriptOptions {
   script: string;
@@ -18,8 +19,12 @@ export default async function (
       stdio: ['inherit', 'inherit', 'inherit'],
       cwd: path.join(
         context.root,
-        context.workspace.projects[context.projectName].root
+        context.projectsConfigurations.projects[context.projectName].root
       ),
+      env: {
+        ...process.env,
+        ...appendLocalEnv(),
+      },
     });
     return { success: true };
   } catch (e) {

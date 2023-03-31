@@ -1,5 +1,3 @@
-process.env.SELECTED_CLI = 'angular';
-
 import {
   cleanupProject,
   listFiles,
@@ -118,9 +116,7 @@ describe('Tailwind support', () => {
     updateFile(tailwindConfigPath, tailwindConfigUpdated);
   };
 
-  let previousPM = process.env.SELECTED_PM;
   beforeAll(() => {
-    process.env.SELECTED_PM = 'npm';
     project = newProject();
 
     // Create tailwind config in the workspace root
@@ -129,7 +125,6 @@ describe('Tailwind support', () => {
 
   afterAll(() => {
     cleanupProject();
-    process.env.SELECTED_PM = previousPM;
   });
 
   describe('Libraries', () => {
@@ -360,7 +355,7 @@ describe('Tailwind support', () => {
       expect(mainBundle).toMatch(expectedStylesRegex);
     };
 
-    it('should build correctly and only output the tailwind utilities used', () => {
+    it('should build correctly and only output the tailwind utilities used', async () => {
       const appWithTailwind = uniq('app-with-tailwind');
       runCLI(
         `generate @nrwl/angular:app ${appWithTailwind} --add-tailwind --no-interactive`

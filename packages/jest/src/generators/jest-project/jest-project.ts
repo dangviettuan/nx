@@ -3,9 +3,14 @@ import { checkForTestTarget } from './lib/check-for-test-target';
 import { createFiles } from './lib/create-files';
 import { updateTsConfig } from './lib/update-tsconfig';
 import { updateWorkspace } from './lib/update-workspace';
-import { updateJestConfig } from './lib/update-jestconfig';
-import { JestProjectSchema } from './schema';
-import { formatFiles, Tree, convertNxGenerator } from '@nrwl/devkit';
+import { JestProjectSchema, NormalizedJestProjectSchema } from './schema';
+import {
+  formatFiles,
+  Tree,
+  convertNxGenerator,
+  GeneratorCallback,
+  readProjectConfiguration,
+} from '@nrwl/devkit';
 
 const schemaDefaults = {
   setupFile: 'none',
@@ -13,14 +18,15 @@ const schemaDefaults = {
   supportTsx: false,
   skipSetupFile: false,
   skipSerializers: false,
+  testEnvironment: 'jsdom',
 } as const;
 
-function normalizeOptions(options: JestProjectSchema) {
+function normalizeOptions(
+  tree: Tree,
+  options: JestProjectSchema
+): NormalizedJestProjectSchema {
   if (!options.testEnvironment) {
     options.testEnvironment = 'jsdom';
-  }
-  if (options.testEnvironment === 'jsdom') {
-    options.testEnvironment = '';
   }
 
   if (!options.hasOwnProperty('supportTsx')) {
@@ -36,30 +42,32 @@ function normalizeOptions(options: JestProjectSchema) {
     options.skipSerializers = true;
   }
 
-  if (!options.skipSetupFile) {
-    return options;
+  if (options.skipSetupFile) {
+    // setupFile is always 'none'
+    options.setupFile = schemaDefaults.setupFile;
   }
 
-  // setupFile is always 'none'
-  options.setupFile = schemaDefaults.setupFile;
+  const project = readProjectConfiguration(tree, options.project);
 
   return {
     ...schemaDefaults,
     ...options,
+    rootProject: project.root === '.' || project.root === '',
   };
 }
 
 export async function jestProjectGenerator(
   tree: Tree,
   schema: JestProjectSchema
-) {
-  const options = normalizeOptions(schema);
-  const installTask = init(tree, options);
+): Promise<GeneratorCallback> {
+  const options = normalizeOptions(tree, schema);
+  const installTask = await init(tree, options);
+
   checkForTestTarget(tree, options);
   createFiles(tree, options);
   updateTsConfig(tree, options);
   updateWorkspace(tree, options);
-  updateJestConfig(tree, options);
+
   if (!schema.skipFormat) {
     await formatFiles(tree);
   }

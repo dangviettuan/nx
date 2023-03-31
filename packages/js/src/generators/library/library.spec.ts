@@ -25,7 +25,9 @@ describe('lib', () => {
   };
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
+    tree.write('/apps/.gitignore', '');
+    tree.write('/libs/.gitignore', '');
   });
 
   describe('configs', () => {
@@ -51,10 +53,6 @@ describe('lib', () => {
       // unitTestRunner property is ignored.
       // It only works with our executors.
       expect(tree.exists('libs/my-lib/src/lib/my-lib.spec.ts')).toBeFalsy();
-      const workspaceJson = readJson(tree, '/workspace.json');
-      // Blocked on Craigory merging optional config PR
-      // expect(workspaceJson.projects['my-lib']).toBeUndefined();
-      // expect(tree.exists('libs/my-lib/project.json')).toBeFalsy();
     });
 
     it('should generate an empty ts lib using --config=project', async () => {
@@ -63,12 +61,8 @@ describe('lib', () => {
         name: 'my-lib',
         config: 'project',
       });
-      const workspaceJsonEntry = readJson(tree, 'workspace.json').projects[
-        'my-lib'
-      ];
       const projectConfig = readProjectConfiguration(tree, 'my-lib');
       expect(projectConfig.root).toEqual('libs/my-lib');
-      expect(workspaceJsonEntry).toEqual('libs/my-lib');
     });
 
     it('should generate an empty ts lib using --config=workspace', async () => {
@@ -77,12 +71,8 @@ describe('lib', () => {
         name: 'my-lib',
         config: 'workspace',
       });
-      const workspaceJsonEntry = readJson(tree, 'workspace.json').projects[
-        'my-lib'
-      ];
       const projectConfig = readProjectConfiguration(tree, 'my-lib');
       expect(projectConfig.root).toEqual('libs/my-lib');
-      expect(projectConfig).toMatchObject(workspaceJsonEntry);
     });
   });
 
@@ -222,19 +212,18 @@ describe('lib', () => {
         ).toBeTruthy();
         expect(tree.exists('libs/my-dir/my-lib/src/index.ts')).toBeTruthy();
         expect(tree.exists(`libs/my-dir/my-lib/.eslintrc.json`)).toBeTruthy();
-        expect(tree.exists(`libs/my-dir/my-lib/package.json`)).toBeFalsy();
+        expect(tree.exists(`libs/my-dir/my-lib/package.json`)).toBeTruthy();
       });
 
-      it('should update workspace.json', async () => {
+      it('should update project configuration', async () => {
         await libraryGenerator(tree, {
           ...defaultOptions,
           name: 'myLib',
           directory: 'myDir',
           config: 'workspace',
         });
-        const workspaceJson = readJson(tree, '/workspace.json');
 
-        expect(workspaceJson.projects['my-dir-my-lib'].root).toEqual(
+        expect(readProjectConfiguration(tree, 'my-dir-my-lib').root).toEqual(
           'libs/my-dir/my-lib'
         );
       });
@@ -588,14 +577,14 @@ describe('lib', () => {
         ).toBeTruthy();
       });
 
-      it('should update tsconfig.lib.json include with **/*.js glob', async () => {
+      it('should update tsconfig.lib.json include with src/**/*.js glob', async () => {
         await libraryGenerator(tree, {
           ...defaultOptions,
           name: 'myLib',
           js: true,
         });
         expect(readJson(tree, 'libs/my-lib/tsconfig.lib.json').include).toEqual(
-          ['**/*.ts', '**/*.js']
+          ['src/**/*.ts', 'src/**/*.js']
         );
       });
 
@@ -702,16 +691,11 @@ describe('lib', () => {
         export default {
           displayName: 'my-lib',
           preset: '../../jest.preset.js',
-          globals: {
-            'ts-jest': {
-              tsconfig: '<rootDir>/tsconfig.spec.json',
-            }
-          },
           transform: {
-            '^.+\\\\\\\\.[tj]s$': 'ts-jest'
+            '^.+\\\\\\\\.[tj]s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
           },
           moduleFileExtensions: ['ts', 'js', 'html'],
-          coverageDirectory: '../../coverage/libs/my-lib'
+          coverageDirectory: '../../coverage/libs/my-lib',
         };
         "
       `);
@@ -724,7 +708,7 @@ describe('lib', () => {
         ...defaultOptions,
         name: 'myLib',
         unitTestRunner: 'jest',
-        compiler: 'swc',
+        bundler: 'swc',
         js: true,
       });
 
@@ -743,7 +727,101 @@ describe('lib', () => {
       expect(readme).toContain('nx test my-lib');
     });
 
-    describe('--buildable', () => {
+    describe('--buildable deprecation - replace with other options', () => {
+      it('should NOT generate the build target if bundler is none', async () => {
+        await libraryGenerator(tree, {
+          ...defaultOptions,
+          name: 'myLib',
+          bundler: 'none',
+        });
+
+        const config = readProjectConfiguration(tree, 'my-lib');
+        expect(config.targets.build).not.toBeDefined();
+      });
+
+      it('should still generate the build target if bundler is undefined', async () => {
+        await libraryGenerator(tree, {
+          ...defaultOptions,
+          name: 'myLib',
+        });
+
+        const config = readProjectConfiguration(tree, 'my-lib');
+        expect(config.targets.build).toBeDefined();
+      });
+
+      it('should generate the build target', async () => {
+        await libraryGenerator(tree, {
+          ...defaultOptions,
+          name: 'myLib',
+          bundler: 'tsc',
+        });
+
+        const config = readProjectConfiguration(tree, 'my-lib');
+        expect(config.targets.build).toEqual({
+          executor: '@nrwl/js:tsc',
+          options: {
+            assets: ['libs/my-lib/*.md'],
+            main: 'libs/my-lib/src/index.ts',
+            outputPath: 'dist/libs/my-lib',
+            tsConfig: 'libs/my-lib/tsconfig.lib.json',
+          },
+          outputs: ['{options.outputPath}'],
+        });
+      });
+
+      it('should generate the build target for swc', async () => {
+        await libraryGenerator(tree, {
+          ...defaultOptions,
+          name: 'myLib',
+          bundler: 'swc',
+        });
+
+        const config = readProjectConfiguration(tree, 'my-lib');
+        expect(config.targets.build).toEqual({
+          executor: '@nrwl/js:swc',
+          options: {
+            assets: ['libs/my-lib/*.md'],
+            main: 'libs/my-lib/src/index.ts',
+            outputPath: 'dist/libs/my-lib',
+            tsConfig: 'libs/my-lib/tsconfig.lib.json',
+          },
+          outputs: ['{options.outputPath}'],
+        });
+      });
+
+      it('should generate swcrc for swc', async () => {
+        await libraryGenerator(tree, {
+          ...defaultOptions,
+          name: 'myLib',
+          bundler: 'swc',
+        });
+
+        expect(tree.exists('libs/my-lib/.swcrc')).toBeTruthy();
+      });
+
+      it('should setup jest project using swc', async () => {
+        await libraryGenerator(tree, {
+          ...defaultOptions,
+          name: 'myLib',
+          bundler: 'swc',
+        });
+
+        const jestConfig = tree.read('libs/my-lib/jest.config.ts').toString();
+        expect(jestConfig).toContain('@swc/jest');
+      });
+
+      it('should generate a package.json file', async () => {
+        await libraryGenerator(tree, {
+          ...defaultOptions,
+          name: 'myLib',
+          bundler: 'tsc',
+        });
+
+        expect(tree.exists('libs/my-lib/package.json')).toBeTruthy();
+      });
+    });
+
+    describe('--buildable -- make sure old schema still works - no breaking change', () => {
       it('should generate the build target', async () => {
         await libraryGenerator(tree, {
           ...defaultOptions,
@@ -794,7 +872,7 @@ describe('lib', () => {
           compiler: 'swc',
         });
 
-        expect(tree.exists('libs/my-lib/.lib.swcrc')).toBeTruthy();
+        expect(tree.exists('libs/my-lib/.swcrc')).toBeTruthy();
       });
 
       it('should setup jest project using swc', async () => {
@@ -821,6 +899,32 @@ describe('lib', () => {
       });
     });
 
+    describe('bundler=rollup - no compiler', () => {
+      it('should generate correct options for build', async () => {
+        await libraryGenerator(tree, {
+          ...defaultOptions,
+          name: 'myLib',
+          bundler: 'rollup',
+        });
+
+        const config = readProjectConfiguration(tree, 'my-lib');
+        expect(config.targets.build.options.project).toEqual(
+          `libs/my-lib/package.json`
+        );
+      });
+
+      it('should always set compiler to swc if bundler is rollup', async () => {
+        await libraryGenerator(tree, {
+          ...defaultOptions,
+          name: 'myLib',
+          bundler: 'rollup',
+        });
+
+        const config = readProjectConfiguration(tree, 'my-lib');
+        expect(config.targets.build.options.compiler).toEqual('swc');
+      });
+    });
+
     describe('--publishable', () => {
       it('should generate the build target', async () => {
         await libraryGenerator(tree, {
@@ -828,7 +932,7 @@ describe('lib', () => {
           name: 'myLib',
           publishable: true,
           importPath: '@proj/my-lib',
-          compiler: 'tsc',
+          bundler: 'tsc',
         });
 
         const config = readProjectConfiguration(tree, 'my-lib');
@@ -850,17 +954,17 @@ describe('lib', () => {
           name: 'myLib',
           publishable: true,
           importPath: '@proj/my-lib',
-          compiler: 'tsc',
+          bundler: 'tsc',
         });
 
         const config = readProjectConfiguration(tree, 'my-lib');
         expect(config.targets.publish).toEqual({
-          executor: '@nrwl/workspace:run-commands',
+          executor: 'nx:run-commands',
           options: {
             command:
               'node tools/scripts/publish.mjs my-lib {args.ver} {args.tag}',
           },
-          dependsOn: [{ projects: 'self', target: 'build' }],
+          dependsOn: ['build'],
         });
       });
 
@@ -870,7 +974,7 @@ describe('lib', () => {
           name: 'myLib',
           publishable: true,
           importPath: '@proj/my-lib',
-          compiler: 'tsc',
+          bundler: 'tsc',
         });
 
         expect(tree.exists('tools/scripts/publish.mjs')).toBeTruthy();
@@ -898,11 +1002,11 @@ describe('lib', () => {
         expect(tree.exists('libs/my-lib/.babelrc')).toBeFalsy();
       });
 
-      it('should not generate a .babelrc when compiler is swc (even if flag is set to true)', async () => {
+      it('should not generate a .babelrc when bundler is swc (even if flag is set to true)', async () => {
         await libraryGenerator(tree, {
           ...defaultOptions,
           name: 'myLib',
-          compiler: 'swc',
+          bundler: 'swc',
           includeBabelRc: true,
         });
 
@@ -928,7 +1032,7 @@ describe('lib', () => {
           Object {
             "presets": Array [
               Array [
-                "@nrwl/web/babel",
+                "@nrwl/js/babel",
                 Object {
                   "useBuiltIns": "usage",
                 },
@@ -938,38 +1042,6 @@ describe('lib', () => {
         `);
       });
 
-      it('should generate a .babelrc when flag is not set and there is a `@nrwl/web` package installed', async () => {
-        updateJson(tree, 'package.json', (json) => {
-          json.devDependencies = {
-            '@nrwl/web': '1.1.1',
-            '@nrwl/react': '1.1.1',
-            '@nrwl/next': '1.1.1',
-          };
-          return json;
-        });
-
-        await libraryGenerator(tree, {
-          ...defaultOptions,
-          name: 'myLib',
-          includeBabelRc: undefined,
-        });
-
-        expect(tree.exists('libs/my-lib/.babelrc')).toBeTruthy();
-
-        const babelRc = readJson(tree, 'libs/my-lib/.babelrc');
-        expect(babelRc).toMatchInlineSnapshot(`
-          Object {
-            "presets": Array [
-              Array [
-                "@nrwl/web/babel",
-                Object {
-                  "useBuiltIns": "usage",
-                },
-              ],
-            ],
-          }
-        `);
-      });
       it('should not generate a .babelrc when flag is not set and there is NOT a `@nrwl/web` package installed', async () => {
         updateJson(tree, 'package.json', (json) => {
           json.devDependencies = {
@@ -987,6 +1059,97 @@ describe('lib', () => {
 
         expect(tree.exists('libs/my-lib/.babelrc')).toBeFalsy();
       });
+    });
+  });
+
+  describe('--bundler=vite', () => {
+    it('should add build and test targets with vite and vitest', async () => {
+      await libraryGenerator(tree, {
+        ...defaultOptions,
+        name: 'myLib',
+        bundler: 'vite',
+        unitTestRunner: undefined,
+      });
+
+      const project = readProjectConfiguration(tree, 'my-lib');
+      expect(project.targets.build).toMatchObject({
+        executor: '@nrwl/vite:build',
+      });
+      expect(project.targets.test).toMatchObject({
+        executor: '@nrwl/vite:test',
+      });
+      expect(tree.exists('libs/my-lib/vite.config.ts')).toBeTruthy();
+    });
+
+    it.each`
+      unitTestRunner | executor
+      ${'none'}      | ${undefined}
+      ${'jest'}      | ${'@nrwl/jest:jest'}
+    `(
+      'should respect unitTestRunner if passed',
+      async ({ unitTestRunner, executor }) => {
+        await libraryGenerator(tree, {
+          ...defaultOptions,
+          name: 'myLib',
+          bundler: 'vite',
+          unitTestRunner,
+        });
+
+        const project = readProjectConfiguration(tree, 'my-lib');
+        expect(project.targets.test?.executor).toEqual(executor);
+      }
+    );
+  });
+
+  describe('--minimal', () => {
+    it('should generate a README.md when minimal is set to false', async () => {
+      await libraryGenerator(tree, {
+        ...defaultOptions,
+        name: 'myLib',
+        minimal: false,
+      });
+
+      expect(tree.exists('libs/my-lib/README.md')).toBeTruthy();
+    });
+
+    it('should not generate a README.md when minimal is set to true', async () => {
+      await libraryGenerator(tree, {
+        ...defaultOptions,
+        name: 'myLib',
+        minimal: true,
+      });
+
+      expect(tree.exists('libs/my-lib/README.md')).toBeFalsy();
+    });
+
+    it('should generate a README.md and add it to the build assets when buildable is true and minimal is false', async () => {
+      await libraryGenerator(tree, {
+        ...defaultOptions,
+        name: 'myLib',
+        bundler: 'tsc',
+        minimal: false,
+      });
+
+      expect(tree.exists('libs/my-lib/README.md')).toBeTruthy();
+
+      const project = readProjectConfiguration(tree, 'my-lib');
+      expect(project.targets.build.options.assets).toStrictEqual([
+        'libs/my-lib/*.md',
+      ]);
+    });
+
+    it('should not generate a README.md when both bundler and minimal are set', async () => {
+      await libraryGenerator(tree, {
+        ...defaultOptions,
+        name: 'myLib',
+        bundler: 'tsc',
+        minimal: true,
+      });
+
+      expect(tree.exists('libs/my-lib/README.md')).toBeFalsy();
+
+      const project = readProjectConfiguration(tree, 'my-lib');
+      expect(project.targets.build.options.assets).toEqual([]);
     });
   });
 });

@@ -1,75 +1,69 @@
-import { NormalizedSchema } from '../schema';
-import {
-  names,
-  offsetFromRoot,
-  Tree,
-  toJS,
-  generateFiles,
-  joinPathFragments,
-  updateJson,
-} from '@nrwl/devkit';
+import { names, offsetFromRoot, Tree, toJS, generateFiles } from '@nrwl/devkit';
+import { getRelativePathToRootTsConfig } from '@nrwl/js';
 import { join } from 'path';
-import { getRelativePathToRootTsConfig } from '@nrwl/workspace/src/utilities/typescript';
-
-function updateTsConfig(host: Tree, options: NormalizedSchema) {
-  updateJson(
-    host,
-    joinPathFragments(options.appProjectRoot, 'tsconfig.json'),
-    (json) => {
-      if (options.strict) {
-        json.compilerOptions = {
-          ...json.compilerOptions,
-          forceConsistentCasingInFileNames: true,
-          strict: true,
-          noImplicitOverride: true,
-          noPropertyAccessFromIndexSignature: true,
-          noImplicitReturns: true,
-          noFallthroughCasesInSwitch: true,
-        };
-      }
-
-      return json;
-    }
-  );
-}
+import { createTsConfig } from '../../../utils/create-ts-config';
+import { getInSourceVitestTestsTemplate } from '../../../utils/get-in-source-vitest-tests-template';
+import { NormalizedSchema } from '../schema';
+import { getAppTests } from './get-app-tests';
 
 export function createApplicationFiles(host: Tree, options: NormalizedSchema) {
   let styleSolutionSpecificAppFiles: string;
   if (options.styledModule && options.style !== 'styled-jsx') {
-    styleSolutionSpecificAppFiles = '../files/styled-module';
+    styleSolutionSpecificAppFiles = '../files/style-styled-module';
   } else if (options.style === 'styled-jsx') {
-    styleSolutionSpecificAppFiles = '../files/styled-jsx';
+    styleSolutionSpecificAppFiles = '../files/style-styled-jsx';
   } else if (options.style === 'none') {
-    styleSolutionSpecificAppFiles = '../files/none';
+    styleSolutionSpecificAppFiles = '../files/style-none';
   } else if (options.globalCss) {
-    styleSolutionSpecificAppFiles = '../files/global-css';
+    styleSolutionSpecificAppFiles = '../files/style-global-css';
   } else {
-    styleSolutionSpecificAppFiles = '../files/css-module';
+    styleSolutionSpecificAppFiles = '../files/style-css-module';
   }
 
+  const relativePathToRootTsConfig = getRelativePathToRootTsConfig(
+    host,
+    options.appProjectRoot
+  );
+  const appTests = getAppTests(options);
   const templateVariables = {
     ...names(options.name),
     ...options,
     tmpl: '',
     offsetFromRoot: offsetFromRoot(options.appProjectRoot),
-    rootTsConfigPath: getRelativePathToRootTsConfig(
-      host,
-      options.appProjectRoot
-    ),
+    appTests,
+    inSourceVitestTests: getInSourceVitestTestsTemplate(appTests),
   };
 
   generateFiles(
     host,
-    join(__dirname, '../files/common'),
+    join(
+      __dirname,
+      options.bundler === 'vite'
+        ? '../files/base-vite'
+        : '../files/base-webpack'
+    ),
     options.appProjectRoot,
     templateVariables
   );
 
-  if (options.unitTestRunner === 'none') {
+  if (
+    options.unitTestRunner === 'none' ||
+    (options.unitTestRunner === 'vitest' && options.inSourceTests == true)
+  ) {
     host.delete(
       `${options.appProjectRoot}/src/app/${options.fileName}.spec.tsx`
     );
   }
+
+  if (!options.minimal) {
+    generateFiles(
+      host,
+      join(__dirname, '../files/nx-welcome'),
+      options.appProjectRoot,
+      templateVariables
+    );
+  }
+
   generateFiles(
     host,
     join(__dirname, styleSolutionSpecificAppFiles),
@@ -81,5 +75,11 @@ export function createApplicationFiles(host: Tree, options: NormalizedSchema) {
     toJS(host);
   }
 
-  updateTsConfig(host, options);
+  createTsConfig(
+    host,
+    options.appProjectRoot,
+    'app',
+    options,
+    relativePathToRootTsConfig
+  );
 }

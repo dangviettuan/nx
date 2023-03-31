@@ -1,21 +1,21 @@
-import { PackageJson } from './package-json';
-import { ProjectGraph } from '../config/project-graph';
-import {
-  getProjectNameFromDirPath,
-  getSourceDirOfDependentProjects,
-  mergeNpmScriptsWithTargets,
-} from './project-graph-utils';
+let jsonFileOverrides: Record<string, any> = {};
 
 jest.mock('nx/src/utils/fileutils', () => ({
   ...(jest.requireActual('nx/src/utils/fileutils') as any),
   readJsonFile: (path) => {
+    if (path.endsWith('nx.json')) return {};
     if (!(path in jsonFileOverrides))
       throw new Error('Tried to read non-mocked json file: ' + path);
     return jsonFileOverrides[path];
   },
 }));
 
-let jsonFileOverrides: Record<string, any> = {};
+import { PackageJson } from './package-json';
+import { ProjectGraph } from '../config/project-graph';
+import {
+  getSourceDirOfDependentProjects,
+  mergeNpmScriptsWithTargets,
+} from './project-graph-utils';
 
 describe('project graph utils', () => {
   describe('getSourceDirOfDependentProjects', () => {
@@ -54,6 +54,9 @@ describe('project graph utils', () => {
           data: {},
         },
       },
+      externalNodes: {
+        'npm:chalk': {},
+      },
       dependencies: {
         'demo-app': [
           {
@@ -73,7 +76,7 @@ describe('project graph utils', () => {
           },
         ],
       },
-    };
+    } as any;
     it('should correctly gather the source root dirs of the dependent projects', () => {
       const [paths] = getSourceDirOfDependentProjects('demo-app', projGraph);
 
@@ -115,26 +118,6 @@ describe('project graph utils', () => {
         expect(warnings).toContain('implicit-lib');
       });
     });
-
-    it('should find the project given a file within its src root', () => {
-      expect(getProjectNameFromDirPath('apps/demo-app', projGraph)).toEqual(
-        'demo-app'
-      );
-
-      expect(getProjectNameFromDirPath('apps/demo-app/src', projGraph)).toEqual(
-        'demo-app'
-      );
-
-      expect(
-        getProjectNameFromDirPath('apps/demo-app/src/subdir/bla', projGraph)
-      ).toEqual('demo-app');
-    });
-
-    it('should throw an error if the project name has not been found', () => {
-      expect(() => {
-        getProjectNameFromDirPath('apps/demo-app-unknown');
-      }).toThrowError();
-    });
   });
 
   describe('mergeNpmScriptsWithTargets', () => {
@@ -164,7 +147,7 @@ describe('project graph utils', () => {
     it('should prefer project.json targets', () => {
       const projectJsonTargets = {
         build: {
-          executor: '@nrwl/workspace:run-commands',
+          executor: 'nx:run-commands',
           options: {
             command: 'echo 2',
           },
@@ -181,7 +164,7 @@ describe('project graph utils', () => {
     it('should provide targets from project.json and package.json', () => {
       const projectJsonTargets = {
         clean: {
-          executor: '@nrwl/workspace:run-commands',
+          executor: 'nx:run-commands',
           options: {
             command: 'echo 2',
           },
@@ -242,14 +225,45 @@ describe('project graph utils', () => {
 
       const result = mergeNpmScriptsWithTargets('', {
         build: {
-          executor: '@nrwl/workspace:run-commands',
+          executor: 'nx:run-commands',
           options: { command: 'echo hi' },
         },
       });
 
       expect(result).toEqual({
         build: {
-          executor: '@nrwl/workspace:run-commands',
+          executor: 'nx:run-commands',
+          options: { command: 'echo hi' },
+        },
+        test: {
+          executor: 'nx:run-script',
+          options: { script: 'test' },
+        },
+      });
+    });
+
+    it('should ignore scripts that are not in includedScripts', () => {
+      jsonFileOverrides['includedScriptsTest/package.json'] = {
+        name: 'included-scripts-test',
+        scripts: {
+          test: 'echo testing',
+          fail: 'exit 1',
+        },
+        nx: {
+          includedScripts: ['test'],
+        },
+      };
+
+      const result = mergeNpmScriptsWithTargets('includedScriptsTest', {
+        build: {
+          executor: 'nx:run-commands',
+          options: { command: 'echo hi' },
+        },
+      });
+
+      expect(result).toEqual({
+        build: {
+          executor: 'nx:run-commands',
           options: { command: 'echo hi' },
         },
         test: {

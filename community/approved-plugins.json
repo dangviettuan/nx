@@ -1,5 +1,30 @@
 [
   {
+    "name": "@ahryman40k/nx-vitepress",
+    "description": "Nx plugin add vitepress project to your workspace",
+    "url": "https://github.com/Ahryman40k/nx-vitepress/tree/main/packages/nx-vitepress"
+  },
+  {
+    "name": "@nightwatch/nx",
+    "description": "The NightwatchJS plugin allows your workspace to use the power of NightwatchJS for E2E and Component Testing on Desktop and Mobile",
+    "url": "https://github.com/nightwatchjs/nightwatch-plugin-nx/"
+  },
+  {
+    "name": "@nxkit/playwright",
+    "description": "The Playwright plugin allows your workspace to use the power of Playwright end-to-end testing",
+    "url": "https://github.com/nxkit/nxkit"
+  },
+  {
+    "name": "qwik-nx",
+    "description": "Get first class support for Qwik inside of Nx monorepos with Qwik optimized custom executors, generators and a vite plugin",
+    "url": "https://github.com/qwikifiers/qwik-nx"
+  },
+  {
+    "name": "@nxkit/style-dictionary",
+    "description": "Nx plugin to generate and build Style Dictionary projects inside your Nx workspace",
+    "url": "https://github.com/nxkit/nxkit"
+  },
+  {
     "name": "nx-plugins",
     "description": "Nx plugin integrations with ESBuild / Vite / Snowpack / Prisma, with derived ESBuild / Snowpack / ... plugins.",
     "url": "https://nx-plugins.netlify.app/"
@@ -85,11 +110,6 @@
     "url": "https://github.com/FabianGosebrink/nx-protractor-to-cypress"
   },
   {
-    "name": "@nx-tools/nx-docker",
-    "description": "Nx plugin to build docker images of your affected apps",
-    "url": "https://github.com/gperdomor/nx-tools/tree/main/packages/nx-docker"
-  },
-  {
     "name": "@angular-custom-builders/lite-serve",
     "description": "Nx plugin to run the e2e test on an existing dist folder",
     "url": "https://github.com/mauriziovitale/angular-plugins/tree/master/libs/lite-serve"
@@ -113,6 +133,16 @@
     "name": "@twittwer/compodoc",
     "description": "Nx Plugin to integrate the generation of documentation with Compodoc in the Nx workflow",
     "url": "https://github.com/twittwer/nx-tools/tree/master/libs/compodoc#readme"
+  },
+  {
+    "name": "@enio.ai/nx-install",
+    "description": "nx-install is a plugin for Nx workspaces to quickly setup custom install commands via npm.",
+    "url": "https://github.com/enio-ireland/enio/tree/develop/packages/nx-install#readme"
+  },
+  {
+    "name": "@enio.ai/typedoc",
+    "description": "typedoc is a plugin for Nx workspaces to quickly setup documentation automation on your projects using typedoc.",
+    "url": "https://github.com/enio-ireland/enio/tree/develop/packages/typedoc#readme"
   },
   {
     "name": "@nxext/svelte",
@@ -143,6 +173,11 @@
     "name": "@nx-go/nx-go",
     "description": "Nx plugin to use Go in a Nx workspace",
     "url": "https://github.com/nx-go/nx-go"
+  },
+  {
+    "name": "@nx-golang/gin",
+    "description": "Nx plugin to use Go-Gin in a Nx workspace",
+    "url": "https://github.com/nx-golang/nx-golang"
   },
   {
     "name": "@angular-architects/module-federation",
@@ -236,8 +271,33 @@
   },
   {
     "name": "@nx-extend/e2e-runner",
-    "description": "Nx plugin that can start your API before running Cypress",
+    "description": "Nx plugin that can start your API before running Cypress/Playwright",
     "url": "https://github.com/tripss/nx-extend/tree/master/packages/e2e-runner"
+  },
+  {
+    "name": "@nx-extend/vercel",
+    "description": "Nx plugin to deploy your apps to Vercel",
+    "url": "https://github.com/tripss/nx-extend/tree/master/packages/vercel"
+  },
+  {
+    "name": "@nx-extend/strapi",
+    "description": "Nx plugin for developing Strapi applications",
+    "url": "https://github.com/tripss/nx-extend/tree/master/packages/strapi"
+  },
+  {
+    "name": "@nx-extend/playwright",
+    "description": "Nx plugin to run playwright e2e tests in an Nx workspace",
+    "url": "https://github.com/tripss/nx-extend/tree/master/packages/playwright"
+  },
+  {
+    "name": "@nx-extend/terraform",
+    "description": "Nx plugin for deploying your resources with Terraform",
+    "url": "https://github.com/tripss/nx-extend/tree/master/packages/terraform"
+  },
+  {
+    "name": "@nx-extend/pulumi",
+    "description": "Nx plugin for deploying your resources with Pulumi",
+    "url": "https://github.com/tripss/nx-extend/tree/master/packages/pulumi"
   },
   {
     "name": "@nativescript/nx",
@@ -282,7 +342,7 @@
   {
     "name": "@diogovcs/graphql-mesh",
     "description": "Nx plugin to add GraphQL Mesh integration to Nx Workspace.",
-    "url": "https://github.com/DiogoVCS/nx-graphql-mesh"
+    "url": "https://github.com/DiogoVCS/nx-workspace-plugins"
   },
   {
     "name": "@computas/nx-yarn",
@@ -303,5 +363,55 @@
     "name": "@nxrocks/nx-micronaut",
     "description": "Nx plugin to generate, run, package, build (and more) Micronaut projects inside your Nx workspace",
     "url": "https://github.com/tinesoft/nxrocks/tree/master/packages/nx-micronaut"
+  },
+  {
+    "name": "@koliveira15/nx-sonarqube",
+    "description": "Nx plugin that analyses projects using SonarQube / SonarCloud.",
+    "url": "https://github.com/koliveira15/nx-sonarqube"
+  },
+  {
+    "name": "@mands/nx-playwright",
+    "description": "The Playwright plugin allows your workspace to use the power of Playwright end-to-end testing using a native runner.",
+    "url": "https://github.com/marksandspencer/nx-plugins/tree/main/packages/nx-playwright"
+  },
+  {
+    "name": "@diogovcs/stryker-mutator",
+    "description": "Nx plugin to add Stryker Mutator mutation tests to the Nx Workspace.",
+    "url": "https://github.com/DiogoVCS/nx-workspace-plugins"
+  },
+  {
+    "name": "@spaceribs/nx-web-ext",
+    "description": "Nx plugin that allows you to build, test and deploy web extensions.",
+    "url": "https://github.com/spaceribs/spaceribs/tree/main/packages/nx-web-ext"
+  },
+  {
+    "name": "@nx-tools/nx-container",
+    "description": "Nx plugin to build OCI containers with Docker, Podman or Kaniko.",
+    "url": "https://github.com/gperdomor/nx-tools/tree/main/packages/nx-container"
+  },
+  {
+    "name": "@nxrocks/nx-melos",
+    "description": "Nx plugin adding first class support for Melos in your Nx workspace",
+    "url": "https://github.com/tinesoft/nxrocks/tree/master/packages/nx-melos"
+  },
+  {
+    "name": "@monodon/rust",
+    "description": "Adds Cargo and Rust support",
+    "url": "https://github.com/cammisuli/monodon/tree/main/packages/rust"
+  },
+  {
+    "name": "nx-mesh",
+    "description": "GraphQL Mesh support for Nx",
+    "url": "https://github.com/domjtalbot/nx-mesh"
+  },
+  {
+    "name": "@nxazure/func",
+    "description": "Nx plugin to add Azure Functions support to Nx Workspace.",
+    "url": "https://github.com/AlexPshul/nxazure/tree/master/packages/func"
+  },
+  {
+    "name": "@rbnx/webdriverio",
+    "description": "A Nx plugin that adds the WebdriverIO testing framework to a NX workspace.",
+    "url": "https://github.com/Roozenboom/rbnx/tree/main/packages/webdriverio"
   }
 ]

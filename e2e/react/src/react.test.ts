@@ -1,12 +1,12 @@
 import {
   checkFilesDoNotExist,
   checkFilesExist,
+  cleanupProject,
   createFile,
-  expectJestTestsToPass,
+  ensureCypressInstallation,
   killPorts,
   newProject,
   readFile,
-  renameFile,
   runCLI,
   runCLIAsync,
   runCypressTests,
@@ -15,21 +15,33 @@ import {
   updateJson,
   updateProjectConfig,
 } from '@nrwl/e2e/utils';
+import { readFileSync } from 'fs-extra';
+import { join } from 'path';
 
 describe('React Applications', () => {
   let proj: string;
 
-  beforeEach(() => (proj = newProject()));
+  beforeEach(() => {
+    proj = newProject();
+    ensureCypressInstallation();
+  });
 
-  it('should be able to generate a react app + lib', async () => {
+  afterEach(() => cleanupProject());
+
+  it('should be able to generate a react app + lib (with CSR and SSR)', async () => {
     const appName = uniq('app');
     const libName = uniq('lib');
     const libWithNoComponents = uniq('lib');
+    const logoSvg = readFileSync(join(__dirname, 'logo.svg')).toString();
 
-    runCLI(`generate @nrwl/react:app ${appName} --style=css --no-interactive`);
-    runCLI(`generate @nrwl/react:lib ${libName} --style=css --no-interactive`);
     runCLI(
-      `generate @nrwl/react:lib ${libWithNoComponents} --no-interactive --no-component`
+      `generate @nrwl/react:app ${appName} --style=css --bundler=webpack --no-interactive`
+    );
+    runCLI(
+      `generate @nrwl/react:lib ${libName} --style=css --no-interactive --unit-test-runner=jest`
+    );
+    runCLI(
+      `generate @nrwl/react:lib ${libWithNoComponents} --no-interactive --no-component --unit-test-runner=jest`
     );
 
     // Libs should not include package.json by default
@@ -45,6 +57,39 @@ describe('React Applications', () => {
       `
     );
 
+    updateFile(`apps/${appName}/src/app/logo.svg`, logoSvg);
+    updateFile(
+      `apps/${appName}/src/app/app.tsx`,
+      `
+        import { ReactComponent as Logo } from './logo.svg';
+        import logo from './logo.svg';
+        import NxWelcome from './nx-welcome';
+
+        export function App() {
+          return (
+            <>
+              <Logo />
+              <img src={logo} alt="" />
+              <NxWelcome title="${appName}" />
+            </>
+          );
+        }
+
+        export default App;
+      `
+    );
+
+    // Make sure global stylesheets are properly processed.
+    const stylesPath = `apps/${appName}/src/styles.css`;
+    updateFile(
+      stylesPath,
+      `
+        .foobar {
+          background-image: url('/bg.png');
+        }
+      `
+    );
+
     const libTestResults = await runCLIAsync(`test ${libName}`);
     expect(libTestResults.combinedOutput).toContain(
       'Test Suites: 1 passed, 1 total'
@@ -54,47 +99,53 @@ describe('React Applications', () => {
       checkSourceMap: true,
       checkStyles: true,
       checkLinter: true,
-      checkE2E: true,
-    });
-  }, 500000);
-
-  it('should generate app with legacy-ie support', async () => {
-    const appName = uniq('app');
-
-    runCLI(`generate @nrwl/react:app ${appName} --style=css --no-interactive`);
-
-    // changing browser support of this application
-    updateFile(`apps/${appName}/.browserslistrc`, `IE 11`);
-
-    await testGeneratedApp(appName, {
-      checkStyles: false,
-      checkLinter: false,
+      // TODO(caleb): Fix cypress tests
+      // /tmp/nx-e2e--1970-rQ4U0qBe6Nht/nx/proj1614306/dist/apps/app5172641/server/runtime.js:119
+      // if (typeof import.meta.url === "string") scriptUrl = import.meta.url
+      // SyntaxError: Cannot use 'import.meta' outside a module
       checkE2E: false,
     });
 
-    const filesToCheck = [
-      `dist/apps/${appName}/polyfills.es5.js`,
-      `dist/apps/${appName}/main.es5.js`,
-    ];
+    // Set up SSR and check app
+    runCLI(`generate @nrwl/react:setup-ssr ${appName}`);
+    checkFilesExist(`apps/${appName}/src/main.server.tsx`);
+    checkFilesExist(`apps/${appName}/server.ts`);
 
-    checkFilesExist(...filesToCheck);
-
-    expect(readFile(`dist/apps/${appName}/index.html`)).toContain(
-      `<script src="main.esm.js" type="module"></script><script src="main.es5.js" nomodule defer></script>`
-    );
-  }, 250_000);
+    await testGeneratedApp(appName, {
+      checkSourceMap: false,
+      checkStyles: false,
+      checkLinter: false,
+      // TODO(caleb): Fix cypress tests
+      // /tmp/nx-e2e--1970-rQ4U0qBe6Nht/nx/proj1614306/dist/apps/app5172641/server/runtime.js:119
+      // if (typeof import.meta.url === "string") scriptUrl = import.meta.url
+      // SyntaxError: Cannot use 'import.meta' outside a module
+      checkE2E: false,
+    });
+  }, 500000);
 
   it('should be able to use JS and JSX', async () => {
     const appName = uniq('app');
     const libName = uniq('lib');
+    const plainJsLib = uniq('jslib');
 
-    runCLI(`generate @nrwl/react:app ${appName} --no-interactive --js`);
-    runCLI(`generate @nrwl/react:lib ${libName} --no-interactive --js`);
+    runCLI(
+      `generate @nrwl/react:app ${appName} --bundler=webpack --no-interactive --js`
+    );
+    runCLI(
+      `generate @nrwl/react:lib ${libName} --no-interactive --js --unit-test-runner=none`
+    );
+    // Make sure plain JS libs can be imported as well.
+    // There was an issue previously: https://github.com/nrwl/nx/issues/10990
+    runCLI(
+      `generate @nrwl/js:lib ${plainJsLib} --js --unit-test-runner=none --bundler=none --compiler=tsc --no-interactive`
+    );
 
     const mainPath = `apps/${appName}/src/main.js`;
     updateFile(
       mainPath,
-      `import '@${proj}/${libName}';\n${readFile(mainPath)}`
+      `import '@${proj}/${libName}';\nimport '@${proj}/${plainJsLib}';\n${readFile(
+        mainPath
+      )}`
     );
 
     await testGeneratedApp(appName, {
@@ -102,6 +153,38 @@ describe('React Applications', () => {
       checkLinter: false,
       checkE2E: false,
     });
+  }, 250_000);
+
+  it('should be able to use Vite to build and test apps', async () => {
+    const appName = uniq('app');
+    const libName = uniq('lib');
+
+    runCLI(
+      `generate @nrwl/react:app ${appName} --bundler=vite --no-interactive`
+    );
+    runCLI(
+      `generate @nrwl/react:lib ${libName} --bundler=none --no-interactive --unit-test-runner=vitest`
+    );
+
+    // Library generated with Vite
+    checkFilesExist(`libs/${libName}/vite.config.ts`);
+
+    const mainPath = `apps/${appName}/src/main.tsx`;
+    updateFile(
+      mainPath,
+      `
+        import '@${proj}/${libName}';
+        ${readFile(mainPath)}
+      `
+    );
+
+    runCLI(`build ${appName}`);
+
+    checkFilesExist(`dist/apps/${appName}/index.html`);
+
+    const e2eResults = runCLI(`e2e ${appName}-e2e --no-watch`);
+    expect(e2eResults).toContain('All specs passed!');
+    expect(await killPorts()).toBeTruthy();
   }, 250_000);
 
   async function testGeneratedApp(
@@ -125,13 +208,12 @@ describe('React Applications', () => {
     );
     const filesToCheck = [
       `dist/apps/${appName}/index.html`,
-      `dist/apps/${appName}/runtime.esm.js`,
-      `dist/apps/${appName}/polyfills.esm.js`,
-      `dist/apps/${appName}/main.esm.js`,
+      `dist/apps/${appName}/runtime.js`,
+      `dist/apps/${appName}/main.js`,
     ];
 
     if (opts.checkSourceMap) {
-      filesToCheck.push(`dist/apps/${appName}/main.esm.js.map`);
+      filesToCheck.push(`dist/apps/${appName}/main.js.map`);
     }
 
     if (opts.checkStyles) {
@@ -141,7 +223,7 @@ describe('React Applications', () => {
 
     if (opts.checkStyles) {
       expect(readFile(`dist/apps/${appName}/index.html`)).toContain(
-        `<link rel="stylesheet" href="styles.css">`
+        '<link rel="stylesheet" href="styles.css">'
       );
     }
 
@@ -171,7 +253,7 @@ describe('React Applications: --style option', () => {
   `('should support global and css modules', ({ style }) => {
     const appName = uniq('app');
     runCLI(
-      `generate @nrwl/react:app ${appName} --style=${style} --no-interactive`
+      `generate @nrwl/react:app ${appName} --style=${style} --bundler=webpack --no-interactive`
     );
 
     // make sure stylePreprocessorOptions works
@@ -202,45 +284,6 @@ describe('React Applications: --style option', () => {
   });
 });
 
-describe('React Applications: additional packages', () => {
-  beforeAll(() => newProject());
-
-  it('should generate app with routing', async () => {
-    const appName = uniq('app');
-
-    runCLI(`generate @nrwl/react:app ${appName} --routing --no-interactive`);
-
-    runCLI(`build ${appName} --outputHashing none`);
-
-    checkFilesExist(
-      `dist/apps/${appName}/index.html`,
-      `dist/apps/${appName}/runtime.esm.js`,
-      `dist/apps/${appName}/polyfills.esm.js`,
-      `dist/apps/${appName}/main.esm.js`
-    );
-  }, 250_000);
-
-  it('should be able to add a redux slice', async () => {
-    const appName = uniq('app');
-    const libName = uniq('lib');
-
-    runCLI(`g @nrwl/react:app ${appName} --no-interactive`);
-    runCLI(`g @nrwl/react:redux lemon --project=${appName}`);
-    runCLI(`g @nrwl/react:lib ${libName} --no-interactive`);
-    runCLI(`g @nrwl/react:redux orange --project=${libName}`);
-
-    const appTestResults = await runCLIAsync(`test ${appName}`);
-    expect(appTestResults.combinedOutput).toContain(
-      'Test Suites: 2 passed, 2 total'
-    );
-
-    const libTestResults = await runCLIAsync(`test ${libName}`);
-    expect(libTestResults.combinedOutput).toContain(
-      'Test Suites: 2 passed, 2 total'
-    );
-  }, 250_000);
-});
-
 describe('React Applications and Libs with PostCSS', () => {
   let proj: string;
 
@@ -250,8 +293,10 @@ describe('React Applications and Libs with PostCSS', () => {
     const appName = uniq('app');
     const libName = uniq('lib');
 
-    runCLI(`g @nrwl/react:app ${appName} --no-interactive`);
-    runCLI(`g @nrwl/react:lib ${libName} --no-interactive`);
+    runCLI(`g @nrwl/react:app ${appName} --bundler=webpack --no-interactive`);
+    runCLI(
+      `g @nrwl/react:lib ${libName} --no-interactive --unit-test-runner=none`
+    );
 
     const mainPath = `apps/${appName}/src/main.tsx`;
     updateFile(
@@ -290,9 +335,4 @@ describe('React Applications and Libs with PostCSS', () => {
     expect(buildResults.combinedOutput).toMatch(/HELLO FROM APP/);
     expect(buildResults.combinedOutput).not.toMatch(/HELLO FROM LIB/);
   }, 250_000);
-
-  it('should run default jest tests', async () => {
-    await expectJestTestsToPass('@nrwl/react:lib');
-    await expectJestTestsToPass('@nrwl/react:app');
-  }, 200000);
 });

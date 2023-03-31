@@ -11,21 +11,20 @@ export function addProject(host, options: NormalizedSchema) {
     root: options.appProjectRoot,
     sourceRoot: `${options.appProjectRoot}/src`,
     projectType: 'application',
-    targets: {
-      build: createBuildTarget(options),
-      serve: createServeTarget(options),
-    },
+    targets: {},
     tags: options.parsedTags,
   };
 
-  addProjectConfiguration(
-    host,
-    options.projectName,
-    {
-      ...project,
-    },
-    options.standaloneConfig
-  );
+  if (options.bundler === 'webpack') {
+    project.targets = {
+      build: createBuildTarget(options),
+      serve: createServeTarget(options),
+    };
+  }
+
+  addProjectConfiguration(host, options.projectName, {
+    ...project,
+  });
 }
 
 function maybeJs(options: NormalizedSchema, path: string): string {
@@ -36,21 +35,22 @@ function maybeJs(options: NormalizedSchema, path: string): string {
 
 function createBuildTarget(options: NormalizedSchema): TargetConfiguration {
   return {
-    executor: '@nrwl/web:webpack',
+    executor: '@nrwl/webpack:webpack',
     outputs: ['{options.outputPath}'],
     defaultConfiguration: 'production',
     options: {
       compiler: options.compiler ?? 'babel',
-      outputPath: joinPathFragments('dist', options.appProjectRoot),
+      outputPath: joinPathFragments(
+        'dist',
+        options.appProjectRoot != '.'
+          ? options.appProjectRoot
+          : options.projectName
+      ),
       index: joinPathFragments(options.appProjectRoot, 'src/index.html'),
       baseHref: '/',
       main: joinPathFragments(
         options.appProjectRoot,
         maybeJs(options, `src/main.tsx`)
-      ),
-      polyfills: joinPathFragments(
-        options.appProjectRoot,
-        maybeJs(options, 'src/polyfills.ts')
       ),
       tsConfig: joinPathFragments(options.appProjectRoot, 'tsconfig.app.json'),
       assets: [
@@ -67,7 +67,11 @@ function createBuildTarget(options: NormalizedSchema): TargetConfiguration {
               ),
             ],
       scripts: [],
-      webpackConfig: '@nrwl/react/plugins/webpack',
+      isolatedConfig: true,
+      webpackConfig: joinPathFragments(
+        options.appProjectRoot,
+        'webpack.config.js'
+      ),
     },
     configurations: {
       development: {
@@ -102,7 +106,7 @@ function createBuildTarget(options: NormalizedSchema): TargetConfiguration {
 
 function createServeTarget(options: NormalizedSchema): TargetConfiguration {
   return {
-    executor: '@nrwl/web:dev-server',
+    executor: '@nrwl/webpack:dev-server',
     defaultConfiguration: 'development',
     options: {
       buildTarget: `${options.projectName}:build`,

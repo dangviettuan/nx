@@ -1,5 +1,7 @@
 import type { Tree } from 'nx/src/generators/tree';
-import { updateJson } from 'nx/src/generators/utils/json';
+import { requireNx } from '../../nx';
+
+const { updateJson } = requireNx();
 
 export function updateTsConfigsToJs(
   tree: Tree,
@@ -45,8 +47,12 @@ export function updateTsConfigsToJs(
   }
 
   updateJson(tree, updateConfigPath, (json) => {
-    json.include = uniq([...json.include, '**/*.js']);
-    json.exclude = uniq([...json.exclude, '**/*.spec.js', '**/*.test.js']);
+    json.include = uniq([...json.include, 'src/**/*.js']);
+    json.exclude = uniq([
+      ...json.exclude,
+      'src/**/*.spec.js',
+      'src/**/*.test.js',
+    ]);
 
     return json;
   });

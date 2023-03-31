@@ -5,24 +5,24 @@ Environment variables are useful to store system-wide values such as the directo
 (PATH), OS version, Network Information, and custom variables. These env variables are passed at build time and used at
 the runtime of an app.
 
-This guide is divided into two sections:
-
-- [Define Environment Variables](#define-environment-variables)
-  - [Setting environment variables](#setting-environment-variables)
-    - [Pointing to custom env files](#pointing-to-custom-env-files)
-    - [Ad-hoc variables](#ad-hoc-variables)
-      [Angular](#using-environment-variables-in-angular-applications)
-
 ## Setting environment variables
 
 By default, Nx will load any environment variables you place in the following files:
 
-1. `apps/my-app/.local.env`
-2. `apps/my-app/.env.local`
-3. `apps/my-app/.env`
-4. `.local.env`
-5. `.env.local`
-6. `.env`
+1. `apps/my-app/.env.[target-name].[configuration-name]`
+2. `apps/my-app/.[target-name].[configuration-name].env`
+3. `apps/my-app/.env.[target-name]`
+4. `apps/my-app/.[target-name].env`
+5. `apps/my-app/.env.local`
+6. `apps/my-app/.local.env`
+7. `apps/my-app/.env`
+8. `.env.[target-name].[configuration-name]`
+9. `.[target-name].[configuration-name].env`
+10. `.env.[target-name]`
+11. `.[target-name].env`
+12. `.local.env`
+13. `.env.local`
+14. `.env`
 
 {% callout type="warning" title="Order is important" %}
 Nx will move through the above list, ignoring files it can't find, and loading environment variables
@@ -32,6 +32,7 @@ it will ignore it. It does this for two reasons:
 1. Developers can't accidentally overwrite important system level variables (like `NODE_ENV`)
 2. Allows developers to create `.env.local` or `.local.env` files for their local environment and override any project
    defaults set in `.env`
+3. Allows developers to create target specific `.env.[target-name]` or `.[target-name].env` to overwrite environment variables for specific targets. For instance, you could increase the memory use for node processes only for build targets by setting `NODE_OPTIONS=--max-old-space-size=4096` in `.build.env`
 
 For example:
 
@@ -41,7 +42,7 @@ For example:
    from `apps/my-app/.env`, it will notice that `NX_API_URL` already exists, so it will ignore it.
 
 We recommend nesting your **app** specific `env` files in `apps/your-app`, and creating workspace/root level `env` files
-for workspace-specific settings (like the [Nx Cloud token](/concepts/how-caching-works#distributed-computation-caching)).
+for workspace-specific settings (like the [Nx Cloud token](/core-features/share-your-cache)).
 {% /callout %}
 
 ### Pointing to custom env files
@@ -61,18 +62,18 @@ In Unix systems, we need to set the environment variables before calling a comma
 
 Let's say that we want to define an API URL for the application to use:
 
-```bash
+```shell
 NX_API_URL=http://localhost:3333 nx build myapp
 ```
 
 **Windows (cmd.exe)**
 
-```bash
+```shell
 set "NX_API_URL=http://localhost:3333" && nx build myapp
 ```
 
 **Windows (Powershell)**
 
-```bash
+```shell
 ($env:NX_API_URL = "http://localhost:3333") -and (nx build myapp)
 ```

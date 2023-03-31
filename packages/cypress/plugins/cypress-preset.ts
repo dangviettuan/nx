@@ -1,16 +1,8 @@
-import {
-  ExecutorContext,
-  ProjectConfiguration,
-  ProjectGraph,
-  readNxJson,
-  stripIndents,
-  TargetConfiguration,
-  workspaceRoot,
-} from '@nrwl/devkit';
-import { mapProjectGraphFiles } from '@nrwl/workspace/src/utils/runtime-lint-utils';
-import { readProjectsConfigurationFromProjectGraph } from 'nx/src/project-graph/project-graph';
-import { dirname, extname, join, relative } from 'path';
+import { workspaceRoot } from '@nrwl/devkit';
+import { dirname, join, relative } from 'path';
 import { lstatSync } from 'fs';
+
+import vitePreprocessor from '../src/plugins/preprocessor-vite';
 
 interface BaseCypressPreset {
   videosFolder: string;
@@ -25,8 +17,10 @@ export interface NxComponentTestingOptions {
    * this is only when customized away from the default value of `component-test`
    * @example 'component-test'
    */
-  ctTargetName: string;
+  ctTargetName?: string;
+  bundler?: 'vite' | 'webpack';
 }
+
 export function nxBaseCypressPreset(pathToConfig: string): BaseCypressPreset {
   // prevent from placing path outside the root of the workspace
   // if they pass in a file or directory
@@ -68,64 +62,36 @@ export function nxBaseCypressPreset(pathToConfig: string): BaseCypressPreset {
  *
  * @param pathToConfig will be used to construct the output paths for videos and screenshots
  */
-export function nxE2EPreset(pathToConfig: string) {
-  return {
+export function nxE2EPreset(
+  pathToConfig: string,
+  options?: NxCypressE2EPresetOptions
+) {
+  const basePath = options?.cypressDir || 'src';
+  const baseConfig = {
     ...nxBaseCypressPreset(pathToConfig),
     fileServerFolder: '.',
-    supportFile: 'src/support/e2e.ts',
-    specPattern: 'src/**/*.cy.{js,jsx,ts,tsx}',
-    fixturesFolder: 'src/fixtures',
+    supportFile: `${basePath}/support/e2e.ts`,
+    specPattern: `${basePath}/**/*.cy.{js,jsx,ts,tsx}`,
+    fixturesFolder: `${basePath}/fixtures`,
   };
-}
 
-export function getProjectConfigByPath(
-  graph: ProjectGraph,
-  configPath: string
-): ProjectConfiguration {
-  const configFileFromWorkspaceRoot = relative(workspaceRoot, configPath);
-  const normalizedPathFromWorkspaceRoot = lstatSync(configPath).isFile()
-    ? configFileFromWorkspaceRoot.replace(extname(configPath), '')
-    : configFileFromWorkspaceRoot;
-
-  const mappedGraph = mapProjectGraphFiles(graph);
-  const componentTestingProjectName =
-    mappedGraph.allFiles[normalizedPathFromWorkspaceRoot];
-  if (
-    !componentTestingProjectName ||
-    !graph.nodes[componentTestingProjectName]?.data
-  ) {
-    throw new Error(
-      stripIndents`Unable to find the project configuration that includes ${normalizedPathFromWorkspaceRoot}. 
-      Found project name? ${componentTestingProjectName}. 
-      Graph has data? ${!!graph.nodes[componentTestingProjectName]?.data}`
-    );
+  if (options?.bundler === 'vite') {
+    return {
+      ...baseConfig,
+      setupNodeEvents(on) {
+        on('file:preprocessor', vitePreprocessor());
+      },
+    };
   }
-  // make sure name is set since it can be undefined
-  graph.nodes[componentTestingProjectName].data.name ??=
-    componentTestingProjectName;
-  return graph.nodes[componentTestingProjectName].data;
+  return baseConfig;
 }
 
-export function createExecutorContext(
-  graph: ProjectGraph,
-  targets: Record<string, TargetConfiguration>,
-  projectName: string,
-  targetName: string,
-  configurationName: string
-): ExecutorContext {
-  const projectConfigs = readProjectsConfigurationFromProjectGraph(graph);
-  return {
-    cwd: process.cwd(),
-    projectGraph: graph,
-    target: targets[targetName],
-    targetName,
-    configurationName,
-    root: workspaceRoot,
-    isVerbose: false,
-    projectName,
-    workspace: {
-      ...readNxJson(),
-      ...projectConfigs,
-    },
-  };
-}
+export type NxCypressE2EPresetOptions = {
+  bundler?: string;
+  /**
+   * The directory from the project root, where the cypress files (support, fixtures, specs) are located.
+   * i.e. 'cypress/' or 'src'
+   * default is 'src'
+   **/
+  cypressDir?: string;
+};

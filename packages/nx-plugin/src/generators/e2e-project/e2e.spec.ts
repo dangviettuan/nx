@@ -6,13 +6,13 @@ import {
   getProjects,
   joinPathFragments,
 } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { e2eProjectGenerator } from './e2e';
 
 describe('NxPlugin e2e-project Generator', () => {
   let tree: Tree;
   beforeEach(() => {
-    tree = createTreeWithEmptyV1Workspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
 
     // add a plugin project to the workspace for validations
     addProjectConfiguration(tree, 'my-plugin', {
@@ -27,16 +27,14 @@ describe('NxPlugin e2e-project Generator', () => {
         pluginName: 'my-plugin',
         pluginOutputPath: `dist/libs/my-plugin`,
         npmPackageName: '@proj/my-plugin',
-        standaloneConfig: false,
       })
-    ).resolves.not.toThrow();
+    ).resolves.toBeDefined();
 
     await expect(
       e2eProjectGenerator(tree, {
         pluginName: 'my-nonexistentplugin',
         pluginOutputPath: `dist/libs/my-nonexistentplugin`,
         npmPackageName: '@proj/my-nonexistentplugin',
-        standaloneConfig: false,
       })
     ).rejects.toThrow();
   });
@@ -46,7 +44,6 @@ describe('NxPlugin e2e-project Generator', () => {
       pluginName: 'my-plugin',
       pluginOutputPath: `dist/libs/my-plugin`,
       npmPackageName: '@proj/my-plugin',
-      standaloneConfig: false,
     });
 
     expect(tree.exists('apps/my-plugin-e2e/tsconfig.json')).toBeTruthy();
@@ -60,7 +57,6 @@ describe('NxPlugin e2e-project Generator', () => {
       pluginName: 'my-plugin',
       pluginOutputPath: `dist/libs/my-plugin`,
       npmPackageName: '@proj/my-plugin',
-      standaloneConfig: false,
     });
 
     const tsConfig = readJson(tree, 'apps/my-plugin-e2e/tsconfig.json');
@@ -74,7 +70,6 @@ describe('NxPlugin e2e-project Generator', () => {
       pluginName: 'my-plugin',
       pluginOutputPath: `dist/libs/my-plugin`,
       npmPackageName: '@proj/my-plugin',
-      standaloneConfig: false,
     });
 
     const tsConfig = readJson(tree, 'apps/my-plugin-e2e/tsconfig.json');
@@ -87,7 +82,6 @@ describe('NxPlugin e2e-project Generator', () => {
       pluginOutputPath: `dist/libs/namespace/my-plugin`,
       npmPackageName: '@proj/namespace-my-plugin',
       projectDirectory: 'namespace/my-plugin',
-      standaloneConfig: false,
     });
 
     const project = readProjectConfiguration(tree, 'my-plugin-e2e');
@@ -99,7 +93,6 @@ describe('NxPlugin e2e-project Generator', () => {
       pluginName: 'my-plugin',
       pluginOutputPath: `dist/libs/my-plugin`,
       npmPackageName: '@proj/my-plugin',
-      standaloneConfig: false,
     });
     const projects = Object.fromEntries(getProjects(tree));
     expect(projects).toMatchObject({
@@ -115,7 +108,6 @@ describe('NxPlugin e2e-project Generator', () => {
       pluginName: 'my-plugin',
       pluginOutputPath: `dist/libs/my-plugin`,
       npmPackageName: '@proj/my-plugin',
-      standaloneConfig: false,
     });
 
     const project = readProjectConfiguration(tree, 'my-plugin-e2e');
@@ -134,7 +126,6 @@ describe('NxPlugin e2e-project Generator', () => {
       pluginName: 'my-plugin',
       pluginOutputPath: `dist/libs/my-plugin`,
       npmPackageName: '@proj/my-plugin',
-      standaloneConfig: false,
     });
 
     const project = readProjectConfiguration(tree, 'my-plugin-e2e');
@@ -155,7 +146,6 @@ describe('NxPlugin e2e-project Generator', () => {
       pluginName: 'my-plugin',
       pluginOutputPath: `dist/libs/my-plugin`,
       npmPackageName: '@proj/my-plugin',
-      standaloneConfig: false,
       minimal: true,
     });
 
@@ -166,5 +156,22 @@ describe('NxPlugin e2e-project Generator', () => {
     expect(
       tree.read(joinPathFragments(root, 'tests/my-plugin.spec.ts'), 'utf-8')
     ).not.toContain("it('should create ");
+  });
+
+  it('should setup the eslint builder', async () => {
+    await e2eProjectGenerator(tree, {
+      pluginName: 'my-plugin',
+      pluginOutputPath: `dist/libs/my-plugin`,
+      npmPackageName: '@proj/my-plugin',
+    });
+
+    const projectsConfigurations = getProjects(tree);
+    expect(projectsConfigurations.get('my-plugin-e2e').targets.lint).toEqual({
+      executor: '@nrwl/linter:eslint',
+      outputs: ['{options.outputFile}'],
+      options: {
+        lintFilePatterns: ['apps/my-plugin-e2e/**/*.ts'],
+      },
+    });
   });
 });

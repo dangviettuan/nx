@@ -3,18 +3,24 @@ import {
   ChangeType,
   getProjects,
   getWorkspaceLayout,
+  joinPathFragments,
   ProjectConfiguration,
   StringChange,
   Tree,
   visitNotIgnoredFiles,
   writeJson,
+  readJson,
+  getImportPath,
 } from '@nrwl/devkit';
-import { getImportPath } from 'nx/src/utils/path';
-import * as ts from 'typescript';
-import { getRootTsConfigPathInTree } from '../../../utilities/typescript';
-import { findNodes } from '../../../utilities/typescript/find-nodes';
+import type * as ts from 'typescript';
+import { getRootTsConfigPathInTree } from '../../../utilities/ts-config';
+import { findNodes } from 'nx/src/utils/typescript';
 import { NormalizedSchema } from '../schema';
 import { normalizeSlashes } from './utils';
+import { relative } from 'path';
+import { ensureTypescript } from '../../../utilities/typescript';
+
+let tsModule: typeof import('typescript');
 
 /**
  * Updates all the imports in the workspace and modifies the tsconfig appropriately.
@@ -40,7 +46,8 @@ export function updateImports(
   let tsConfig: any;
   let fromPath: string;
   if (tree.exists(tsConfigPath)) {
-    tsConfig = JSON.parse(tree.read(tsConfigPath).toString('utf-8'));
+    tsConfig = readJson(tree, tsConfigPath);
+
     fromPath = Object.keys(tsConfig.compilerOptions.paths).find((path) =>
       tsConfig.compilerOptions.paths[path].some((x) =>
         x.startsWith(project.sourceRoot)
@@ -81,8 +88,8 @@ export function updateImports(
   }
 
   const projectRoot = {
-    from: project.root.slice(libsDir.length).replace(/^\/|\\/, ''),
-    to: schema.destination,
+    from: project.root,
+    to: schema.relativeToRootDestination,
   };
 
   if (tsConfig) {
@@ -96,7 +103,7 @@ export function updateImports(
       );
     }
     const updatedPath = path.map((x) =>
-      x.replace(new RegExp(projectRoot.from, 'g'), projectRoot.to)
+      joinPathFragments(projectRoot.to, relative(projectRoot.from, x))
     );
 
     if (schema.updateImportPath) {
@@ -114,11 +121,14 @@ export function updateImports(
  * Changes imports in a file from one import to another
  */
 function updateImportPaths(tree: Tree, path: string, from: string, to: string) {
+  if (!tsModule) {
+    tsModule = ensureTypescript();
+  }
   const contents = tree.read(path, 'utf-8');
-  const sourceFile = ts.createSourceFile(
+  const sourceFile = tsModule.createSourceFile(
     path,
     contents,
-    ts.ScriptTarget.Latest,
+    tsModule.ScriptTarget.Latest,
     true
   );
 
@@ -139,15 +149,18 @@ function updateImportDeclarations(
   from: string,
   to: string
 ): StringChange[] {
+  if (!tsModule) {
+    tsModule = ensureTypescript();
+  }
   const importDecls = findNodes(
     sourceFile,
-    ts.SyntaxKind.ImportDeclaration
+    tsModule.SyntaxKind.ImportDeclaration
   ) as ts.ImportDeclaration[];
 
   const changes: StringChange[] = [];
 
   for (const { moduleSpecifier } of importDecls) {
-    if (ts.isStringLiteral(moduleSpecifier)) {
+    if (tsModule.isStringLiteral(moduleSpecifier)) {
       changes.push(...updateModuleSpecifier(moduleSpecifier, from, to));
     }
   }
@@ -163,9 +176,12 @@ function updateDynamicImports(
   from: string,
   to: string
 ): StringChange[] {
+  if (!tsModule) {
+    tsModule = ensureTypescript();
+  }
   const expressions = findNodes(
     sourceFile,
-    ts.SyntaxKind.CallExpression
+    tsModule.SyntaxKind.CallExpression
   ) as ts.CallExpression[];
 
   const changes: StringChange[] = [];
@@ -175,19 +191,19 @@ function updateDynamicImports(
 
     // handle dynamic import statements
     if (
-      expression.kind === ts.SyntaxKind.ImportKeyword &&
+      expression.kind === tsModule.SyntaxKind.ImportKeyword &&
       moduleSpecifier &&
-      ts.isStringLiteral(moduleSpecifier)
+      tsModule.isStringLiteral(moduleSpecifier)
     ) {
       changes.push(...updateModuleSpecifier(moduleSpecifier, from, to));
     }
 
     // handle require statements
     if (
-      ts.isIdentifier(expression) &&
+      tsModule.isIdentifier(expression) &&
       expression.text === 'require' &&
       moduleSpecifier &&
-      ts.isStringLiteral(moduleSpecifier)
+      tsModule.isStringLiteral(moduleSpecifier)
     ) {
       changes.push(...updateModuleSpecifier(moduleSpecifier, from, to));
     }

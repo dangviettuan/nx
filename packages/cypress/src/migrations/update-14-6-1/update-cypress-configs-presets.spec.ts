@@ -28,7 +28,7 @@ describe('updateComponentTestingConfig', () => {
   > = installedCypressVersion as never;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
   });
   it('should update', async () => {
     mockedInstalledCypressVersion.mockReturnValue(10);
@@ -402,7 +402,7 @@ export default defineConfig({
           ...readProjectConfiguration(tree, libName),
         },
       },
-    },
+    } as any,
     dependencies: {
       [appName]: [
         { type: DependencyType.static, source: appName, target: libName },

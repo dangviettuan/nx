@@ -13,7 +13,7 @@ export function setupServeTarget(host: Tree, options: Schema) {
     executor:
       options.mfType === 'host'
         ? '@nrwl/angular:module-federation-dev-server'
-        : '@nrwl/angular:webpack-server',
+        : '@nrwl/angular:webpack-dev-server',
     options: {
       ...appConfig.targets['serve'].options,
       port: options.port ?? undefined,
@@ -23,7 +23,7 @@ export function setupServeTarget(host: Tree, options: Schema) {
 
   if (options.mfType === 'remote') {
     appConfig.targets['serve-static'] = {
-      executor: '@nrwl/angular:file-server',
+      executor: '@nrwl/web:file-server',
       defaultConfiguration: 'development',
       options: {
         buildTarget: `${options.appName}:build`,

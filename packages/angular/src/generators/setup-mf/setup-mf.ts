@@ -1,5 +1,9 @@
 import type { Tree } from '@nrwl/devkit';
-import { formatFiles, readProjectConfiguration } from '@nrwl/devkit';
+import {
+  addDependenciesToPackageJson,
+  formatFiles,
+  readProjectConfiguration,
+} from '@nrwl/devkit';
 import type { Schema } from './schema';
 
 import {
@@ -10,24 +14,48 @@ import {
   fixBootstrap,
   generateWebpackConfig,
   getRemotesWithPorts,
+  removeDeadCodeFromRemote,
   setupHostIfDynamic,
   setupServeTarget,
+  updateHostAppRoutes,
   updateTsConfigTarget,
 } from './lib';
+import { getInstalledAngularVersionInfo } from '../utils/version-utils';
+import { nxVersion } from '../../utils/versions';
+import { lt } from 'semver';
 
 export async function setupMf(tree: Tree, options: Schema) {
+  const installedAngularInfo = getInstalledAngularVersionInfo(tree);
+
+  if (lt(installedAngularInfo.version, '14.1.0') && options.standalone) {
+    throw new Error(
+      `The --standalone flag is not supported in your current version of Angular (${installedAngularInfo.version}). Please update to a version of Angular that supports Standalone Components (>= 14.1.0).`
+    );
+  }
   const projectConfig = readProjectConfiguration(tree, options.appName);
 
   options.federationType = options.federationType ?? 'static';
 
-  setupHostIfDynamic(tree, options);
+  if (options.mfType === 'host') {
+    setupHostIfDynamic(tree, options);
+    updateHostAppRoutes(tree, options);
+  }
+
+  let installTask = () => {};
+  if (options.mfType === 'remote') {
+    addRemoteToHost(tree, options);
+    addRemoteEntry(tree, options, projectConfig.root);
+    removeDeadCodeFromRemote(tree, options);
+    installTask = addDependenciesToPackageJson(
+      tree,
+      {},
+      { '@nrwl/web': nxVersion }
+    );
+  }
 
   const remotesWithPorts = getRemotesWithPorts(tree, options);
-  addRemoteToHost(tree, options);
 
   generateWebpackConfig(tree, options, projectConfig.root, remotesWithPorts);
-
-  addRemoteEntry(tree, options, projectConfig.root);
 
   changeBuildTarget(tree, options);
   updateTsConfigTarget(tree, options);
@@ -43,6 +71,8 @@ export async function setupMf(tree: Tree, options: Schema) {
   if (!options.skipFormat) {
     await formatFiles(tree);
   }
+
+  return installTask;
 }
 
 export default setupMf;

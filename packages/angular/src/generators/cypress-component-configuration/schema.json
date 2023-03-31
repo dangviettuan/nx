@@ -12,23 +12,29 @@
       "$default": {
         "$source": "projectName"
       },
-      "x-prompt": "What project should we add Cypress component testing to?"
+      "x-dropdown": "projects",
+      "x-prompt": "What project should we add Cypress component testing to?",
+      "x-priority": "important"
     },
     "generateTests": {
       "type": "boolean",
       "description": "Generate default component tests for existing components in the project",
+      "x-prompt": "Automatically generate tests for components declared in this project?",
       "default": false
     },
     "buildTarget": {
       "type": "string",
       "description": "A build target used to configure Cypress component testing in the format of `project:target[:configuration]`. The build target should be an angular app. If not provided we will try to infer it from your projects usage.",
-      "pattern": "^[^:\\s]+:[^:\\s]+(:\\S+)?$"
+      "pattern": "^[^:\\s]+:[^:\\s]+(:\\S+)?$",
+      "x-priority": "important"
     },
     "skipFormat": {
       "type": "boolean",
       "description": "Skip formatting files",
-      "default": false
+      "default": false,
+      "x-priority": "internal"
     }
   },
-  "required": ["project"]
+  "required": ["project"],
+  "examplesFile": "../../../docs/cypress-component-configuration-examples.md"
 }

@@ -5,46 +5,62 @@ import {
   NxJsonConfiguration,
   parseJson,
   readJson,
+  readNxJson,
   readProjectConfiguration,
-  readWorkspaceConfiguration,
+  stripIndents,
   updateJson,
 } from '@nrwl/devkit';
-import {
-  createTreeWithEmptyV1Workspace,
-  createTreeWithEmptyWorkspace,
-} from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { Linter } from '@nrwl/linter';
+import * as enquirer from 'enquirer';
 import { E2eTestRunner, UnitTestRunner } from '../../utils/test-runners';
 import {
   autoprefixerVersion,
   postcssVersion,
   tailwindVersion,
 } from '../../utils/versions';
-import { applicationGenerator } from './application';
+import { generateTestApplication } from '../utils/testing';
 import type { Schema } from './schema';
+
 // need to mock cypress otherwise it'll use the nx installed version from package.json
 //  which is v9 while we are testing for the new v10 version
 jest.mock('@nrwl/cypress/src/utils/cypress-version');
+jest.mock('enquirer');
+
 describe('app', () => {
   let appTree: Tree;
   let mockedInstalledCypressVersion: jest.Mock<
     ReturnType<typeof installedCypressVersion>
   > = installedCypressVersion as never;
+
   beforeEach(() => {
     mockedInstalledCypressVersion.mockReturnValue(10);
-    appTree = createTreeWithEmptyV1Workspace();
+    // @ts-ignore
+    enquirer.prompt = jest
+      .fn()
+      .mockReturnValue(Promise.resolve({ 'standalone-components': true }));
+    appTree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
   });
 
   describe('not nested', () => {
-    it('should update workspace.json', async () => {
+    it('should create project configs', async () => {
       // ACT
       await generateApp(appTree);
 
-      // ASSERT
-      const workspaceJson = readJson(appTree, '/workspace.json');
+      expect(readProjectConfiguration(appTree, 'my-app')).toMatchSnapshot();
+      expect(readProjectConfiguration(appTree, 'my-app-e2e')).toMatchSnapshot();
+    });
 
-      expect(workspaceJson.projects['my-app']).toMatchSnapshot();
-      expect(workspaceJson.projects['my-app-e2e']).toMatchSnapshot();
+    it('should not produce tests when UnitTestRunner = none', async () => {
+      // ACT
+      await generateApp(appTree, 'my-app', {
+        unitTestRunner: UnitTestRunner.None,
+      });
+      const { targets } = readProjectConfiguration(appTree, 'my-app');
+      expect(targets.test).toBeFalsy();
+      expect(
+        appTree.exists('apps/my-app/src/app/app.component.spec.ts')
+      ).toBeFalsy();
     });
 
     it('should remove the e2e target on the application', async () => {
@@ -52,8 +68,9 @@ describe('app', () => {
       await generateApp(appTree);
 
       // ASSERT
-      const workspaceJson = readJson(appTree, '/workspace.json');
-      expect(workspaceJson.projects['my-app'].architect.e2e).not.toBeDefined();
+      expect(
+        readProjectConfiguration(appTree, 'my-app').targets.e2e
+      ).not.toBeDefined();
     });
 
     it('should update tags + implicit dependencies', async () => {
@@ -90,27 +107,14 @@ describe('app', () => {
         appTree.read('apps/my-app/src/app/app.module.ts', 'utf-8')
       ).toContain('class AppModule');
 
-      const tsconfig = readJson(appTree, 'apps/my-app/tsconfig.json');
-      expect(tsconfig.references).toContainEqual({
-        path: './tsconfig.app.json',
-      });
-      expect(tsconfig.references).toContainEqual({
-        path: './tsconfig.spec.json',
-      });
-      expect(tsconfig.references).toContainEqual({
-        path: './tsconfig.editor.json',
-      });
+      expect(readJson(appTree, 'apps/my-app/tsconfig.json')).toMatchSnapshot(
+        'tsconfig.json'
+      );
 
       const tsconfigApp = parseJson(
         appTree.read('apps/my-app/tsconfig.app.json', 'utf-8')
       );
-      expect(tsconfigApp.compilerOptions.outDir).toEqual('../../dist/out-tsc');
-      expect(tsconfigApp.extends).toEqual('./tsconfig.json');
-      expect(tsconfigApp.exclude).toEqual([
-        'jest.config.ts',
-        '**/*.test.ts',
-        '**/*.spec.ts',
-      ]);
+      expect(tsconfigApp).toMatchSnapshot('tsconfig.app.json');
 
       const eslintrcJson = parseJson(
         appTree.read('apps/my-app/.eslintrc.json', 'utf-8')
@@ -121,7 +125,7 @@ describe('app', () => {
       const tsconfigE2E = parseJson(
         appTree.read('apps/my-app-e2e/tsconfig.json', 'utf-8')
       );
-      expect(tsconfigE2E).toMatchSnapshot();
+      expect(tsconfigE2E).toMatchSnapshot('e2e tsconfig.json');
     });
 
     it('should setup jest with serializers', async () => {
@@ -138,75 +142,6 @@ describe('app', () => {
       );
     });
 
-    it('should default the prefix to npmScope', async () => {
-      // Testing without prefix
-      await generateApp(appTree, 'myApp', {
-        e2eTestRunner: E2eTestRunner.Protractor,
-      });
-
-      const appE2eSpec = appTree.read(
-        'apps/my-app-e2e/src/app.e2e-spec.ts',
-        'utf-8'
-      );
-      const workspaceJson = parseJson(appTree.read('workspace.json', 'utf-8'));
-      const myAppPrefix = workspaceJson.projects['my-app'].prefix;
-
-      expect(myAppPrefix).toEqual('proj');
-      expect(appE2eSpec).toContain('Welcome my-app');
-    });
-
-    it('should set a new prefix and use it', async () => {
-      // Testing WITH prefix
-      await generateApp(appTree, 'myAppWithPrefix', {
-        prefix: 'custom',
-        e2eTestRunner: E2eTestRunner.Protractor,
-      });
-
-      const appE2eSpec = appTree.read(
-        'apps/my-app-with-prefix-e2e/src/app.e2e-spec.ts',
-        'utf-8'
-      );
-      const workspaceJson = parseJson(appTree.read('workspace.json', 'utf-8'));
-      const myAppPrefix = workspaceJson.projects['my-app-with-prefix'].prefix;
-
-      expect(myAppPrefix).toEqual('custom');
-      expect(appE2eSpec).toContain('Welcome my-app-with-prefix');
-    });
-
-    it('should work if the new project root is changed', async () => {
-      // ARRANGE
-      updateJson(appTree, '/workspace.json', (json) => ({
-        ...json,
-        newProjectRoot: 'newProjectRoot',
-      }));
-
-      // ACT
-      await generateApp(appTree, 'my-app', {
-        e2eTestRunner: E2eTestRunner.Protractor,
-      });
-
-      // ASSERT
-      expect(appTree.exists('apps/my-app/src/main.ts')).toEqual(true);
-      expect(appTree.exists('apps/my-app-e2e/protractor.conf.js')).toEqual(
-        true
-      );
-    });
-
-    it('should set projectType to application', async () => {
-      await generateApp(appTree, 'app');
-      const workspaceJson = readJson(appTree, '/workspace.json');
-      expect(workspaceJson.projects['app'].projectType).toEqual('application');
-    });
-
-    it('should extend from tsconfig.base.json', async () => {
-      // ACT
-      await generateApp(appTree, 'app');
-
-      // ASSERT
-      const appTsConfig = readJson(appTree, 'apps/app/tsconfig.json');
-      expect(appTsConfig.extends).toBe('../../tsconfig.base.json');
-    });
-
     it('should support a root tsconfig.json instead of tsconfig.base.json', async () => {
       // ARRANGE
       appTree.rename('tsconfig.base.json', 'tsconfig.json');
@@ -219,46 +154,30 @@ describe('app', () => {
       expect(appTsConfig.extends).toBe('../../tsconfig.json');
     });
 
-    it('should set default project', async () => {
-      // ACT
-      await generateApp(appTree);
-
-      // ASSERT
-      const { defaultProject } = readWorkspaceConfiguration(appTree);
-      expect(defaultProject).toBe('my-app');
-    });
-
     it('should not overwrite default project if already set', async () => {
       // ARRANGE
-      const workspace = readWorkspaceConfiguration(appTree);
-      workspace.defaultProject = 'some-awesome-project';
-      devkit.updateWorkspaceConfiguration(appTree, workspace);
+      const nxJson = readNxJson(appTree);
+      nxJson.defaultProject = 'some-awesome-project';
+      devkit.updateNxJson(appTree, nxJson);
 
       // ACT
       await generateApp(appTree);
 
       // ASSERT
-      const { defaultProject } = readWorkspaceConfiguration(appTree);
+      const { defaultProject } = readNxJson(appTree);
       expect(defaultProject).toBe('some-awesome-project');
-    });
-
-    it('should not set default project when "--skip-default-project=true"', async () => {
-      // ACT
-      await generateApp(appTree, 'my-app', { skipDefaultProject: true });
-
-      // ASSERT
-      const { defaultProject } = readWorkspaceConfiguration(appTree);
-      expect(defaultProject).toBeUndefined();
     });
   });
 
   describe('nested', () => {
-    it('should update workspace.json', async () => {
+    it('should create project configs', async () => {
       await generateApp(appTree, 'myApp', { directory: 'myDir' });
-      const workspaceJson = readJson(appTree, '/workspace.json');
-
-      expect(workspaceJson.projects['my-dir-my-app']).toMatchSnapshot();
-      expect(workspaceJson.projects['my-dir-my-app-e2e']).toMatchSnapshot();
+      expect(
+        readProjectConfiguration(appTree, 'my-dir-my-app')
+      ).toMatchSnapshot();
+      expect(
+        readProjectConfiguration(appTree, 'my-dir-my-app-e2e')
+      ).toMatchSnapshot();
     });
 
     it('should update tags + implicit dependencies', async () => {
@@ -314,7 +233,11 @@ describe('app', () => {
         {
           path: 'apps/my-dir/my-app/tsconfig.app.json',
           lookupFn: (json) => json.exclude,
-          expectedValue: ['jest.config.ts', '**/*.test.ts', '**/*.spec.ts'],
+          expectedValue: [
+            'jest.config.ts',
+            'src/**/*.test.ts',
+            'src/**/*.spec.ts',
+          ],
         },
         {
           path: 'apps/my-dir/my-app/.eslintrc.json',
@@ -348,7 +271,7 @@ describe('app', () => {
 
   describe('at the root', () => {
     beforeEach(() => {
-      appTree = createTreeWithEmptyWorkspace();
+      appTree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
       updateJson(appTree, 'nx.json', (json) => ({
         ...json,
         workspaceLayout: { appsDir: '' },
@@ -360,9 +283,10 @@ describe('app', () => {
       await generateApp(appTree, 'myApp', { directory: 'src/9-websites' });
 
       // ASSERT
-      const workspaceJson = readJson(appTree, '/workspace.json');
 
-      expect(workspaceJson.projects['src-9-websites-my-app']).toMatchSnapshot();
+      expect(
+        readProjectConfiguration(appTree, 'src-9-websites-my-app').root
+      ).toMatchSnapshot();
     });
 
     it('should generate files', async () => {
@@ -397,7 +321,11 @@ describe('app', () => {
         {
           path: 'my-dir/my-app/tsconfig.app.json',
           lookupFn: (json) => json.exclude,
-          expectedValue: ['jest.config.ts', '**/*.test.ts', '**/*.spec.ts'],
+          expectedValue: [
+            'jest.config.ts',
+            'src/**/*.test.ts',
+            'src/**/*.spec.ts',
+          ],
         },
         {
           path: 'my-dir/my-app/.eslintrc.json',
@@ -530,28 +458,16 @@ describe('app', () => {
 
   describe('--linter', () => {
     describe('eslint', () => {
-      it('should add an architect target for lint', async () => {
+      it('should add lint taret', async () => {
         await generateApp(appTree, 'myApp', { linter: Linter.EsLint });
-        const workspaceJson = readJson(appTree, 'workspace.json');
-        expect(workspaceJson.projects['my-app'].architect.lint)
+        expect(readProjectConfiguration(appTree, 'my-app').targets.lint)
           .toMatchInlineSnapshot(`
           Object {
-            "builder": "@nrwl/linter:eslint",
+            "executor": "@nrwl/linter:eslint",
             "options": Object {
               "lintFilePatterns": Array [
                 "apps/my-app/**/*.ts",
                 "apps/my-app/**/*.html",
-              ],
-            },
-          }
-        `);
-        expect(workspaceJson.projects['my-app-e2e'].architect.lint)
-          .toMatchInlineSnapshot(`
-          Object {
-            "builder": "@nrwl/linter:eslint",
-            "options": Object {
-              "lintFilePatterns": Array [
-                "apps/my-app-e2e/**/*.{js,ts}",
               ],
             },
             "outputs": Array [
@@ -559,34 +475,13 @@ describe('app', () => {
             ],
           }
         `);
-      });
-
-      it('should add a lint target when e2e test runner is protractor', async () => {
-        await generateApp(appTree, 'myApp', {
-          linter: Linter.EsLint,
-          e2eTestRunner: E2eTestRunner.Protractor,
-        });
-        const workspaceJson = readJson(appTree, 'workspace.json');
-        expect(workspaceJson.projects['my-app'].architect.lint)
+        expect(readProjectConfiguration(appTree, 'my-app-e2e').targets.lint)
           .toMatchInlineSnapshot(`
           Object {
-            "builder": "@nrwl/linter:eslint",
+            "executor": "@nrwl/linter:eslint",
             "options": Object {
               "lintFilePatterns": Array [
-                "apps/my-app/**/*.ts",
-                "apps/my-app/**/*.html",
-              ],
-            },
-          }
-        `);
-        expect(appTree.exists('apps/my-app-e2e/.eslintrc.json')).toBeTruthy();
-        expect(workspaceJson.projects['my-app-e2e'].architect.lint)
-          .toMatchInlineSnapshot(`
-          Object {
-            "builder": "@nrwl/linter:eslint",
-            "options": Object {
-              "lintFilePatterns": Array [
-                "apps/my-app-e2e/**/*.ts",
+                "apps/my-app-e2e/**/*.{js,ts}",
               ],
             },
             "outputs": Array [
@@ -652,24 +547,10 @@ describe('app', () => {
     });
 
     describe('none', () => {
-      it('should not add an architect target for lint', async () => {
+      it('should add no lint target', async () => {
         await generateApp(appTree, 'myApp', { linter: Linter.None });
-        const workspaceJson = readJson(appTree, 'workspace.json');
-        expect(workspaceJson.projects['my-app'].architect.lint).toBeUndefined();
         expect(
-          workspaceJson.projects['my-app-e2e'].architect.lint
-        ).toBeUndefined();
-      });
-
-      it('should not add an architect target for lint when e2e test runner is protractor', async () => {
-        await generateApp(appTree, 'myApp', {
-          linter: Linter.None,
-          e2eTestRunner: E2eTestRunner.Protractor,
-        });
-        const workspaceJson = readJson(appTree, 'workspace.json');
-        expect(workspaceJson.projects['my-app'].architect.lint).toBeUndefined();
-        expect(
-          workspaceJson.projects['my-app-e2e'].architect.lint
+          readProjectConfiguration(appTree, 'my-app').targets.lint
         ).toBeUndefined();
       });
     });
@@ -692,27 +573,14 @@ describe('app', () => {
           `'jest-preset-angular/build/serializers/html-comment'`
         );
       });
-    });
 
-    describe('karma', () => {
-      it('should generate a karma config', async () => {
-        await generateApp(appTree, 'myApp', {
-          unitTestRunner: UnitTestRunner.Karma,
-        });
+      it('should add reference to tsconfig.spec.json to tsconfig.json', async () => {
+        await generateApp(appTree);
 
-        expect(appTree.exists('apps/my-app/tsconfig.spec.json')).toBeTruthy();
-        expect(appTree.exists('apps/my-app/karma.conf.js')).toBeTruthy();
-        const workspaceJson = readJson(appTree, 'workspace.json');
-        expect(workspaceJson.projects['my-app'].architect.test.builder).toEqual(
-          '@angular-devkit/build-angular:karma'
-        );
-        const tsconfigAppJson = readJson(
-          appTree,
-          'apps/my-app/tsconfig.app.json'
-        );
-        expect(tsconfigAppJson.compilerOptions.outDir).toEqual(
-          '../../dist/out-tsc'
-        );
+        const { references } = readJson(appTree, 'apps/my-app/tsconfig.json');
+        expect(
+          references.find((r) => r.path.includes('tsconfig.spec.json'))
+        ).toBeTruthy();
       });
     });
 
@@ -729,123 +597,26 @@ describe('app', () => {
         expect(
           appTree.exists('apps/my-app/src/app/app.component.spec.ts')
         ).toBeFalsy();
-        const workspaceJson = readJson(appTree, 'workspace.json');
-        expect(workspaceJson.projects['my-app'].architect.test).toBeUndefined();
+        expect(
+          readProjectConfiguration(appTree, 'my-app').targets.test
+        ).toBeUndefined();
+        // check tsconfig.spec.json is not referenced
+        const { references } = readJson(appTree, 'apps/my-app/tsconfig.json');
+        expect(
+          references.every((r) => !r.path.includes('tsconfig.spec.json'))
+        ).toBe(true);
       });
     });
   });
 
   describe('--e2e-test-runner', () => {
-    describe(E2eTestRunner.Protractor, () => {
-      it('should create the e2e project in v2 workspace', async () => {
-        appTree = createTreeWithEmptyWorkspace();
-
-        expect(
-          async () =>
-            await generateApp(appTree, 'myApp', {
-              e2eTestRunner: E2eTestRunner.Protractor,
-              standaloneConfig: true,
-            })
-        ).not.toThrow();
-      });
-
-      it('should update workspace.json', async () => {
-        await generateApp(appTree, 'myApp', {
-          e2eTestRunner: E2eTestRunner.Protractor,
-        });
-        const workspaceJson = readJson(appTree, 'workspace.json');
-        expect(
-          workspaceJson.projects['my-app'].architect.e2e
-        ).not.toBeDefined();
-        expect(workspaceJson.projects['my-app-e2e']).toEqual({
-          root: 'apps/my-app-e2e',
-          projectType: 'application',
-          architect: {
-            e2e: {
-              builder: '@angular-devkit/build-angular:protractor',
-              options: {
-                protractorConfig: 'apps/my-app-e2e/protractor.conf.js',
-              },
-              configurations: {
-                development: {
-                  devServerTarget: 'my-app:serve:development',
-                },
-                production: {
-                  devServerTarget: 'my-app:serve:production',
-                },
-              },
-              defaultConfiguration: 'development',
-            },
-            lint: {
-              builder: '@nrwl/linter:eslint',
-              outputs: ['{options.outputFile}'],
-              options: {
-                lintFilePatterns: ['apps/my-app-e2e/**/*.ts'],
-              },
-            },
-          },
-          implicitDependencies: ['my-app'],
-          tags: [],
-        });
-      });
-
-      it('should update E2E spec files to match the app name', async () => {
-        await generateApp(appTree, 'myApp', {
-          e2eTestRunner: E2eTestRunner.Protractor,
-        });
-
-        expect(
-          appTree.read('apps/my-app-e2e/src/app.e2e-spec.ts', 'utf-8')
-        ).toContain(`'Welcome my-app'`);
-        expect(
-          appTree.read('apps/my-app-e2e/src/app.po.ts', 'utf-8')
-        ).toContain(`'proj-root header h1'`);
-      });
-
-      it('should update E2E spec files to match the app name when generating within a directory', async () => {
-        await generateApp(appTree, 'myApp', {
-          e2eTestRunner: E2eTestRunner.Protractor,
-          directory: 'my-directory',
-        });
-
-        expect(
-          appTree.read(
-            'apps/my-directory/my-app-e2e/src/app.e2e-spec.ts',
-            'utf-8'
-          )
-        ).toContain(`'Welcome my-directory-my-app'`);
-        expect(
-          appTree.read('apps/my-directory/my-app-e2e/src/app.po.ts', 'utf-8')
-        ).toContain(`'proj-root header h1'`);
-      });
-    });
-
     describe('none', () => {
       it('should not generate test configuration', async () => {
         await generateApp(appTree, 'myApp', {
           e2eTestRunner: E2eTestRunner.None,
         });
         expect(appTree.exists('apps/my-app-e2e')).toBeFalsy();
-        const workspaceJson = readJson(appTree, 'workspace.json');
-        expect(workspaceJson.projects['my-app-e2e']).toBeUndefined();
       });
-    });
-  });
-
-  describe('replaceAppNameWithPath', () => {
-    it('should protect `workspace.json` commands and properties', async () => {
-      await generateApp(appTree, 'ui');
-      const workspaceJson = readJson(appTree, 'workspace.json');
-      expect(workspaceJson.projects['ui']).toBeDefined();
-      expect(
-        workspaceJson.projects['ui']['architect']['build']['builder']
-      ).toEqual('@angular-devkit/build-angular:browser');
-    });
-
-    it('should protect `workspace.json` sensible properties value to be renamed', async () => {
-      await generateApp(appTree, 'ui', { prefix: 'ui' });
-      const workspaceJson = readJson(appTree, 'workspace.json');
-      expect(workspaceJson.projects['ui'].prefix).toEqual('ui');
     });
   });
 
@@ -887,29 +658,10 @@ describe('app', () => {
     it('should enable strict type checking', async () => {
       await generateApp(appTree, 'my-app', { strict: true });
 
-      // define all the tsconfig files to update
-      const configFiles = [
-        'apps/my-app/tsconfig.json',
-        'apps/my-app-e2e/tsconfig.json',
-      ];
-
-      for (const configFile of configFiles) {
-        const { compilerOptions, angularCompilerOptions } = parseJson(
-          appTree.read(configFile, 'utf-8')
-        );
-
-        // check that the TypeScript compiler options have been updated
-        expect(compilerOptions.forceConsistentCasingInFileNames).toBe(true);
-        expect(compilerOptions.strict).toBe(true);
-        expect(compilerOptions.noImplicitOverride).toBe(true);
-        expect(compilerOptions.noPropertyAccessFromIndexSignature).toBe(true);
-        expect(compilerOptions.noImplicitReturns).toBe(true);
-        expect(compilerOptions.noFallthroughCasesInSwitch).toBe(true);
-
-        // check that the Angular Template options have been updated
-        expect(angularCompilerOptions.strictInjectionParameters).toBe(true);
-        expect(angularCompilerOptions.strictTemplates).toBe(true);
-      }
+      const appTsConfig = readJson(appTree, 'apps/my-app/tsconfig.json');
+      expect(appTsConfig).toMatchSnapshot('app tsconfig.json');
+      const e2eTsConfig = readJson(appTree, 'apps/my-app-e2e/tsconfig.json');
+      expect(e2eTsConfig).toMatchSnapshot('e2e tsconfig.json');
 
       // should not update workspace configuration since --strict=true is the default
       const nxJson = readJson<NxJsonConfiguration>(appTree, 'nx.json');
@@ -925,99 +677,6 @@ describe('app', () => {
       // strict mode by default in future applications
       const nxJson = readJson<NxJsonConfiguration>(appTree, 'nx.json');
       expect(nxJson.generators['@nrwl/angular:application'].strict).toBe(false);
-    });
-  });
-
-  describe('--mf', () => {
-    test.each(['host', 'remote'])(
-      'should generate a Module Federation correctly for a each app',
-      async (type: 'host' | 'remote') => {
-        await generateApp(appTree, 'my-app', { mf: true, mfType: type });
-
-        expect(appTree.exists(`apps/my-app/webpack.config.js`)).toBeTruthy();
-        expect(
-          appTree.exists(`apps/my-app/webpack.prod.config.js`)
-        ).toBeTruthy();
-        expect(
-          appTree.read(`apps/my-app/webpack.config.js`, 'utf-8')
-        ).toMatchSnapshot();
-      }
-    );
-
-    test.each(['host', 'remote'])(
-      'should update the builder to use webpack-browser',
-      async (type: 'host' | 'remote') => {
-        await generateApp(appTree, 'my-app', { mf: true, mfType: type });
-
-        const projectConfig = readProjectConfiguration(appTree, 'my-app');
-
-        expect(projectConfig.targets.build.executor).toEqual(
-          '@nrwl/angular:webpack-browser'
-        );
-      }
-    );
-
-    it('should add a remote application and add it to a specified host applications webpack config when no other remote has been added to it', async () => {
-      // ARRANGE
-      await generateApp(appTree, 'app1', {
-        mf: true,
-        mfType: 'host',
-      });
-
-      // ACT
-      await generateApp(appTree, 'remote1', {
-        mf: true,
-        mfType: 'remote',
-        host: 'app1',
-      });
-
-      // ASSERT
-      const hostWebpackConfig = appTree.read(
-        'apps/app1/webpack.config.js',
-        'utf-8'
-      );
-      expect(hostWebpackConfig).toMatchSnapshot();
-    });
-
-    it('should add a remote application and add it to a specified host applications webpack config that contains a remote application already', async () => {
-      // ARRANGE
-      await generateApp(appTree, 'app1', {
-        mf: true,
-        mfType: 'host',
-      });
-
-      await generateApp(appTree, 'remote1', {
-        mf: true,
-        mfType: 'remote',
-        host: 'app1',
-        port: 4201,
-      });
-
-      // ACT
-      await generateApp(appTree, 'remote2', {
-        mf: true,
-        mfType: 'remote',
-        host: 'app1',
-        port: 4202,
-      });
-
-      // ASSERT
-      const hostWebpackConfig = appTree.read(
-        'apps/app1/webpack.config.js',
-        'utf-8'
-      );
-      expect(hostWebpackConfig).toMatchSnapshot();
-    });
-
-    it('should add a port to a non-mf app', async () => {
-      // ACT
-      await generateApp(appTree, 'app1', {
-        port: 4205,
-      });
-
-      // ASSERT
-      const projectConfig = readProjectConfiguration(appTree, 'app1');
-      expect(projectConfig.targets.serve.options.port).toBe(4205);
     });
   });
 
@@ -1056,6 +715,7 @@ describe('app', () => {
         "const { createGlobPatternsForDependencies } = require('@nrwl/angular/tailwind');
         const { join } = require('path');
 
+        /** @type {import('tailwindcss').Config} */
         module.exports = {
           content: [
             join(__dirname, 'src/**/!(*.stories|*.spec).{ts,html}'),
@@ -1086,6 +746,9 @@ describe('app', () => {
       // ASSERT
       expect(
         appTree.read('apps/standalone/src/main.ts', 'utf-8')
+      ).toMatchSnapshot();
+      expect(
+        appTree.read('apps/standalone/src/app/app.routes.ts', 'utf-8')
       ).toMatchSnapshot();
       expect(
         appTree.read('apps/standalone/src/app/app.component.ts', 'utf-8')
@@ -1125,6 +788,181 @@ describe('app', () => {
         appTree.read('apps/standalone/src/app/nx-welcome.component.ts', 'utf-8')
       ).toContain('standalone: true');
     });
+
+    it('should prompt for standalone components and not use them when the user selects false', async () => {
+      // ARRANGE
+      process.env.NX_INTERACTIVE = 'true';
+      // @ts-ignore
+      enquirer.prompt = jest
+        .fn()
+        .mockReturnValue(Promise.resolve({ 'standalone-components': false }));
+
+      // ACT
+      await generateApp(appTree, 'nostandalone');
+
+      // ASSERT
+      expect(
+        appTree.exists('apps/nostandalone/src/app/app.module.ts')
+      ).toBeTruthy();
+      expect(enquirer.prompt).toHaveBeenCalled();
+
+      // CLEANUP
+      process.env.NX_INTERACTIVE = undefined;
+    });
+
+    it('should prompt for standalone components and use them when the user selects true', async () => {
+      // ARRANGE
+      process.env.NX_INTERACTIVE = 'true';
+      // @ts-ignore
+      enquirer.prompt = jest
+        .fn()
+        .mockReturnValue(Promise.resolve({ 'standalone-components': true }));
+
+      // ACT
+      await generateApp(appTree, 'nostandalone');
+
+      // ASSERT
+      expect(
+        appTree.exists('apps/nostandalone/src/app/app.module.ts')
+      ).not.toBeTruthy();
+      expect(enquirer.prompt).toHaveBeenCalled();
+
+      // CLEANUP
+      process.env.NX_INTERACTIVE = undefined;
+    });
+  });
+
+  it('should generate correct main.ts', async () => {
+    // ACT
+    await generateApp(appTree, 'myapp');
+
+    // ASSERT
+    expect(appTree.read('apps/myapp/src/main.ts', 'utf-8'))
+      .toMatchInlineSnapshot(`
+      "import { platformBrowserDynamic } from '@angular/platform-browser-dynamic';
+      import { AppModule } from './app/app.module';
+
+      platformBrowserDynamic()
+        .bootstrapModule(AppModule)
+        .catch((err) => console.error(err));
+      "
+    `);
+  });
+
+  describe('--root-project', () => {
+    it('should create files at the root', async () => {
+      await generateApp(appTree, 'my-app', {
+        rootProject: true,
+      });
+
+      expect(appTree.exists('src/main.ts')).toBe(true);
+      expect(appTree.exists('src/app/app.module.ts')).toBe(true);
+      expect(appTree.exists('src/app/app.component.ts')).toBe(true);
+      expect(appTree.exists('e2e/cypress.config.ts')).toBe(true);
+      expect(readJson(appTree, 'tsconfig.json').extends).toBeUndefined();
+      const project = readProjectConfiguration(appTree, 'my-app');
+      expect(project.targets.build.options['outputPath']).toBe('dist/my-app');
+    });
+  });
+
+  it('should error correctly when Angular version does not support standalone', async () => {
+    // ARRANGE
+    const tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
+    updateJson(tree, 'package.json', (json) => ({
+      ...json,
+      dependencies: {
+        '@angular/core': '14.0.0',
+      },
+    }));
+
+    // ACT & ASSERT
+    await expect(
+      generateApp(tree, 'my-app', {
+        standalone: true,
+      })
+    ).rejects
+      .toThrow(stripIndents`The "standalone" option is only supported in Angular >= 14.1.0. You are currently using 14.0.0.
+    You can resolve this error by removing the "standalone" option or by migrating to Angular 14.1.0.`);
+  });
+
+  describe('--minimal', () => {
+    it('should skip "nx-welcome.component.ts" file and references for non-standalone apps without routing', async () => {
+      await generateApp(appTree, 'plain', { minimal: true });
+
+      expect(
+        appTree.exists('apps/plain/src/app/nx-welcome.component.ts')
+      ).toBeFalsy();
+      expect(
+        appTree.read('apps/plain/src/app/app.module.ts', 'utf-8')
+      ).toMatchSnapshot();
+      expect(
+        appTree.read('apps/plain/src/app/app.component.ts', 'utf-8')
+      ).toMatchSnapshot();
+      expect(
+        appTree.read('apps/plain/src/app/app.component.spec.ts', 'utf-8')
+      ).toMatchSnapshot();
+      expect(
+        appTree.read('apps/plain/src/app/app.component.html', 'utf-8')
+      ).toMatchSnapshot();
+    });
+
+    it('should skip "nx-welcome.component.ts" file and references for non-standalone apps with routing', async () => {
+      await generateApp(appTree, 'plain', { minimal: true, routing: true });
+
+      expect(
+        appTree.exists('apps/plain/src/app/nx-welcome.component.ts')
+      ).toBeFalsy();
+      expect(
+        appTree.read('apps/plain/src/app/app.module.ts', 'utf-8')
+      ).toMatchSnapshot();
+      expect(
+        appTree.read('apps/plain/src/app/app.component.ts', 'utf-8')
+      ).toMatchSnapshot();
+      expect(
+        appTree.read('apps/plain/src/app/app.component.spec.ts', 'utf-8')
+      ).toMatchSnapshot();
+      expect(
+        appTree.read('apps/plain/src/app/app.component.html', 'utf-8')
+      ).toMatchSnapshot();
+    });
+
+    it('should skip "nx-welcome.component.ts" file and references for standalone apps without routing', async () => {
+      await generateApp(appTree, 'plain', { minimal: true, standalone: true });
+
+      expect(
+        appTree.exists('apps/plain/src/app/nx-welcome.component.ts')
+      ).toBeFalsy();
+      expect(
+        appTree.read('apps/plain/src/app/app.component.ts', 'utf-8')
+      ).toMatchSnapshot();
+      expect(
+        appTree.read('apps/plain/src/app/app.component.spec.ts', 'utf-8')
+      ).toMatchSnapshot();
+      expect(
+        appTree.read('apps/plain/src/app/app.component.html', 'utf-8')
+      ).toMatchSnapshot();
+    });
+
+    it('should skip "nx-welcome.component.ts" file and references for standalone apps with routing', async () => {
+      await generateApp(appTree, 'plain', {
+        minimal: true,
+        standalone: true,
+        routing: true,
+      });
+
+      expect(
+        appTree.exists('apps/plain/src/app/nx-welcome.component.ts')
+      ).toBeFalsy();
+      expect(
+        appTree.read('apps/plain/src/app/app.component.ts', 'utf-8')
+      ).toMatchSnapshot();
+      expect(
+        appTree.read('apps/plain/src/app/app.component.spec.ts', 'utf-8')
+      ).toMatchSnapshot();
+      expect(
+        appTree.read('apps/plain/src/app/app.component.html', 'utf-8')
+      ).toMatchSnapshot();
+    });
   });
 });
 
@@ -1133,7 +971,7 @@ async function generateApp(
   name: string = 'myApp',
   options: Partial<Schema> = {}
 ) {
-  await applicationGenerator(appTree, {
+  await generateTestApplication(appTree, {
     name,
     skipFormat: false,
     e2eTestRunner: E2eTestRunner.Cypress,

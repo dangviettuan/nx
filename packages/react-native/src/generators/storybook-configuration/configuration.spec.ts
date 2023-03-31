@@ -1,5 +1,5 @@
 import { Tree } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { Linter } from '@nrwl/linter';
 import { logger } from '@nrwl/devkit';
 
@@ -7,6 +7,14 @@ import libraryGenerator from '../library/library';
 import applicationGenerator from '../application/application';
 import componentGenerator from '../component/component';
 import storybookConfigurationGenerator from './configuration';
+
+// nested code imports graph from the repo, which might have innacurate graph version
+jest.mock('nx/src/project-graph/project-graph', () => ({
+  ...jest.requireActual<any>('nx/src/project-graph/project-graph'),
+  createProjectGraphAsync: jest
+    .fn()
+    .mockImplementation(async () => ({ nodes: {}, dependencies: {} })),
+}));
 
 describe('react-native:storybook-configuration', () => {
   let appTree;
@@ -35,7 +43,6 @@ describe('react-native:storybook-configuration', () => {
       appTree.write('.gitignore', '');
       await storybookConfigurationGenerator(appTree, {
         name: 'test-ui-lib',
-        standaloneConfig: false,
       });
 
       expect(
@@ -55,7 +62,6 @@ describe('react-native:storybook-configuration', () => {
       await storybookConfigurationGenerator(appTree, {
         name: 'test-ui-lib',
         generateStories: true,
-        standaloneConfig: false,
       });
 
       expect(
@@ -71,7 +77,6 @@ describe('react-native:storybook-configuration', () => {
       appTree = await createTestAppLib('test-ui-app');
       await storybookConfigurationGenerator(appTree, {
         name: 'test-ui-app',
-        standaloneConfig: false,
       });
 
       expect(
@@ -87,7 +92,6 @@ describe('react-native:storybook-configuration', () => {
       await storybookConfigurationGenerator(appTree, {
         name: 'test-ui-app',
         generateStories: true,
-        standaloneConfig: false,
       });
 
       // Currently the auto-generate stories feature only picks up components under the 'lib' directory.
@@ -103,7 +107,7 @@ describe('react-native:storybook-configuration', () => {
 });
 
 export async function createTestUILib(libName: string): Promise<Tree> {
-  let appTree = createTreeWithEmptyV1Workspace();
+  let appTree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
 
   await libraryGenerator(appTree, {
     linter: Linter.EsLint,
@@ -119,7 +123,7 @@ export async function createTestAppLib(
   libName: string,
   plainJS = false
 ): Promise<Tree> {
-  let appTree = createTreeWithEmptyV1Workspace();
+  let appTree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
 
   await applicationGenerator(appTree, {
     e2eTestRunner: 'none',

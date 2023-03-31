@@ -19,7 +19,8 @@
       "$default": {
         "$source": "projectName"
       },
-      "x-prompt": "What is the name of the project for the migration?"
+      "x-prompt": "What is the name of the project for the migration?",
+      "x-priority": "important"
     },
     "name": {
       "type": "string",
@@ -27,18 +28,19 @@
       "$default": {
         "$source": "argv",
         "index": 0
-      }
+      },
+      "x-priority": "important"
     },
     "description": {
       "type": "string",
-      "description": "Migration description.",
-      "alias": "d"
+      "description": "Migration description."
     },
     "packageVersion": {
       "type": "string",
       "description": "Version to use for the migration.",
       "alias": "v",
-      "x-prompt": "What version would you like to use for the migration?"
+      "x-prompt": "What version would you like to use for the migration?",
+      "x-priority": "important"
     },
     "packageJsonUpdates": {
       "type": "boolean",

@@ -1,7 +1,7 @@
 import { installedCypressVersion } from '@nrwl/cypress/src/utils/cypress-version';
-import type { NxJsonConfiguration, Tree } from '@nrwl/devkit';
+import { readProjectConfiguration, Tree } from '@nrwl/devkit';
 import { getProjects, readJson } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 
 import { applicationGenerator } from './application';
 import { Schema } from './schema';
@@ -16,30 +16,26 @@ describe('app', () => {
   beforeEach(() => {
     mockedInstalledCypressVersion.mockReturnValue(10);
 
-    tree = createTreeWithEmptyV1Workspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
   });
 
   describe('not nested', () => {
-    it('should update workspace.json', async () => {
+    it('should update configuration', async () => {
       await applicationGenerator(tree, {
         name: 'myApp',
-        standaloneConfig: false,
       });
-      const workspaceJson = readJson(tree, '/workspace.json');
-      const nxJson = readJson<NxJsonConfiguration>(tree, 'nx.json');
-
-      expect(workspaceJson.projects['my-app'].root).toEqual('apps/my-app');
-      expect(workspaceJson.projects['my-app-e2e'].root).toEqual(
+      expect(readProjectConfiguration(tree, 'my-app').root).toEqual(
+        'apps/my-app'
+      );
+      expect(readProjectConfiguration(tree, 'my-app-e2e').root).toEqual(
         'apps/my-app-e2e'
       );
-      expect(nxJson.defaultProject).toEqual('my-app');
     });
 
     it('should update tags and implicit dependencies', async () => {
       await applicationGenerator(tree, {
         name: 'myApp',
         tags: 'one,two',
-        standaloneConfig: false,
       });
       const projects = Object.fromEntries(getProjects(tree));
       expect(projects).toMatchObject({
@@ -56,7 +52,6 @@ describe('app', () => {
     it('should generate files', async () => {
       await applicationGenerator(tree, {
         name: 'myApp',
-        standaloneConfig: false,
       });
       expect(tree.exists('apps/my-app/src/main.ts')).toBeTruthy();
       expect(tree.exists('apps/my-app/src/app/app.element.ts')).toBeTruthy();
@@ -140,12 +135,50 @@ describe('app', () => {
       `);
     });
 
+    it('should generate files if bundler is vite', async () => {
+      await applicationGenerator(tree, {
+        name: 'myApp',
+
+        bundler: 'vite',
+      });
+      expect(tree.exists('apps/my-app/src/main.ts')).toBeTruthy();
+      expect(tree.exists('apps/my-app/src/app/app.element.ts')).toBeTruthy();
+      expect(
+        tree.exists('apps/my-app/src/app/app.element.spec.ts')
+      ).toBeTruthy();
+      expect(tree.exists('apps/my-app/src/app/app.element.css')).toBeTruthy();
+
+      const tsconfig = readJson(tree, 'apps/my-app/tsconfig.json');
+      expect(tsconfig.extends).toBe('../../tsconfig.base.json');
+      expect(tsconfig.references).toEqual([
+        {
+          path: './tsconfig.app.json',
+        },
+        {
+          path: './tsconfig.spec.json',
+        },
+      ]);
+      expect(tsconfig.compilerOptions.types).toMatchObject([
+        'vite/client',
+        'vitest',
+      ]);
+
+      expect(tree.exists('apps/my-app-e2e/cypress.config.ts')).toBeTruthy();
+      expect(tree.exists('apps/my-app/index.html')).toBeTruthy();
+      expect(tree.exists('apps/my-app/vite.config.ts')).toBeTruthy();
+      expect(
+        tree.exists(`apps/my-app/environments/environment.ts`)
+      ).toBeFalsy();
+      expect(
+        tree.exists(`apps/my-app/environments/environment.prod.ts`)
+      ).toBeFalsy();
+    });
+
     it('should extend from root tsconfig.json when no tsconfig.base.json', async () => {
       tree.rename('tsconfig.base.json', 'tsconfig.json');
 
       await applicationGenerator(tree, {
         name: 'myApp',
-        standaloneConfig: false,
       });
 
       const tsconfig = readJson(tree, 'apps/my-app/tsconfig.json');
@@ -154,18 +187,15 @@ describe('app', () => {
   });
 
   describe('nested', () => {
-    it('should update workspace.json', async () => {
+    it('should update configuration', async () => {
       await applicationGenerator(tree, {
         name: 'myApp',
         directory: 'myDir',
-        standaloneConfig: false,
       });
-      const workspaceJson = readJson(tree, '/workspace.json');
-
-      expect(workspaceJson.projects['my-dir-my-app'].root).toEqual(
+      expect(readProjectConfiguration(tree, 'my-dir-my-app').root).toEqual(
         'apps/my-dir/my-app'
       );
-      expect(workspaceJson.projects['my-dir-my-app-e2e'].root).toEqual(
+      expect(readProjectConfiguration(tree, 'my-dir-my-app-e2e').root).toEqual(
         'apps/my-dir/my-app-e2e'
       );
     });
@@ -175,7 +205,6 @@ describe('app', () => {
         name: 'myApp',
         directory: 'myDir',
         tags: 'one,two',
-        standaloneConfig: false,
       });
       const projects = Object.fromEntries(getProjects(tree));
       expect(projects).toMatchObject({
@@ -198,7 +227,6 @@ describe('app', () => {
       await applicationGenerator(tree, {
         name: 'myApp',
         directory: 'myDir',
-        standaloneConfig: false,
       });
 
       // Make sure these exist
@@ -235,7 +263,6 @@ describe('app', () => {
       await applicationGenerator(tree, {
         name: 'myApp',
         directory: 'myDir',
-        standaloneConfig: false,
       });
 
       const tsconfig = readJson(tree, 'apps/my-dir/my-app/tsconfig.json');
@@ -248,7 +275,6 @@ describe('app', () => {
       await applicationGenerator(tree, {
         name: 'myApp',
         directory: 'myDir',
-        standaloneConfig: false,
       });
 
       const tsconfig = readJson(tree, 'apps/my-dir/my-app/tsconfig.json');
@@ -259,7 +285,6 @@ describe('app', () => {
       await applicationGenerator(tree, {
         name: 'myApp',
         directory: 'myDir',
-        standaloneConfig: false,
       });
       expect(
         tree.read('apps/my-dir/my-app/src/app/app.element.ts', 'utf-8')
@@ -275,7 +300,6 @@ describe('app', () => {
       await applicationGenerator(tree, {
         name: 'myApp',
         style: 'scss',
-        standaloneConfig: false,
       });
       expect(tree.exists('apps/my-app/src/app/app.element.scss')).toEqual(true);
     });
@@ -284,7 +308,6 @@ describe('app', () => {
   it('should setup jest without serializers', async () => {
     await applicationGenerator(tree, {
       name: 'my-App',
-      standaloneConfig: false,
     });
 
     expect(tree.read('apps/my-app/jest.config.ts', 'utf-8')).not.toContain(
@@ -295,25 +318,23 @@ describe('app', () => {
   it('should setup the nrwl web build builder', async () => {
     await applicationGenerator(tree, {
       name: 'my-App',
-      standaloneConfig: false,
     });
-    const workspaceJson = readJson(tree, 'workspace.json');
-    const architectConfig = workspaceJson.projects['my-app'].architect;
-    expect(architectConfig.build.builder).toEqual('@nrwl/web:webpack');
-    expect(architectConfig.build.outputs).toEqual(['{options.outputPath}']);
-    expect(architectConfig.build.options).toEqual({
+    const targets = readProjectConfiguration(tree, 'my-app').targets;
+    expect(targets.build.executor).toEqual('@nrwl/webpack:webpack');
+    expect(targets.build.outputs).toEqual(['{options.outputPath}']);
+    expect(targets.build.options).toEqual({
       compiler: 'babel',
       assets: ['apps/my-app/src/favicon.ico', 'apps/my-app/src/assets'],
       index: 'apps/my-app/src/index.html',
       baseHref: '/',
       main: 'apps/my-app/src/main.ts',
       outputPath: 'dist/apps/my-app',
-      polyfills: 'apps/my-app/src/polyfills.ts',
       scripts: [],
       styles: ['apps/my-app/src/styles.css'],
       tsConfig: 'apps/my-app/tsconfig.app.json',
+      webpackConfig: 'apps/my-app/webpack.config.js',
     });
-    expect(architectConfig.build.configurations.production).toEqual({
+    expect(targets.build.configurations.production).toEqual({
       optimization: true,
       extractLicenses: true,
       fileReplacements: [
@@ -332,28 +353,54 @@ describe('app', () => {
   it('should setup the nrwl web dev server builder', async () => {
     await applicationGenerator(tree, {
       name: 'my-App',
-      standaloneConfig: false,
     });
-    const workspaceJson = readJson(tree, 'workspace.json');
-    const architectConfig = workspaceJson.projects['my-app'].architect;
-    expect(architectConfig.serve.builder).toEqual('@nrwl/web:dev-server');
-    expect(architectConfig.serve.options).toEqual({
+    const targets = readProjectConfiguration(tree, 'my-app').targets;
+    expect(targets.serve.executor).toEqual('@nrwl/webpack:dev-server');
+    expect(targets.serve.options).toEqual({
       buildTarget: 'my-app:build',
     });
-    expect(architectConfig.serve.configurations.production).toEqual({
+    expect(targets.serve.configurations.production).toEqual({
       buildTarget: 'my-app:build:production',
+    });
+  });
+
+  it('should setup the nrwl vite:build builder if bundler is vite', async () => {
+    await applicationGenerator(tree, {
+      name: 'my-App',
+
+      bundler: 'vite',
+    });
+    const targets = readProjectConfiguration(tree, 'my-app').targets;
+    expect(targets.build.executor).toEqual('@nrwl/vite:build');
+    expect(targets.build.outputs).toEqual(['{options.outputPath}']);
+    expect(targets.build.options).toEqual({
+      outputPath: 'dist/apps/my-app',
+    });
+  });
+
+  it('should setup the nrwl vite:dev-server builder if bundler is vite', async () => {
+    await applicationGenerator(tree, {
+      name: 'my-App',
+
+      bundler: 'vite',
+    });
+    const targets = readProjectConfiguration(tree, 'my-app').targets;
+    expect(targets.serve.executor).toEqual('@nrwl/vite:dev-server');
+    expect(targets.serve.options).toEqual({
+      buildTarget: 'my-app:build',
+    });
+    expect(targets.serve.configurations.production).toEqual({
+      buildTarget: 'my-app:build:production',
+      hmr: false,
     });
   });
 
   it('should setup the eslint builder', async () => {
     await applicationGenerator(tree, {
       name: 'my-App',
-      standaloneConfig: false,
     });
-    const workspaceJson = readJson(tree, 'workspace.json');
-
-    expect(workspaceJson.projects['my-app'].architect.lint).toEqual({
-      builder: '@nrwl/linter:eslint',
+    expect(readProjectConfiguration(tree, 'my-app').targets.lint).toEqual({
+      executor: '@nrwl/linter:eslint',
       outputs: ['{options.outputFile}'],
       options: {
         lintFilePatterns: ['apps/my-app/**/*.ts'],
@@ -366,7 +413,6 @@ describe('app', () => {
       await applicationGenerator(tree, {
         name: 'myApp',
         prefix: 'prefix',
-        standaloneConfig: false,
       });
 
       expect(tree.read('apps/my-app/src/index.html', 'utf-8')).toContain(
@@ -375,12 +421,11 @@ describe('app', () => {
     });
   });
 
-  describe('--unit-test-runner none', () => {
-    it('should not generate test configuration', async () => {
+  describe('--unit-test-runner', () => {
+    it('--unit-test-runner=none', async () => {
       await applicationGenerator(tree, {
         name: 'myApp',
         unitTestRunner: 'none',
-        standaloneConfig: false,
       });
       expect(tree.exists('jest.config.ts')).toBeFalsy();
       expect(
@@ -388,12 +433,12 @@ describe('app', () => {
       ).toBeFalsy();
       expect(tree.exists('apps/my-app/tsconfig.spec.json')).toBeFalsy();
       expect(tree.exists('apps/my-app/jest.config.ts')).toBeFalsy();
-      const workspaceJson = readJson(tree, 'workspace.json');
-      expect(workspaceJson.projects['my-app'].architect.test).toBeUndefined();
-      expect(workspaceJson.projects['my-app'].architect.lint)
-        .toMatchInlineSnapshot(`
+
+      const projectConfiguration = readProjectConfiguration(tree, 'my-app');
+      expect(projectConfiguration.targets.test).toBeUndefined();
+      expect(projectConfiguration.targets.lint).toMatchInlineSnapshot(`
         Object {
-          "builder": "@nrwl/linter:eslint",
+          "executor": "@nrwl/linter:eslint",
           "options": Object {
             "lintFilePatterns": Array [
               "apps/my-app/**/*.ts",
@@ -405,6 +450,78 @@ describe('app', () => {
         }
       `);
     });
+
+    it('--bundler=none should use jest as the default', async () => {
+      await applicationGenerator(tree, {
+        name: 'my-cool-app',
+
+        bundler: 'none',
+      });
+      expect(tree.exists('apps/my-cool-app/jest.config.ts')).toBeTruthy();
+      expect(
+        readJson(tree, 'apps/my-cool-app/tsconfig.spec.json').compilerOptions
+          .types
+      ).toMatchInlineSnapshot(`
+        Array [
+          "jest",
+          "node",
+        ]
+      `);
+      expect(
+        readProjectConfiguration(tree, 'my-cool-app').targets.test.executor
+      ).toEqual('@nrwl/jest:jest');
+    });
+
+    it('--bundler=vite --unitTestRunner=jest', async () => {
+      await applicationGenerator(tree, {
+        name: 'my-vite-app',
+
+        bundler: 'vite',
+        unitTestRunner: 'jest',
+      });
+      expect(tree.exists('apps/my-vite-app/vite.config.ts')).toBeTruthy();
+      expect(
+        tree.read('apps/my-vite-app/vite.config.ts', 'utf-8')
+      ).not.toContain('test: {');
+      expect(tree.exists('apps/my-vite-app/jest.config.ts')).toBeTruthy();
+      expect(
+        readJson(tree, 'apps/my-vite-app/tsconfig.spec.json').compilerOptions
+          .types
+      ).toMatchInlineSnapshot(`
+        Array [
+          "jest",
+          "node",
+        ]
+      `);
+      expect(
+        readProjectConfiguration(tree, 'my-vite-app').targets.test.executor
+      ).toEqual('@nrwl/jest:jest');
+    });
+
+    it('--bundler=webpack --unitTestRunner=vitest', async () => {
+      await applicationGenerator(tree, {
+        name: 'my-webpack-app',
+
+        bundler: 'webpack',
+        unitTestRunner: 'vitest',
+      });
+      expect(tree.exists('apps/my-webpack-app/vite.config.ts')).toBeTruthy();
+      expect(tree.exists('apps/my-webpack-app/jest.config.ts')).toBeFalsy();
+      expect(
+        readJson(tree, 'apps/my-webpack-app/tsconfig.spec.json').compilerOptions
+          .types
+      ).toMatchInlineSnapshot(`
+        Array [
+          "vitest/globals",
+          "vitest/importMeta",
+          "vite/client",
+          "node",
+        ]
+      `);
+      expect(
+        readProjectConfiguration(tree, 'my-webpack-app').targets.test.executor
+      ).toEqual('@nrwl/vite:test');
+    });
   });
 
   describe('--e2e-test-runner none', () => {
@@ -412,11 +529,8 @@ describe('app', () => {
       await applicationGenerator(tree, {
         name: 'myApp',
         e2eTestRunner: 'none',
-        standaloneConfig: false,
       });
       expect(tree.exists('apps/my-app-e2e')).toBeFalsy();
-      const workspaceJson = readJson(tree, 'workspace.json');
-      expect(workspaceJson.projects['my-app-e2e']).toBeUndefined();
     });
   });
 
@@ -435,10 +549,10 @@ describe('app', () => {
           preset: '../../jest.preset.js',
           setupFilesAfterEnv: ['<rootDir>/src/test-setup.ts'],
           transform: {
-            '^.+\\\\\\\\.[tj]s$': 'babel-jest'
+            '^.+\\\\\\\\.[tj]s$': 'babel-jest',
           },
           moduleFileExtensions: ['ts', 'js', 'html'],
-          coverageDirectory: '../../coverage/apps/my-app'
+          coverageDirectory: '../../coverage/apps/my-app',
         };
         "
       `);
@@ -458,13 +572,70 @@ describe('app', () => {
           preset: '../../jest.preset.js',
           setupFilesAfterEnv: ['<rootDir>/src/test-setup.ts'],
           transform: {
-            '^.+\\\\\\\\.[tj]s$': '@swc/jest'
+            '^.+\\\\\\\\.[tj]s$': '@swc/jest',
           },
           moduleFileExtensions: ['ts', 'js', 'html'],
-          coverageDirectory: '../../coverage/apps/my-app'
+          coverageDirectory: '../../coverage/apps/my-app',
         };
         "
       `);
+    });
+  });
+
+  describe('setup web app with --bundler=vite', () => {
+    let viteAppTree: Tree;
+    beforeAll(async () => {
+      viteAppTree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
+      await applicationGenerator(viteAppTree, {
+        name: 'myApp',
+        bundler: 'vite',
+      });
+    });
+
+    it('should setup targets with vite configuration', () => {
+      const projects = getProjects(viteAppTree);
+      const targetConfig = projects.get('my-app').targets;
+      expect(targetConfig.build.executor).toEqual('@nrwl/vite:build');
+      expect(targetConfig.serve.executor).toEqual('@nrwl/vite:dev-server');
+      expect(targetConfig.serve.options).toEqual({
+        buildTarget: 'my-app:build',
+      });
+    });
+    it('should add dependencies in package.json', () => {
+      const packageJson = readJson(viteAppTree, '/package.json');
+
+      expect(packageJson.devDependencies).toMatchObject({
+        vite: expect.any(String),
+      });
+    });
+
+    it('should create correct tsconfig compilerOptions', () => {
+      const tsconfigJson = readJson(viteAppTree, '/apps/my-app/tsconfig.json');
+      expect(tsconfigJson.compilerOptions.types).toMatchObject([
+        'vite/client',
+        'vitest',
+      ]);
+    });
+
+    it('should create index.html and vite.config file at the root of the app', () => {
+      expect(viteAppTree.exists('/apps/my-app/index.html')).toBe(true);
+      expect(viteAppTree.exists('/apps/my-app/vite.config.ts')).toBe(true);
+    });
+
+    it('should not include a spec file when the bundler or unitTestRunner is vite and insourceTests is false', async () => {
+      expect(
+        viteAppTree.exists('/apps/my-app/src/app/app.element.spec.ts')
+      ).toBe(true);
+
+      await applicationGenerator(viteAppTree, {
+        name: 'insourceTests',
+        bundler: 'vite',
+        inSourceTests: true,
+      });
+
+      expect(
+        viteAppTree.exists('/apps/insource-tests/src/app/app.element.spec.ts')
+      ).toBe(false);
     });
   });
 });

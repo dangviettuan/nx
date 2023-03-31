@@ -2,10 +2,9 @@ import type { Tree } from '@nrwl/devkit';
 import {
   formatFiles,
   normalizePath,
+  readNxJson,
   readProjectConfiguration,
-  readWorkspaceConfiguration,
 } from '@nrwl/devkit';
-import { wrapAngularDevkitSchematic } from '@nrwl/devkit/ngcli-adapter';
 import { exportScam } from '../utils/export-scam';
 import { getComponentFileInfo } from '../utils/file-info';
 import { pathStartsWith } from '../utils/path';
@@ -18,6 +17,7 @@ export async function scamGenerator(tree: Tree, rawOptions: Schema) {
 
   checkPathUnderProjectRoot(tree, options);
 
+  const { wrapAngularDevkitSchematic } = require('@nrwl/devkit/ngcli-adapter');
   const angularComponentSchematic = wrapAngularDevkitSchematic(
     '@schematics/angular',
     'component'
@@ -41,9 +41,7 @@ function checkPathUnderProjectRoot(tree: Tree, options: Partial<Schema>) {
     return;
   }
 
-  const project =
-    options.project ?? readWorkspaceConfiguration(tree).defaultProject;
-  const { root } = readProjectConfiguration(tree, project);
+  const { root } = readProjectConfiguration(tree, options.project);
 
   let pathToComponent = normalizePath(options.path);
   pathToComponent = pathToComponent.startsWith('/')

@@ -1,24 +1,114 @@
 import {
   checkFilesDoNotExist,
   checkFilesExist,
+  cleanupProject,
   e2eCwd,
+  expectCodeIsFormatted,
   expectNoAngularDevkit,
   expectNoTsJestInJestConfig,
-  getPackageManagerCommand,
   getSelectedPackageManager,
   packageManagerLockFile,
   readJson,
-  runCLI,
   runCreateWorkspace,
   uniq,
-  updateFile,
-  updateJson,
 } from '@nrwl/e2e/utils';
 import { existsSync, mkdirSync } from 'fs-extra';
-import { execSync } from 'child_process';
 
 describe('create-nx-workspace', () => {
   const packageManager = getSelectedPackageManager() || 'pnpm';
+
+  afterEach(() => cleanupProject());
+
+  it('should create a workspace with a single angular app at the root with routing', () => {
+    const wsName = uniq('angular');
+
+    runCreateWorkspace(wsName, {
+      preset: 'angular-standalone',
+      appName: wsName,
+      style: 'css',
+      packageManager,
+      standaloneApi: false,
+      routing: true,
+    });
+
+    checkFilesExist('package.json');
+    checkFilesExist('src/app/app.routes.ts');
+    checkFilesDoNotExist('tsconfig.base.json');
+    checkFilesExist('project.json');
+    expectCodeIsFormatted();
+  });
+
+  it('should create a workspace with a single angular app at the root without routing', () => {
+    const wsName = uniq('angular');
+
+    runCreateWorkspace(wsName, {
+      preset: 'angular-standalone',
+      appName: wsName,
+      style: 'css',
+      packageManager,
+      routing: false,
+    });
+
+    checkFilesExist('package.json');
+    checkFilesExist('project.json');
+    checkFilesExist('src/app/app.module.ts');
+    checkFilesDoNotExist('src/app/app.routes.ts');
+    expectCodeIsFormatted();
+  });
+
+  it('should create a workspace with a single angular app at the root using standalone APIs', () => {
+    const wsName = uniq('angular');
+
+    runCreateWorkspace(wsName, {
+      preset: 'angular-standalone',
+      appName: wsName,
+      style: 'css',
+      packageManager,
+      standaloneApi: true,
+      routing: true,
+    });
+
+    checkFilesExist('package.json');
+    checkFilesExist('project.json');
+    checkFilesDoNotExist('src/app/app.module.ts');
+    expectCodeIsFormatted();
+  });
+
+  it('should create a workspace with a single react app with vite at the root', () => {
+    const wsName = uniq('react');
+
+    runCreateWorkspace(wsName, {
+      preset: 'react-standalone',
+      appName: wsName,
+      style: 'css',
+      packageManager,
+      bundler: 'vite',
+    });
+
+    checkFilesExist('package.json');
+    checkFilesExist('project.json');
+    checkFilesExist('vite.config.ts');
+    checkFilesDoNotExist('tsconfig.base.json');
+    expectCodeIsFormatted();
+  });
+
+  it('should create a workspace with a single react app with webpack at the root', () => {
+    const wsName = uniq('react');
+
+    runCreateWorkspace(wsName, {
+      preset: 'react-standalone',
+      appName: wsName,
+      style: 'css',
+      packageManager,
+      bundler: 'webpack',
+    });
+
+    checkFilesExist('package.json');
+    checkFilesExist('project.json');
+    checkFilesExist('webpack.config.js');
+    checkFilesDoNotExist('tsconfig.base.json');
+    expectCodeIsFormatted();
+  });
 
   it('should be able to create an empty workspace built for apps', () => {
     const wsName = uniq('apps');
@@ -28,7 +118,6 @@ describe('create-nx-workspace', () => {
     });
 
     checkFilesExist(
-      'workspace.json',
       'package.json',
       packageManagerLockFile[packageManager],
       'apps/.gitkeep',
@@ -37,8 +126,6 @@ describe('create-nx-workspace', () => {
     const foreignLockFiles = Object.keys(packageManagerLockFile)
       .filter((pm) => pm !== packageManager)
       .map((pm) => packageManagerLockFile[pm]);
-
-    checkFilesDoNotExist(...foreignLockFiles);
 
     expectNoAngularDevkit();
   });
@@ -51,46 +138,32 @@ describe('create-nx-workspace', () => {
     });
 
     expectNoAngularDevkit();
-
-    const parent = uniq('parent');
-    const child = uniq('child');
-    runCLI(`generate npm-package ${parent}`);
-    runCLI(`generate npm-package ${child}`);
-
-    updateJson(`packages/${parent}/package.json`, (json) => {
-      json.dependencies = {
-        [`@${wsName}/${child}`]: '*',
-      };
-      return json;
-    });
-    updateFile(
-      `packages/${parent}/src/index.js`,
-      `require('@${wsName}/${child}');`
-    );
-
-    runCLI(`test ${parent}`);
-    runCLI(`test ${child}`);
+    checkFilesDoNotExist('tsconfig.base.json');
   });
 
   it('should be able to create an empty workspace with ts/js capabilities', () => {
     const wsName = uniq('ts');
     runCreateWorkspace(wsName, {
-      preset: 'npm',
+      preset: 'ts',
       packageManager,
     });
 
     expectNoAngularDevkit();
+    expectCodeIsFormatted();
   });
 
   it('should be able to create an angular workspace', () => {
     const wsName = uniq('angular');
     const appName = uniq('app');
     runCreateWorkspace(wsName, {
-      preset: 'angular',
+      preset: 'angular-monorepo',
       style: 'css',
       appName,
       packageManager,
+      standaloneApi: false,
+      routing: true,
     });
+    expectCodeIsFormatted();
   });
 
   it('should fail correctly when preset errors', () => {
@@ -99,31 +172,54 @@ describe('create-nx-workspace', () => {
     // Due to a validation error Angular will throw.
     const wsName = uniq('angular-1-test');
     const appName = uniq('app');
-    try {
+    expect(() =>
       runCreateWorkspace(wsName, {
-        preset: 'angular',
+        preset: 'angular-monorepo',
         style: 'css',
         appName,
         packageManager,
-      });
-    } catch (e) {
-      expect(e).toBeTruthy();
-    }
+        standaloneApi: false,
+        routing: true,
+      })
+    ).toThrow();
   });
 
-  it('should be able to create an react workspace', () => {
+  it('should be able to create a react workspace with webpack', () => {
     const wsName = uniq('react');
     const appName = uniq('app');
 
     runCreateWorkspace(wsName, {
-      preset: 'react',
+      preset: 'react-monorepo',
       style: 'css',
       appName,
       packageManager,
+      bundler: 'webpack',
     });
 
     expectNoAngularDevkit();
     expectNoTsJestInJestConfig(appName);
+    const packageJson = readJson('package.json');
+    expect(packageJson.devDependencies['@nrwl/webpack']).toBeDefined();
+    expectCodeIsFormatted();
+  });
+
+  it('should be able to create a react workspace with vite', () => {
+    const wsName = uniq('react');
+    const appName = uniq('app');
+
+    runCreateWorkspace(wsName, {
+      preset: 'react-monorepo',
+      style: 'css',
+      appName,
+      packageManager,
+      bundler: 'vite',
+    });
+
+    expectNoAngularDevkit();
+    const packageJson = readJson('package.json');
+    expect(packageJson.devDependencies['@nrwl/webpack']).not.toBeDefined();
+    expect(packageJson.devDependencies['@nrwl/vite']).toBeDefined();
+    expectCodeIsFormatted();
   });
 
   it('should be able to create an next workspace', () => {
@@ -137,6 +233,7 @@ describe('create-nx-workspace', () => {
     });
 
     expectNoAngularDevkit();
+    expectCodeIsFormatted();
   });
 
   it('should be able to create an web-components workspace', () => {
@@ -150,31 +247,7 @@ describe('create-nx-workspace', () => {
     });
 
     expectNoAngularDevkit();
-  });
-
-  it('should be able to create an angular + nest workspace', () => {
-    const wsName = uniq('angular-nest');
-    const appName = uniq('app');
-    runCreateWorkspace(wsName, {
-      preset: 'angular-nest',
-      style: 'css',
-      appName,
-      packageManager,
-    });
-  });
-
-  it('should be able to create an react + express workspace', () => {
-    const wsName = uniq('react-express');
-    const appName = uniq('app');
-    runCreateWorkspace(wsName, {
-      preset: 'react-express',
-      style: 'css',
-      appName,
-      packageManager,
-    });
-
-    expectNoAngularDevkit();
-    expectNoTsJestInJestConfig(appName);
+    expectCodeIsFormatted();
   });
 
   it('should be able to create an express workspace', () => {
@@ -188,6 +261,33 @@ describe('create-nx-workspace', () => {
     });
 
     expectNoAngularDevkit();
+    expectCodeIsFormatted();
+  });
+
+  it('should be able to create react-native workspace', () => {
+    const wsName = uniq('react-native');
+    const appName = uniq('app');
+    runCreateWorkspace(wsName, {
+      preset: 'react-native',
+      appName,
+      packageManager: 'npm',
+    });
+
+    expectNoAngularDevkit();
+    expectCodeIsFormatted();
+  });
+
+  it('should be able to create an expo workspace', () => {
+    const wsName = uniq('expo');
+    const appName = uniq('app');
+    runCreateWorkspace(wsName, {
+      preset: 'expo',
+      appName,
+      packageManager: 'npm',
+    });
+
+    expectNoAngularDevkit();
+    expectCodeIsFormatted();
   });
 
   it('should be able to create a workspace with a custom base branch and HEAD', () => {
@@ -217,26 +317,7 @@ describe('create-nx-workspace', () => {
       appName,
       packageManager,
     });
-  });
-
-  it('should handle spaces in workspace path', () => {
-    const wsName = uniq('empty');
-
-    const tmpDir = `${e2eCwd}/${uniq('with space')}`;
-
-    mkdirSync(tmpDir, { recursive: true });
-
-    const createCommand = getPackageManagerCommand({
-      packageManager,
-    }).createWorkspace;
-    const fullCommand = `${createCommand} ${wsName} --cli=nx --preset=apps --no-nxCloud --no-interactive`;
-    execSync(fullCommand, {
-      cwd: tmpDir,
-      stdio: [0, 1, 2],
-      env: process.env,
-    });
-
-    expect(existsSync(`${tmpDir}/${wsName}/package.json`)).toBeTruthy();
+    expectCodeIsFormatted();
   });
 
   it('should respect package manager preference', () => {
@@ -247,18 +328,20 @@ describe('create-nx-workspace', () => {
     process.env.SELECTED_PM = 'npm';
 
     runCreateWorkspace(wsName, {
-      preset: 'react',
+      preset: 'react-monorepo',
       style: 'css',
       appName,
       packageManager: 'npm',
+      bundler: 'webpack',
     });
 
     checkFilesDoNotExist('yarn.lock');
     checkFilesExist('package-lock.json');
+    expectCodeIsFormatted();
     process.env.SELECTED_PM = packageManager;
   });
 
-  it('should store package manager preference for angular cli', () => {
+  it('should store package manager preference for angular', () => {
     const wsName = uniq('pm');
     const appName = uniq('app');
 
@@ -266,17 +349,17 @@ describe('create-nx-workspace', () => {
     process.env.SELECTED_PM = 'npm';
 
     runCreateWorkspace(wsName, {
-      preset: 'angular',
+      preset: 'angular-monorepo',
       appName,
       style: 'css',
       packageManager: 'npm',
-      cli: 'angular',
+      routing: true,
+      standaloneApi: false,
     });
 
-    const nxJson = readJson('nx.json');
-    expect(nxJson.cli.packageManager).toEqual('npm');
     checkFilesDoNotExist('yarn.lock');
     checkFilesExist('package-lock.json');
+    expectCodeIsFormatted();
     process.env.SELECTED_PM = packageManager;
   });
 
@@ -337,5 +420,25 @@ describe('create-nx-workspace', () => {
         process.env.SELECTED_PM = packageManager;
       }, 90000);
     }
+  });
+});
+
+describe('create-nx-workspace custom parent folder', () => {
+  const tmpDir = `${e2eCwd}/${uniq('with space')}`;
+  const wsName = uniq('empty');
+  const packageManager = getSelectedPackageManager() || 'pnpm';
+
+  afterEach(() => cleanupProject({ cwd: `${tmpDir}/${wsName}` }));
+
+  it('should handle spaces in workspace path', () => {
+    mkdirSync(tmpDir, { recursive: true });
+
+    runCreateWorkspace(wsName, {
+      preset: 'apps',
+      packageManager,
+      cwd: tmpDir,
+    });
+
+    expect(existsSync(`${tmpDir}/${wsName}/package.json`)).toBeTruthy();
   });
 });

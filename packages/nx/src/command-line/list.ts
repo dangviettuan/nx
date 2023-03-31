@@ -3,7 +3,7 @@ import { output } from '../utils/output';
 import {
   fetchCommunityPlugins,
   fetchCorePlugins,
-  getInstalledPluginsFromPackageJson,
+  getInstalledPluginsAndCapabilities,
   listCommunityPlugins,
   listCorePlugins,
   listInstalledPlugins,
@@ -33,7 +33,7 @@ export interface ListArgs {
  */
 export async function listHandler(args: ListArgs): Promise<void> {
   if (args.plugin) {
-    listPluginCapabilities(args.plugin);
+    await listPluginCapabilities(args.plugin);
   } else {
     const corePlugins = fetchCorePlugins();
     const communityPlugins = await fetchCommunityPlugins().catch(() => {
@@ -46,16 +46,16 @@ export async function listHandler(args: ListArgs): Promise<void> {
     });
     const projectGraph = await createProjectGraphAsync({ exitOnError: true });
 
-    const localPlugins = getLocalWorkspacePlugins(
+    const localPlugins = await getLocalWorkspacePlugins(
       readProjectsConfigurationFromProjectGraph(projectGraph)
     );
-    const installedPlugins = getInstalledPluginsFromPackageJson(
-      workspaceRoot,
-      corePlugins,
-      communityPlugins
+    const installedPlugins = await getInstalledPluginsAndCapabilities(
+      workspaceRoot
     );
 
-    listLocalWorkspacePlugins(localPlugins);
+    if (localPlugins.size) {
+      listLocalWorkspacePlugins(localPlugins);
+    }
     listInstalledPlugins(installedPlugins);
     listCorePlugins(installedPlugins, corePlugins);
     listCommunityPlugins(installedPlugins, communityPlugins);

@@ -15,7 +15,8 @@
         "index": 0
       },
       "x-prompt": "For which project do you want to generate the Cypress E2E app?",
-      "x-dropdown": "projects"
+      "x-dropdown": "projects",
+      "x-priority": "important"
     },
     "js": {
       "type": "boolean",
@@ -29,12 +30,19 @@
     "linter": {
       "description": "The tool to use for running lint checks.",
       "type": "string",
-      "enum": ["eslint", "tslint", "none"],
+      "enum": ["eslint", "none"],
       "default": "eslint"
     },
     "standaloneConfig": {
       "description": "Split the project configuration into `<projectRoot>/project.json` rather than including it inside `workspace.json`.",
-      "type": "boolean"
+      "type": "boolean",
+      "default": true,
+      "x-deprecated": "Nx only supports standaloneConfig"
+    },
+    "ciTargetName": {
+      "type": "string",
+      "description": "The name of the devServerTarget to use for the Cypress CI configuration. Used to control if using <storybook-project>:static-storybook:ci or <storybook-project>:storybook:ci",
+      "x-priority": "internal"
     }
   },
   "required": ["name"]

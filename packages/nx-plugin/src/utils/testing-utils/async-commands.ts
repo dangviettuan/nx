@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import { tmpProjPath } from './paths';
 import { getPackageManagerCommand } from '@nrwl/devkit';
+import { fileExists } from './utils';
 
 /**
  * Run a command asynchronously inside the e2e directory.
@@ -10,7 +11,7 @@ import { getPackageManagerCommand } from '@nrwl/devkit';
  */
 export function runCommandAsync(
   command: string,
-  opts = {
+  opts: { silenceError?: boolean; env?: NodeJS.ProcessEnv } = {
     silenceError: false,
   }
 ): Promise<{ stdout: string; stderr: string }> {
@@ -19,6 +20,7 @@ export function runCommandAsync(
       command,
       {
         cwd: tmpProjPath(),
+        env: { ...process.env, ...opts.env },
       },
       (err, stdout, stderr) => {
         if (!opts.silenceError && err) {
@@ -37,10 +39,16 @@ export function runCommandAsync(
  */
 export function runNxCommandAsync(
   command: string,
-  opts = {
+  opts: { silenceError?: boolean; env?: NodeJS.ProcessEnv } = {
     silenceError: false,
   }
 ): Promise<{ stdout: string; stderr: string }> {
-  const pmc = getPackageManagerCommand();
-  return runCommandAsync(`${pmc.exec} nx ${command}`, opts);
+  if (fileExists(tmpProjPath('package.json'))) {
+    const pmc = getPackageManagerCommand();
+    return runCommandAsync(`${pmc.exec} nx ${command}`, opts);
+  } else if (process.platform === 'win32') {
+    return runCommandAsync(`./nx.bat %${command}`, opts);
+  } else {
+    return runCommandAsync(`./nx %${command}`, opts);
+  }
 }

@@ -6,8 +6,8 @@ import {
   updateProjectConfiguration,
 } from '@nrwl/devkit';
 import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
-import { jestInitGenerator } from '@nrwl/jest';
 import { libraryGenerator as workspaceLib } from '@nrwl/workspace';
+import jestInitGenerator from '../../generators/init/init';
 import { updateJestConfigExt } from './update-jest-config-ext';
 
 const setupDefaults = {
@@ -16,6 +16,22 @@ const setupDefaults = {
   libName: 'lib-one',
   setParserOptionsProject: false,
 };
+const oldConfig = `
+module.exports = {
+  displayName: 'PLACE_HOLDER',
+  preset: '../../jest.preset.js',
+  globals: {
+    'ts-jest': {
+      tsconfig: '<rootDir>/tsconfig.spec.json',
+    }
+  },
+  transform: {
+    '^.+\\\\.[tj]sx?$': 'ts-jest'
+  },
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
+  coverageDirectory: '../../coverage/libs/PLACE_HOLDER'
+};
+`;
 
 async function libSetUp(tree: Tree, options = setupDefaults) {
   jestInitGenerator(tree, {
@@ -30,12 +46,9 @@ async function libSetUp(tree: Tree, options = setupDefaults) {
     `libs/${options.libName}/jest.config.ts`,
     `libs/${options.libName}/jest.config.js`
   );
-  const config = tree.read(`libs/${options.libName}/jest.config.js`, 'utf-8');
   tree.write(
     `libs/${options.libName}/jest.config.js`,
-    config
-      .replace(/\/\* eslint-disable \*\//g, '')
-      .replace(/export default/g, 'module.exports =')
+    oldConfig.replace(/PLACE_HOLDER/g, options.libName)
   );
   updateProjectConfiguration(tree, options.libName, {
     ...readProjectConfiguration(tree, options.libName),
@@ -59,7 +72,7 @@ async function libSetUp(tree: Tree, options = setupDefaults) {
 describe('Jest Migration (v14.0.0)', () => {
   let tree: Tree;
   beforeEach(async () => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
   });
 
   it('should rename project jest.config.js to jest.config.ts', async () => {
@@ -156,12 +169,12 @@ describe('Jest Migration (v14.0.0)', () => {
     await libSetUp(tree);
 
     updateJson(tree, 'libs/lib-one/tsconfig.lib.json', (json) => {
-      json.exclude = ['**/*.spec.ts'];
+      json.exclude = ['src/**/*.spec.ts'];
       return json;
     });
 
     updateJson(tree, 'libs/lib-one/tsconfig.spec.json', (json) => {
-      json.include = ['**/*.spec.ts'];
+      json.include = ['src/**/*.spec.ts'];
       return json;
     });
 
@@ -172,9 +185,12 @@ describe('Jest Migration (v14.0.0)', () => {
     const specTsConfig = readJson(tree, 'libs/lib-one/tsconfig.spec.json');
 
     expect(tsconfig.exclude).toBeFalsy();
-    expect(libTsConfig.exclude).toEqual(['**/*.spec.ts', 'jest.config.ts']);
+    expect(libTsConfig.exclude).toEqual(['src/**/*.spec.ts', 'jest.config.ts']);
     expect(specTsConfig.exclude).toBeFalsy();
-    expect(specTsConfig.include).toEqual(['**/*.spec.ts', 'jest.config.ts']);
+    expect(specTsConfig.include).toEqual([
+      'src/**/*.spec.ts',
+      'jest.config.ts',
+    ]);
   });
 
   it('should add exclude to root tsconfig with no references', async () => {
@@ -224,11 +240,11 @@ describe('Jest Migration (v14.0.0)', () => {
   it('should produce the same results when running multiple times', async () => {
     await libSetUp(tree);
     updateJson(tree, 'libs/lib-one/tsconfig.lib.json', (json) => {
-      json.exclude = ['**/*.spec.ts'];
+      json.exclude = ['src/**/*.spec.ts'];
       return json;
     });
     updateJson(tree, 'libs/lib-one/tsconfig.spec.json', (json) => {
-      json.include = ['**/*.spec.ts'];
+      json.include = ['src/**/*.spec.ts'];
       return json;
     });
 
@@ -284,15 +300,15 @@ function assertLib(tree: Tree) {
   expect(readJson(tree, 'libs/lib-one/tsconfig.json').exclude).toBeFalsy();
   expect(readJson(tree, 'libs/lib-one/tsconfig.spec.json').exclude).toBeFalsy();
   expect(readJson(tree, 'libs/lib-one/tsconfig.spec.json').include).toEqual([
-    '**/*.spec.ts',
+    'src/**/*.spec.ts',
     'jest.config.ts',
   ]);
 
   expect(readJson(tree, 'libs/lib-one/tsconfig.lib.json').exclude).toEqual([
-    '**/*.spec.ts',
+    'src/**/*.spec.ts',
     'jest.config.ts',
   ]);
   expect(readJson(tree, 'libs/lib-one/tsconfig.lib.json').include).toEqual([
-    '**/*.ts',
+    'src/**/*.ts',
   ]);
 }

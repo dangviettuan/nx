@@ -1,5 +1,8 @@
 import type { NxJsonConfiguration } from './nx-json';
 
+/**
+ * @deprecated use ProjectsConfigurations or NxJsonConfiguration
+ */
 export interface Workspace extends ProjectsConfigurations, NxJsonConfiguration {
   projects: Record<string, ProjectConfiguration>;
 }
@@ -24,11 +27,6 @@ export interface ProjectsConfigurations {
   projects: {
     [projectName: string]: ProjectConfiguration;
   };
-}
-
-export interface RawProjectsConfigurations
-  extends Omit<ProjectsConfigurations, 'projects'> {
-  projects: { [projectName: string]: ProjectConfiguration | string };
 }
 
 /**
@@ -137,7 +135,12 @@ export interface TargetConfiguration<T = any> {
    *
    * Example: '@nrwl/web:rollup'
    */
-  executor: string;
+  executor?: string;
+
+  /**
+   * Used as a shorthand for nx:run-commands, a command to run.
+   */
+  command?: string;
 
   /**
    * List of the target's outputs. The outputs will be cached by the Nx computation

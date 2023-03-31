@@ -1,28 +1,65 @@
 import { workspaceRoot } from '../../utils/workspace-root';
 import type { Server, Socket } from 'net';
 import { serverLogger } from './logger';
-import type { WatcherSubscription } from './watcher';
-import { serializeResult } from 'nx/src/daemon/socket-utils';
+import { serializeResult } from '../socket-utils';
+import type { AsyncSubscription } from '@parcel/watcher';
+import { deleteDaemonJsonProcessCache } from '../cache';
 
 export const SERVER_INACTIVITY_TIMEOUT_MS = 10800000 as const; // 10800000 ms = 3 hours
+
+let sourceWatcherSubscription: AsyncSubscription | undefined;
+let outputsWatcherSubscription: AsyncSubscription | undefined;
+
+export function getSourceWatcherSubscription() {
+  return sourceWatcherSubscription;
+}
+
+export function storeSourceWatcherSubscription(s: AsyncSubscription) {
+  sourceWatcherSubscription = s;
+}
+
+export function getOutputsWatcherSubscription() {
+  return outputsWatcherSubscription;
+}
+
+export function storeOutputsWatcherSubscription(s: AsyncSubscription) {
+  outputsWatcherSubscription = s;
+}
+
+let processJsonSubscription: AsyncSubscription | undefined;
+
+export function storeProcessJsonSubscription(s: AsyncSubscription) {
+  processJsonSubscription = s;
+}
 
 interface HandleServerProcessTerminationParams {
   server: Server;
   reason: string;
-  watcherSubscription: WatcherSubscription | undefined;
 }
 
 export async function handleServerProcessTermination({
   server,
   reason,
-  watcherSubscription,
 }: HandleServerProcessTerminationParams) {
   try {
     server.close();
-    if (watcherSubscription) {
-      await watcherSubscription.unsubscribe();
+    deleteDaemonJsonProcessCache();
+    if (sourceWatcherSubscription) {
+      await sourceWatcherSubscription.unsubscribe();
       serverLogger.watcherLog(
-        `Unsubscribed from changes within: ${workspaceRoot}`
+        `Unsubscribed from changes within: ${workspaceRoot} (sources)`
+      );
+    }
+    if (outputsWatcherSubscription) {
+      await outputsWatcherSubscription.unsubscribe();
+      serverLogger.watcherLog(
+        `Unsubscribed from changes within: ${workspaceRoot} (outputs)`
+      );
+    }
+    if (processJsonSubscription) {
+      await processJsonSubscription.unsubscribe();
+      serverLogger.watcherLog(
+        `Unsubscribed from changes within: ${workspaceRoot} (server-process.json)`
       );
     }
     serverLogger.log(`Server stopped because: "${reason}"`);
@@ -45,14 +82,15 @@ export function respondToClient(
   response: string,
   description: string
 ) {
-  return new Promise((res) => {
-    socket.write(response, () => {
-      if (description) {
-        serverLogger.requestLog(`Responding to the client.`, description);
+  return new Promise(async (res) => {
+    if (description) {
+      serverLogger.requestLog(`Responding to the client.`, description);
+    }
+    socket.write(`${response}${String.fromCodePoint(4)}`, (err) => {
+      if (err) {
+        console.error(err);
       }
-      // Close the connection once all data has been written so that the client knows when to read it.
-      socket.end();
-      serverLogger.log(`Closed Connection to Client`);
+      serverLogger.log(`Done responding to the client`, description);
       res(null);
     });
   });

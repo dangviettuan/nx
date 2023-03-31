@@ -2,11 +2,13 @@ import {
   addDependenciesToPackageJson,
   convertNxGenerator,
   formatFiles,
+  GeneratorCallback,
   removeDependenciesFromPackageJson,
+  runTasksInSerial,
   Tree,
 } from '@nrwl/devkit';
 import { jestVersion, typesNodeVersion } from '@nrwl/jest/src/utils/versions';
-import { runTasksInSerial } from '@nrwl/workspace/src/utilities/run-tasks-in-serial';
+
 import { Schema } from './schema';
 import {
   detoxVersion,
@@ -15,7 +17,12 @@ import {
 } from '../../utils/versions';
 
 export async function detoxInitGenerator(host: Tree, schema: Schema) {
-  const tasks = [moveDependency(host), updateDependencies(host)];
+  const tasks: GeneratorCallback[] = [];
+
+  if (!schema.skipPackageJson) {
+    tasks.push(moveDependency(host));
+    tasks.push(updateDependencies(host));
+  }
 
   if (!schema.skipFormat) {
     await formatFiles(host);

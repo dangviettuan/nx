@@ -5,7 +5,7 @@ import {
   Tree,
   writeJson,
 } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { libraryGenerator } from '../../library/library';
 import { NormalizedSchema } from '../schema';
 import { updateCypressConfig } from './update-cypress-config';
@@ -25,8 +25,8 @@ describe('updateCypressConfig', () => {
       relativeToRootDestination: 'libs/my-destination',
     };
 
-    tree = createTreeWithEmptyV1Workspace();
-    await libraryGenerator(tree, { name: 'my-lib', standaloneConfig: false });
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
+    await libraryGenerator(tree, { name: 'my-lib' });
     projectConfig = readProjectConfiguration(tree, 'my-lib');
   });
 
@@ -57,6 +57,25 @@ describe('updateCypressConfig', () => {
       videosFolder: '../../dist/cypress/libs/my-destination/videos',
       screenshotsFolder: '../../dist/cypress/libs/my-destination/screenshots',
     });
+  });
+
+  it('should noop if the videos and screenshots folders are not defined', async () => {
+    const cypressJson = {
+      fileServerFolder: '.',
+      fixturesFolder: './src/fixtures',
+      integrationFolder: './src/integration',
+      pluginsFile: './src/plugins/index',
+      supportFile: false,
+      video: false,
+      chromeWebSecurity: false,
+    };
+    writeJson(tree, '/libs/my-destination/cypress.json', cypressJson);
+
+    updateCypressConfig(tree, schema, projectConfig);
+
+    expect(readJson(tree, '/libs/my-destination/cypress.json')).toEqual(
+      cypressJson
+    );
   });
 
   it('should handle updating cypress.config.ts', async () => {

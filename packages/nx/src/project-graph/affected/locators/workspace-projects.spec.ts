@@ -1,8 +1,8 @@
 import {
   ProjectGraph,
   ProjectGraphProjectNode,
-} from 'nx/src/config/project-graph';
-import { ProjectConfiguration } from 'nx/src/config/workspace-json-project-json';
+} from '../../../config/project-graph';
+import { ProjectConfiguration } from '../../../config/workspace-json-project-json';
 import { WholeFileChange } from '../../file-utils';
 import {
   getTouchedProjects,
@@ -65,6 +65,17 @@ describe('getTouchedProjects', () => {
       getTouchedProjects(fileChanges, buildProjectGraphNodes(projects))
     ).toEqual(['ab']);
   });
+
+  it('should not return parent project if nested project is touched', () => {
+    const fileChanges = getFileChanges(['libs/a/b/index.ts']);
+    const projects = {
+      a: { root: 'libs/a' },
+      b: { root: 'libs/a/b' },
+    };
+    expect(
+      getTouchedProjects(fileChanges, buildProjectGraphNodes(projects))
+    ).toEqual(['b']);
+  });
 });
 
 describe('getImplicitlyTouchedProjects', () => {
@@ -93,6 +104,44 @@ describe('getImplicitlyTouchedProjects', () => {
       'a',
       'b',
       'c',
+    ]);
+  });
+
+  it('should return projects which have touched files in their named inputs', () => {
+    const graph = buildProjectGraphNodes({
+      a: {
+        root: 'a',
+        namedInputs: {
+          projectSpecificFiles: ['{workspaceRoot}/a.txt'],
+        },
+      },
+      b: {
+        root: 'b',
+      },
+    });
+    let fileChanges = getFileChanges(['a.txt']);
+    expect(getImplicitlyTouchedProjects(fileChanges, graph, nxJson)).toEqual([
+      'a',
+    ]);
+  });
+
+  it('should return projects which have touched files in their target inputs', () => {
+    const graph = buildProjectGraphNodes({
+      a: {
+        root: 'a',
+        targets: {
+          build: {
+            inputs: ['{workspaceRoot}/a.txt'],
+          },
+        },
+      },
+      b: {
+        root: 'b',
+      },
+    });
+    let fileChanges = getFileChanges(['a.txt']);
+    expect(getImplicitlyTouchedProjects(fileChanges, graph, nxJson)).toEqual([
+      'a',
     ]);
   });
 
@@ -150,50 +199,20 @@ describe('getImplicitlyTouchedProjects', () => {
 
 describe('extractGlobalFilesFromInputs', () => {
   it('should return list of global files from nx.json', () => {
-    const globalFiles = extractGlobalFilesFromInputs(
-      {
-        namedInputs: {
-          one: [
-            '{workspaceRoot}/global1.txt',
-            { fileset: '{workspaceRoot}/global2.txt' },
-            '{projectRoot}/local.txt',
-          ],
-        },
-        targetDefaults: {
-          build: {
-            inputs: ['{workspaceRoot}/global3.txt'],
-          },
+    const globalFiles = extractGlobalFilesFromInputs({
+      namedInputs: {
+        one: [
+          '{workspaceRoot}/global1.txt',
+          { fileset: '{workspaceRoot}/global2.txt' },
+          '{projectRoot}/local.txt',
+        ],
+      },
+      targetDefaults: {
+        build: {
+          inputs: ['{workspaceRoot}/global3.txt'],
         },
       },
-      {}
-    );
-    expect(globalFiles).toEqual(['global1.txt', 'global2.txt', 'global3.txt']);
-  });
-
-  it('should return list of global files from project configuration', () => {
-    const globalFiles = extractGlobalFilesFromInputs(
-      {},
-      {
-        one: {
-          name: 'one',
-          type: 'lib',
-          data: {
-            namedInputs: {
-              one: [
-                '{workspaceRoot}/global1.txt',
-                { fileset: '{workspaceRoot}/global2.txt' },
-                '{projectRoot}/local.txt',
-              ],
-            },
-            targets: {
-              build: {
-                inputs: ['{workspaceRoot}/global3.txt'],
-              },
-            },
-          },
-        },
-      }
-    );
+    });
     expect(globalFiles).toEqual(['global1.txt', 'global2.txt', 'global3.txt']);
   });
 });
@@ -206,7 +225,7 @@ function buildProjectGraphNodes(
       ([name, config]): [string, ProjectGraphProjectNode] => [
         name,
         {
-          data: config,
+          data: config as any,
           name,
           type: config.projectType === 'application' ? 'app' : 'lib',
         },

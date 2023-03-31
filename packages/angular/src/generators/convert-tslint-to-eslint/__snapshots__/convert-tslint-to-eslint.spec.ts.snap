@@ -155,7 +155,18 @@ Object {
           },
         ],
         "@typescript-eslint/member-ordering": "error",
-        "@typescript-eslint/naming-convention": "error",
+        "@typescript-eslint/naming-convention": Array [
+          "error",
+          Object {
+            "format": Array [
+              "camelCase",
+              "UPPER_CASE",
+            ],
+            "leadingUnderscore": "forbid",
+            "selector": "variable",
+            "trailingUnderscore": "forbid",
+          },
+        ],
         "@typescript-eslint/no-empty-function": "off",
         "@typescript-eslint/no-empty-interface": "error",
         "@typescript-eslint/no-inferrable-types": Array [
@@ -190,29 +201,7 @@ Object {
         "no-caller": "error",
         "no-console": Array [
           "error",
-          Object {
-            "allow": Array [
-              "log",
-              "warn",
-              "dir",
-              "timeLog",
-              "assert",
-              "clear",
-              "count",
-              "countReset",
-              "group",
-              "groupEnd",
-              "table",
-              "dirxml",
-              "error",
-              "groupCollapsed",
-              "_buffer",
-              "_counters",
-              "_timers",
-              "_groupDepth",
-              "Console",
-            ],
-          },
+          Object {},
         ],
         "no-debugger": "error",
         "no-empty": "off",
@@ -469,7 +458,18 @@ Object {
           },
         ],
         "@typescript-eslint/member-ordering": "error",
-        "@typescript-eslint/naming-convention": "error",
+        "@typescript-eslint/naming-convention": Array [
+          "error",
+          Object {
+            "format": Array [
+              "camelCase",
+              "UPPER_CASE",
+            ],
+            "leadingUnderscore": "forbid",
+            "selector": "variable",
+            "trailingUnderscore": "forbid",
+          },
+        ],
         "@typescript-eslint/no-empty-function": "off",
         "@typescript-eslint/no-empty-interface": "error",
         "@typescript-eslint/no-inferrable-types": Array [
@@ -504,29 +504,7 @@ Object {
         "no-caller": "error",
         "no-console": Array [
           "error",
-          Object {
-            "allow": Array [
-              "log",
-              "warn",
-              "dir",
-              "timeLog",
-              "assert",
-              "clear",
-              "count",
-              "countReset",
-              "group",
-              "groupEnd",
-              "table",
-              "dirxml",
-              "error",
-              "groupCollapsed",
-              "_buffer",
-              "_counters",
-              "_timers",
-              "_groupDepth",
-              "Console",
-            ],
-          },
+          Object {},
         ],
         "no-debugger": "error",
         "no-empty": "off",
@@ -573,13 +551,13 @@ exports[`convert-tslint-to-eslint should work for Angular applications 1`] = `
 Object {
   "dependencies": Object {},
   "devDependencies": Object {
-    "@angular-eslint/eslint-plugin": "~14.0.0",
-    "@angular-eslint/eslint-plugin-template": "~14.0.0",
-    "@angular-eslint/template-parser": "~14.0.0",
+    "@angular-eslint/eslint-plugin": "~15.0.0",
+    "@angular-eslint/eslint-plugin-template": "~15.0.0",
+    "@angular-eslint/template-parser": "~15.0.0",
     "@nrwl/eslint-plugin-nx": "0.0.1",
     "@nrwl/linter": "0.0.1",
-    "@typescript-eslint/eslint-plugin": "~5.33.1",
-    "@typescript-eslint/parser": "~5.33.1",
+    "@typescript-eslint/eslint-plugin": "^5.36.1",
+    "@typescript-eslint/parser": "^5.36.1",
     "eslint": "~8.15.0",
     "eslint-config-prettier": "8.1.0",
     "eslint-plugin-import": "latest",
@@ -590,6 +568,8 @@ Object {
 
 exports[`convert-tslint-to-eslint should work for Angular applications 2`] = `
 Object {
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "angular-app-1",
   "prefix": "angular-app",
   "projectType": "application",
   "root": "apps/angular-app-1",
@@ -602,6 +582,9 @@ Object {
           "apps/angular-app-1/**/*.html",
         ],
       },
+      "outputs": Array [
+        "{options.outputFile}",
+      ],
     },
   },
 }
@@ -762,7 +745,18 @@ Object {
           },
         ],
         "@typescript-eslint/member-ordering": "error",
-        "@typescript-eslint/naming-convention": "error",
+        "@typescript-eslint/naming-convention": Array [
+          "error",
+          Object {
+            "format": Array [
+              "camelCase",
+              "UPPER_CASE",
+            ],
+            "leadingUnderscore": "forbid",
+            "selector": "variable",
+            "trailingUnderscore": "forbid",
+          },
+        ],
         "@typescript-eslint/no-empty-function": "off",
         "@typescript-eslint/no-empty-interface": "error",
         "@typescript-eslint/no-inferrable-types": Array [
@@ -797,29 +791,7 @@ Object {
         "no-caller": "error",
         "no-console": Array [
           "error",
-          Object {
-            "allow": Array [
-              "log",
-              "warn",
-              "dir",
-              "timeLog",
-              "assert",
-              "clear",
-              "count",
-              "countReset",
-              "group",
-              "groupEnd",
-              "table",
-              "dirxml",
-              "error",
-              "groupCollapsed",
-              "_buffer",
-              "_counters",
-              "_timers",
-              "_groupDepth",
-              "Console",
-            ],
-          },
+          Object {},
         ],
         "no-debugger": "error",
         "no-empty": "off",
@@ -931,13 +903,13 @@ exports[`convert-tslint-to-eslint should work for Angular libraries 1`] = `
 Object {
   "dependencies": Object {},
   "devDependencies": Object {
-    "@angular-eslint/eslint-plugin": "~14.0.0",
-    "@angular-eslint/eslint-plugin-template": "~14.0.0",
-    "@angular-eslint/template-parser": "~14.0.0",
+    "@angular-eslint/eslint-plugin": "~15.0.0",
+    "@angular-eslint/eslint-plugin-template": "~15.0.0",
+    "@angular-eslint/template-parser": "~15.0.0",
     "@nrwl/eslint-plugin-nx": "0.0.1",
     "@nrwl/linter": "0.0.1",
-    "@typescript-eslint/eslint-plugin": "~5.33.1",
-    "@typescript-eslint/parser": "~5.33.1",
+    "@typescript-eslint/eslint-plugin": "^5.36.1",
+    "@typescript-eslint/parser": "^5.36.1",
     "eslint": "~8.15.0",
     "eslint-config-prettier": "8.1.0",
     "eslint-plugin-import": "latest",
@@ -948,6 +920,8 @@ Object {
 
 exports[`convert-tslint-to-eslint should work for Angular libraries 2`] = `
 Object {
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "angular-lib-1",
   "prefix": "angular-app",
   "projectType": "library",
   "root": "libs/angular-lib-1",
@@ -960,6 +934,9 @@ Object {
           "libs/angular-lib-1/**/*.html",
         ],
       },
+      "outputs": Array [
+        "{options.outputFile}",
+      ],
     },
   },
 }
@@ -1120,7 +1097,18 @@ Object {
           },
         ],
         "@typescript-eslint/member-ordering": "error",
-        "@typescript-eslint/naming-convention": "error",
+        "@typescript-eslint/naming-convention": Array [
+          "error",
+          Object {
+            "format": Array [
+              "camelCase",
+              "UPPER_CASE",
+            ],
+            "leadingUnderscore": "forbid",
+            "selector": "variable",
+            "trailingUnderscore": "forbid",
+          },
+        ],
         "@typescript-eslint/no-empty-function": "off",
         "@typescript-eslint/no-empty-interface": "error",
         "@typescript-eslint/no-inferrable-types": Array [
@@ -1155,29 +1143,7 @@ Object {
         "no-caller": "error",
         "no-console": Array [
           "error",
-          Object {
-            "allow": Array [
-              "log",
-              "warn",
-              "dir",
-              "timeLog",
-              "assert",
-              "clear",
-              "count",
-              "countReset",
-              "group",
-              "groupEnd",
-              "table",
-              "dirxml",
-              "error",
-              "groupCollapsed",
-              "_buffer",
-              "_counters",
-              "_timers",
-              "_groupDepth",
-              "Console",
-            ],
-          },
+          Object {},
         ],
         "no-debugger": "error",
         "no-empty": "off",

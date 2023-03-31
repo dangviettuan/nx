@@ -8,21 +8,19 @@ import {
   joinPathFragments,
   names,
   offsetFromRoot,
+  runTasksInSerial,
   TargetConfiguration,
   toJS,
   Tree,
   updateJson,
 } from '@nrwl/devkit';
-import { runTasksInSerial } from '@nrwl/workspace/src/utilities/run-tasks-in-serial';
+
+import { getRelativePathToRootTsConfig, updateRootTsConfig } from '@nrwl/js';
 import init from '../init/init';
 import { addLinting } from '../../utils/add-linting';
 import { addJest } from '../../utils/add-jest';
 import { NormalizedSchema, normalizeOptions } from './lib/normalize-options';
 import { Schema } from './schema';
-import {
-  getRelativePathToRootTsConfig,
-  getRootTsConfigPathInTree,
-} from '@nrwl/workspace/src/utilities/typescript';
 
 export async function reactNativeLibraryGenerator(
   host: Tree,
@@ -35,14 +33,14 @@ export async function reactNativeLibraryGenerator(
     );
   }
 
-  addProject(host, options);
-  createFiles(host, options);
-
   const initTask = await init(host, {
     ...options,
     skipFormat: true,
     e2eTestRunner: 'none',
   });
+
+  addProject(host, options);
+  createFiles(host, options);
 
   const lintTask = await addLinting(host, {
     ...options,
@@ -52,20 +50,21 @@ export async function reactNativeLibraryGenerator(
     ],
   });
 
-  if (!options.skipTsConfig) {
-    updateBaseTsConfig(host, options);
-  }
-
   const jestTask = await addJest(
     host,
     options.unitTestRunner,
     options.name,
     options.projectRoot,
-    options.js
+    options.js,
+    options.skipPackageJson
   );
 
   if (options.publishable || options.buildable) {
     updateLibPackageNpmScope(host, options);
+  }
+
+  if (!options.skipTsConfig) {
+    updateRootTsConfig(host, { ...options, js: false });
   }
 
   if (!options.skipFormat) {
@@ -130,31 +129,6 @@ function updateTsConfig(tree: Tree, options: NormalizedSchema) {
       return json;
     }
   );
-}
-
-function updateBaseTsConfig(host: Tree, options: NormalizedSchema) {
-  updateJson(host, getRootTsConfigPathInTree(host), (json) => {
-    const c = json.compilerOptions;
-    c.paths = c.paths || {};
-    delete c.paths[options.name];
-
-    if (c.paths[options.importPath]) {
-      throw new Error(
-        `You already have a library using the import path "${options.importPath}". Make sure to specify a unique one.`
-      );
-    }
-
-    const { libsDir } = getWorkspaceLayout(host);
-
-    c.paths[options.importPath] = [
-      maybeJs(
-        options,
-        joinPathFragments(libsDir, `${options.projectDirectory}/src/index.ts`)
-      ),
-    ];
-
-    return json;
-  });
 }
 
 function createFiles(host: Tree, options: NormalizedSchema) {

@@ -18,36 +18,36 @@ export const ParameterView = (props: {
   lookup: Lookup;
 }) => (
   <div key={'property-' + props.name} className="mb-8">
-    <div className="mb-2 flex items-center">
+    <div className="mb-1 flex items-center">
       <Heading3 title={props.name} />
       <div className="ml-4 flex-grow space-x-2">
         {props.alias && (
           <span
             data-tooltip="Property alias"
-            className="relative -top-0.5 inline-flex rounded-md border px-2 text-xs font-semibold uppercase leading-5 text-gray-600"
+            className="relative -top-0.5 inline-flex rounded-md px-2 text-xs font-semibold leading-5 dark:bg-slate-700"
           >
             {props.alias}
           </span>
         )}
         {props.required && (
-          <span className="relative -top-0.5 inline-flex rounded-md bg-gray-300 px-2 text-xs font-semibold uppercase leading-5 text-gray-800">
+          <span className="relative -top-0.5 inline-flex rounded-md bg-slate-100 px-2 text-xs font-semibold uppercase leading-5 dark:bg-slate-700">
             Required
           </span>
         )}
         {props.deprecated && (
-          <span className="relative -top-0.5 inline-flex rounded-md bg-red-100 px-2 text-xs font-semibold uppercase leading-5 text-gray-800">
+          <span className="relative -top-0.5 inline-flex rounded-md bg-red-100 px-2 text-xs font-semibold uppercase leading-5 text-red-800 dark:bg-red-800 dark:text-red-100">
             Deprecated
           </span>
         )}
         {((props.schema as any)['hidden'] as boolean) && (
-          <span className="relative -top-0.5 inline-flex rounded-md bg-yellow-300 px-2 text-xs font-semibold uppercase leading-5 text-yellow-800">
+          <span className="relative -top-0.5 inline-flex rounded-md bg-yellow-300 px-2 text-xs font-semibold uppercase leading-5 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100">
             Hidden
           </span>
         )}
       </div>
     </div>
-    <div className="mb-2 text-sm">
-      <div className="mb-1 text-green-600">
+    <div className="mb-1 text-sm">
+      <div className="mb-0.5 text-green-600">
         <Type
           s={props.schema}
           reference={props.reference}
@@ -60,30 +60,31 @@ export const ParameterView = (props: {
       )}
     </div>
 
-    <div className="prose">
-      {renderMarkdown({
-        content: props.description,
-        data: {},
-        filePath: '',
-      })}
+    <div className="prose prose-slate dark:prose-invert -mt-4 max-w-none">
+      {
+        renderMarkdown(props.description, {
+          filePath: '',
+        }).node
+      }
     </div>
 
-    {props.deprecated && !!props.schema['x-deprecated'] && (
-      <div className="prose mt-2 rounded-md bg-red-100 p-4">
-        {renderMarkdown({
-          content: props.schema['x-deprecated'] as string,
-          data: {},
-          filePath: '',
-        })}
+    {props.deprecated &&
+    typeof (props.schema as any)['x-deprecated'] === 'string' ? (
+      <div className="prose prose-slate dark:prose-invert mt-2 rounded-md bg-red-100 px-4 text-red-800 dark:bg-red-800 dark:text-red-100">
+        {
+          renderMarkdown(String((props.schema as any)['x-deprecated']), {
+            filePath: '',
+          }).node
+        }
       </div>
-    )}
+    ) : null}
   </div>
 );
 
 function ParameterMetadata({ schema }: { schema: JsonSchema }) {
   const data = getParameterMetadata(schema);
   return !!data.length ? (
-    <div className="mb-1">
+    <div className="mb-0.5 space-x-4">
       {data.map((i) => (
         <span key={i.key}>
           {i.name}: <code>{i.value}</code>
@@ -102,7 +103,7 @@ function ParameterEnums({
 }) {
   const potentialEnums = (getEnum(schema, lookup) as string[]) ?? [];
   return !!potentialEnums.length ? (
-    <div className="mb-1">
+    <div className="mb-0.5">
       Accepted values:{' '}
       {potentialEnums.map((e, i) => (
         <span key={'enums-' + e}>

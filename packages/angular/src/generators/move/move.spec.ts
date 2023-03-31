@@ -1,23 +1,23 @@
-import { readJson, Tree } from '@nrwl/devkit';
 import * as devkit from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
-import { angularMoveGenerator } from './move';
-import libraryGenerator from '../library/library';
+import { readJson, Tree } from '@nrwl/devkit';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { Linter } from '@nrwl/linter';
 import { UnitTestRunner } from '../../utils/test-runners';
+import { generateTestLibrary } from '../utils/testing';
+import { angularMoveGenerator } from './move';
 
 describe('@nrwl/angular:move', () => {
   let tree: Tree;
 
   beforeEach(async () => {
-    tree = createTreeWithEmptyV1Workspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
 
-    await libraryGenerator(tree, {
+    await generateTestLibrary(tree, {
       name: 'mylib',
       buildable: false,
       linter: Linter.EsLint,
       publishable: false,
-      simpleModuleName: true,
+      simpleName: true,
       skipFormat: false,
       unitTestRunner: UnitTestRunner.Jest,
     });
@@ -38,7 +38,7 @@ describe('@nrwl/angular:move', () => {
   });
 
   it('should update ng-package.json dest property', async () => {
-    await libraryGenerator(tree, { name: 'mylib2', buildable: true });
+    await generateTestLibrary(tree, { name: 'mylib2', buildable: true });
 
     await angularMoveGenerator(tree, {
       projectName: 'mylib2',

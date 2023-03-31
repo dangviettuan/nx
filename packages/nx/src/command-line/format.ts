@@ -6,30 +6,21 @@ import {
   parseFiles,
   splitArgsIntoNxArgsAndOverrides,
 } from '../utils/command-line-utils';
-import { fileExists } from '../utils/fileutils';
+import { fileExists, readJsonFile, writeJsonFile } from '../utils/fileutils';
 import { calculateFileChanges, FileData } from '../project-graph/file-utils';
 import * as yargs from 'yargs';
-import {
-  reformattedWorkspaceJsonOrNull,
-  workspaceConfigName,
-} from '../config/workspaces';
-import { workspaceRoot } from '../utils/workspace-root';
+
 import * as prettier from 'prettier';
 import { sortObjectByKeys } from '../utils/object-sort';
 import {
   getRootTsConfigFileName,
   getRootTsConfigPath,
 } from '../utils/typescript';
-import { readJsonFile, writeJsonFile } from '../utils/fileutils';
-import { NxJsonConfiguration } from '../config/nx-json';
 import { createProjectGraphAsync } from '../project-graph/project-graph';
 import { filterAffected } from '../project-graph/affected/affected-project-graph';
-import {
-  ProjectConfiguration,
-  ProjectsConfigurations,
-} from '../config/workspace-json-project-json';
 import { readNxJson } from '../config/configuration';
 import { ProjectGraph } from '../config/project-graph';
+import { chunkify } from '../utils/chunkify';
 
 const PRETTIER_PATH = require.resolve('prettier/bin-prettier');
 
@@ -50,18 +41,12 @@ export async function format(
   );
 
   // Chunkify the patterns array to prevent crashing the windows terminal
-  const chunkList: string[][] = chunkify(patterns, 50);
+  const chunkList: string[][] = chunkify(patterns);
 
   switch (command) {
     case 'write':
-      const workspaceJsonPath = workspaceConfigName(workspaceRoot);
-      if (workspaceJsonPath) {
-        updateWorkspaceJsonToMatchFormatVersion(workspaceJsonPath);
-        sortWorkspaceJson(workspaceJsonPath);
-        movePropertiesToNewLocations(workspaceJsonPath);
-      }
       sortTsConfig();
-      addRootConfigFiles(chunkList, nxArgs, workspaceJsonPath);
+      addRootConfigFiles(chunkList, nxArgs);
       chunkList.forEach((chunk) => write(chunk));
       break;
     case 'check':
@@ -120,7 +105,7 @@ async function getPatternsFromApps(
   projectGraph: ProjectGraph
 ): Promise<string[]> {
   const graph = await createProjectGraphAsync({ exitOnError: true });
-  const affectedGraph = filterAffected(
+  const affectedGraph = await filterAffected(
     graph,
     calculateFileChanges(affectedFiles, allWorkspaceFiles)
   );
@@ -130,11 +115,7 @@ async function getPatternsFromApps(
   );
 }
 
-function addRootConfigFiles(
-  chunkList: string[][],
-  nxArgs: NxArgs,
-  workspaceJsonPath: string | null
-): void {
+function addRootConfigFiles(chunkList: string[][], nxArgs: NxArgs): void {
   if (nxArgs.all) {
     return;
   }
@@ -144,9 +125,9 @@ function addRootConfigFiles(
       chunk.push(file);
     }
   };
-  if (workspaceJsonPath) {
-    addToChunkIfNeeded(workspaceJsonPath);
-  }
+  // if (workspaceJsonPath) {
+  //   addToChunkIfNeeded(workspaceJsonPath);
+  // }
   ['nx.json', getRootTsConfigFileName()]
     .filter(Boolean)
     .forEach(addToChunkIfNeeded);
@@ -161,14 +142,6 @@ function getPatternsFromProjects(
   projectGraph: ProjectGraph
 ): string[] {
   return getProjectRoots(projects, projectGraph);
-}
-
-function chunkify(target: string[], size: number): string[][] {
-  return target.reduce((current: string[][], value: string, index: number) => {
-    if (index % size === 0) current.push([]);
-    current[current.length - 1].push(value);
-    return current;
-  }, []);
 }
 
 function write(patterns: string[]) {
@@ -217,32 +190,6 @@ function check(patterns: string[]): boolean {
   }
 }
 
-function updateWorkspaceJsonToMatchFormatVersion(workspaceJsonPath: string) {
-  try {
-    const workspaceJson = readJsonFile(workspaceJsonPath);
-    const reformatted = reformattedWorkspaceJsonOrNull(workspaceJson);
-    if (reformatted) {
-      writeJsonFile(workspaceJsonPath, reformatted);
-    }
-  } catch (e) {
-    console.error(`Failed to format workspace config: ${workspaceJsonPath}`);
-    console.error(e);
-  }
-}
-
-function sortWorkspaceJson(workspaceJsonPath: string) {
-  try {
-    const workspaceJson = readJsonFile(workspaceJsonPath);
-    if (Object.entries(workspaceJson.projects).length !== 0) {
-      const sortedProjects = sortObjectByKeys(workspaceJson.projects);
-      workspaceJson.projects = sortedProjects;
-      writeJsonFile(workspaceJsonPath, workspaceJson);
-    }
-  } catch (e) {
-    // catch noop
-  }
-}
-
 function sortTsConfig() {
   try {
     const tsconfigPath = getRootTsConfigPath();
@@ -253,58 +200,4 @@ function sortTsConfig() {
   } catch (e) {
     // catch noop
   }
-}
-
-function movePropertiesToNewLocations(workspaceJsonPath: string) {
-  try {
-    const workspaceJson = readJsonFile<
-      NxJsonConfiguration & ProjectsConfigurations
-    >(workspaceJsonPath);
-    const nxJson = readJsonFile<NxJsonConfiguration & ProjectsConfigurations>(
-      'nx.json'
-    );
-    if (
-      workspaceJson.cli ||
-      workspaceJson.generators ||
-      nxJson.projects ||
-      nxJson.defaultProject
-    ) {
-      nxJson.cli ??= workspaceJson.cli;
-      nxJson.generators ??=
-        workspaceJson.generators ?? (workspaceJson as any).schematics;
-      nxJson.defaultProject ??= workspaceJson.defaultProject;
-      delete workspaceJson['cli'];
-      delete workspaceJson['generators'];
-      delete workspaceJson['defaultProject'];
-      moveTagsAndImplicitDepsFromNxJsonToWorkspaceJson(workspaceJson, nxJson);
-      writeJsonFile(workspaceJsonPath, workspaceJson);
-      writeJsonFile('nx.json', nxJson);
-    }
-  } catch (e) {
-    console.error(
-      `Error moving properties between Nx.Json + ${workspaceJsonPath}`
-    );
-    console.error(e);
-  }
-}
-
-export function moveTagsAndImplicitDepsFromNxJsonToWorkspaceJson(
-  workspaceJson: ProjectsConfigurations,
-  nxJson: NxJsonConfiguration & {
-    projects: Record<
-      string,
-      Pick<ProjectConfiguration, 'tags' | 'implicitDependencies'>
-    >;
-  }
-) {
-  if (!nxJson.projects) {
-    return;
-  }
-  Object.entries(nxJson.projects).forEach(([project, config]) => {
-    workspaceJson.projects[project] = {
-      ...workspaceJson.projects[project],
-      ...config,
-    };
-  });
-  delete nxJson.projects;
 }

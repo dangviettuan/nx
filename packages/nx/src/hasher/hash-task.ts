@@ -5,7 +5,7 @@ import { Hasher } from './hasher';
 import { ProjectGraph } from '../config/project-graph';
 import { Workspaces } from '../config/workspaces';
 
-export function hashDependsOnOtherTasks(
+export async function hashDependsOnOtherTasks(
   workspaces: Workspaces,
   hasher: Hasher,
   projectGraph: ProjectGraph,
@@ -13,7 +13,7 @@ export function hashDependsOnOtherTasks(
   task: Task
 ) {
   try {
-    const customHasher = getCustomHasher(
+    const customHasher = await getCustomHasher(
       task,
       workspaces,
       workspaces.readNxJson(),
@@ -33,20 +33,23 @@ export async function hashTask(
   taskGraph: TaskGraph,
   task: Task
 ) {
-  const customHasher = getCustomHasher(
+  const customHasher = await getCustomHasher(
     task,
     workspaces,
     workspaces.readNxJson(),
     projectGraph
   );
+  const projectsConfigurations =
+    readProjectsConfigurationFromProjectGraph(projectGraph);
   const { value, details } = await (customHasher
     ? customHasher(task, {
         hasher,
         projectGraph,
         taskGraph,
-        workspaceConfig:
-          readProjectsConfigurationFromProjectGraph(projectGraph),
-      })
+        workspaceConfig: projectsConfigurations, // to make the change non-breaking. Remove after v18
+        projectsConfigurations,
+        nxJsonConfiguration: workspaces.readNxJson(),
+      } as any)
     : hasher.hashTask(task));
   task.hash = value;
   task.hashDetails = details;

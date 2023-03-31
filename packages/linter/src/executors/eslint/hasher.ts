@@ -13,7 +13,7 @@ export default async function run(
     hasher: Hasher;
     projectGraph: ProjectGraph;
     taskGraph: TaskGraph;
-    workspaceConfig: ProjectsConfigurations;
+    projectsConfigurations: ProjectsConfigurations;
   }
 ): Promise<Hash> {
   const res = await context.hasher.hashTask(task);
@@ -23,12 +23,18 @@ export default async function run(
 
   const deps = allDeps(task.id, context.taskGraph, context.projectGraph);
   const tags = context.hasher.hashArray(
-    deps.map((d) => (context.workspaceConfig.projects[d].tags || []).join('|'))
+    deps.map((d) =>
+      (context.projectsConfigurations.projects[d].tags || []).join('|')
+    )
   );
 
   const command = res.details['command'];
-  const selfSource =
-    res.details.nodes[`${task.target.project}:$filesets:default`];
+  let selfSource = '';
+  for (let n of Object.keys(res.details)) {
+    if (n.startsWith(`${task.target.project}:`)) {
+      selfSource = res.details.nodes[n];
+    }
+  }
 
   const nodes = {};
   const hashes = [] as string[];
@@ -52,6 +58,9 @@ function allDeps(
   taskGraph: TaskGraph,
   projectGraph: ProjectGraph
 ): string[] {
+  if (!taskGraph.tasks) {
+    return [];
+  }
   const project = taskGraph.tasks[taskId].target.project;
   const dependencies = projectGraph.dependencies[project]
     .filter((d) => !!projectGraph.nodes[d.target])

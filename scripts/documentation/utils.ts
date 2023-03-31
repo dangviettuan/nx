@@ -1,7 +1,6 @@
-import { outputFileSync, readJsonSync } from 'fs-extra';
+import { outputFileSync } from 'fs-extra';
 import { join } from 'path';
 import { format, resolveConfig } from 'prettier';
-import { dedent } from 'tslint/lib/utils';
 
 const stripAnsi = require('strip-ansi');
 const importFresh = require('import-fresh');
@@ -66,31 +65,6 @@ export async function formatWithPrettier(filePath: string, content: string) {
   return format(content, options);
 }
 
-export function getNxPackageDependencies(packageJsonPath: string): {
-  name: string;
-  dependencies: string[];
-  peerDependencies: string[];
-} {
-  const packageJson = readJsonSync(packageJsonPath);
-  if (!packageJson) {
-    console.log(`No package.json found at: ${packageJsonPath}`);
-    return null;
-  }
-  return {
-    name: packageJson.name,
-    dependencies: packageJson.dependencies
-      ? Object.keys(packageJson.dependencies).filter((item) =>
-          item.includes('@nrwl')
-        )
-      : [],
-    peerDependencies: packageJson.peerDependencies
-      ? Object.keys(packageJson.peerDependencies).filter((item) =>
-          item.includes('@nrwl')
-        )
-      : [],
-  };
-}
-
 export function formatDeprecated(
   description: string,
   deprecated: boolean | string
@@ -107,7 +81,7 @@ export function formatDeprecated(
     `;
 }
 
-export function getCommands(command) {
+export function getCommands(command: any) {
   return command.getInternalMethods().getCommandInstance().getCommandHandlers();
 }
 
@@ -164,7 +138,7 @@ export async function parseCommand(
   const builderOptionsChoices = builderOptions.choices;
   const builderOptionTypes = YargsTypes.reduce((acc, type) => {
     builderOptions[type].forEach(
-      (option) => (acc = { ...acc, [option]: type })
+      (option: any) => (acc = { ...acc, [option]: type })
     );
     return acc;
   }, {});
@@ -181,40 +155,43 @@ export async function parseCommand(
           ? builderDescriptions[key].replace('__yargsString__:', '')
           : '',
         default: builderDefaultOptions[key] ?? builderAutomatedOptions[key],
-        type: builderOptionTypes[key],
+        type: (<any>builderOptionTypes)[key],
         choices: builderOptionsChoices[key],
         deprecated: builderDeprecatedOptions[key],
+        hidden: builderOptions.hiddenOptions.includes(key),
       })) || null,
   };
 }
 
-export function generateOptionsMarkdown(command): string {
+export function generateOptionsMarkdown(command: any): string {
   let response = '';
   if (Array.isArray(command.options) && !!command.options.length) {
     response += '\n## Options\n';
 
     command.options
-      .sort((a, b) => sortAlphabeticallyFunction(a.name, b.name))
-      .forEach((option) => {
-        response += dedent`
-        ### ${option.deprecated ? `~~${option.name}~~` : option.name}
-        `;
+      .sort((a: any, b: any) => sortAlphabeticallyFunction(a.name, b.name))
+      .filter(({ hidden }: any) => !hidden)
+      .forEach((option: any) => {
+        response += `\n### ${
+          option.deprecated ? `~~${option.name}~~` : option.name
+        }\n`;
         if (option.type !== undefined && option.type !== '') {
-          response += `Type: ${option.type}\n`;
+          response += `\nType: \`${option.type}\`\n`;
         }
         if (option.choices !== undefined) {
-          response += dedent`
-          Choices: [${option.choices
-            .map((c) => JSON.stringify(c).replace(/"/g, ''))
-            .join(', ')}]\n`;
+          const choices = option.choices
+            .map((c: any) => JSON.stringify(c).replace(/"/g, ''))
+            .join(', ');
+          response += `\nChoices: [${choices}]\n`;
         }
         if (option.default !== undefined && option.default !== '') {
-          response += dedent`
-          Default: ${JSON.stringify(option.default).replace(/"/g, '')}\n`;
+          response += `\nDefault: \`${JSON.stringify(option.default).replace(
+            /"/g,
+            ''
+          )}\`\n`;
         }
-        response += dedent`
-              ${formatDeprecated(option.description, option.deprecated)}
-            `;
+        response +=
+          '\n' + formatDeprecated(option.description, option.deprecated);
       });
   }
   return response;

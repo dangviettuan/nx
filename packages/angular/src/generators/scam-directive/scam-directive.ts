@@ -3,30 +3,26 @@ import {
   formatFiles,
   normalizePath,
   readProjectConfiguration,
-  readWorkspaceConfiguration,
 } from '@nrwl/devkit';
-import { wrapAngularDevkitSchematic } from '@nrwl/devkit/ngcli-adapter';
 import { exportScam } from '../utils/export-scam';
 import { getDirectiveFileInfo } from '../utils/file-info';
 import { pathStartsWith } from '../utils/path';
 import { convertDirectiveToScam, normalizeOptions } from './lib';
 import type { Schema } from './schema';
+import directiveGenerator from '../directive/directive';
 
 export async function scamDirectiveGenerator(tree: Tree, rawOptions: Schema) {
   const options = normalizeOptions(tree, rawOptions);
-  const { inlineScam, projectSourceRoot, ...schematicOptions } = options;
+  const { inlineScam, projectSourceRoot, ...directiveOptions } = options;
 
   checkPathUnderProjectRoot(tree, options);
 
-  const angularDirectiveSchematic = wrapAngularDevkitSchematic(
-    '@schematics/angular',
-    'directive'
-  );
-  await angularDirectiveSchematic(tree, {
-    ...schematicOptions,
+  await directiveGenerator(tree, {
+    ...directiveOptions,
     skipImport: true,
     export: false,
     standalone: false,
+    skipFormat: true,
   });
 
   const pipeFileInfo = getDirectiveFileInfo(tree, options);
@@ -41,9 +37,7 @@ function checkPathUnderProjectRoot(tree: Tree, options: Partial<Schema>) {
     return;
   }
 
-  const project =
-    options.project ?? readWorkspaceConfiguration(tree).defaultProject;
-  const { root } = readProjectConfiguration(tree, project);
+  const { root } = readProjectConfiguration(tree, options.project);
 
   let pathToDirective = normalizePath(options.path);
   pathToDirective = pathToDirective.startsWith('/')

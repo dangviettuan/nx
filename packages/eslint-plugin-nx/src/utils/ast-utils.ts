@@ -3,12 +3,11 @@ import {
   ProjectGraphProjectNode,
   readJsonFile,
 } from '@nrwl/devkit';
-import { findNodes } from '@nrwl/workspace/src/utilities/typescript';
+import { findNodes } from 'nx/src/utils/typescript';
 import { existsSync, readFileSync } from 'fs';
 import { dirname } from 'path';
 import ts = require('typescript');
-import { logger } from '@nrwl/devkit';
-import { workspaceRoot } from '@nrwl/devkit';
+import { logger, workspaceRoot } from '@nrwl/devkit';
 
 function tryReadBaseJson() {
   try {
@@ -32,7 +31,7 @@ export function getBarrelEntryPointByImportScope(
 }
 
 export function getBarrelEntryPointProjectNode(
-  projectNode: ProjectGraphProjectNode<any>
+  projectNode: ProjectGraphProjectNode
 ): { path: string; importScope: string }[] | null {
   const tsConfigBase = tryReadBaseJson();
 
@@ -200,14 +199,19 @@ export function getRelativeImportPath(exportedMember, filePath, basePath) {
       const modulePath = (exportDeclaration as any).moduleSpecifier.text;
 
       let moduleFilePath = joinPathFragments(
-        './',
         dirname(filePath),
         `${modulePath}.ts`
       );
       if (!existsSync(moduleFilePath)) {
+        // might be a tsx file
+        moduleFilePath = joinPathFragments(
+          dirname(filePath),
+          `${modulePath}.tsx`
+        );
+      }
+      if (!existsSync(moduleFilePath)) {
         // might be a index.ts
         moduleFilePath = joinPathFragments(
-          './',
           dirname(filePath),
           `${modulePath}/index.ts`
         );

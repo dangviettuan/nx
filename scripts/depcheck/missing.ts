@@ -1,8 +1,23 @@
 import * as depcheck from 'depcheck';
+import { join } from 'path';
 
 // Ignore packages that are defined here per package
-const IGNORE_MATCHES = {
-  '*': ['nx', '@nrwl/cli', '@nrwl/workspace', 'prettier', 'typescript', 'rxjs'],
+const IGNORE_MATCHES_IN_PACKAGE = {
+  '*': [
+    'nx',
+    'prettier',
+    'typescript',
+    'rxjs',
+    '@nrwl/cli',
+    '@nrwl/workspace',
+    // These are installed as needed and should not be added to package.json
+    '@nrwl/cypress',
+    '@nrwl/jest',
+    '@nrwl/rollup',
+    '@nrwl/storybook',
+    '@nrwl/vite',
+    '@nrwl/webpack',
+  ],
   angular: [
     '@angular-devkit/architect',
     '@angular-devkit/build-angular',
@@ -15,6 +30,7 @@ const IGNORE_MATCHES = {
     '@ngrx/router-store',
     '@ngrx/store',
     '@storybook/angular',
+    '@module-federation/node',
     'rxjs',
     'semver',
     // installed dynamically by the library generator
@@ -28,6 +44,7 @@ const IGNORE_MATCHES = {
     'node-sass',
     'node-sass-tilde-importer',
     'ora',
+    'convert-source-map',
     'postcss',
     'postcss-import',
     'postcss-preset-env',
@@ -37,8 +54,13 @@ const IGNORE_MATCHES = {
     'tailwindcss',
   ],
   cli: ['nx'],
-  cypress: ['cypress', '@angular-devkit/schematics', '@nrwl/cypress'],
-  devkit: ['@angular-devkit/architect', 'rxjs'],
+  cypress: ['cypress', '@angular-devkit/schematics', '@nrwl/cypress', 'vite'],
+  devkit: [
+    '@angular-devkit/architect',
+    '@angular-devkit/schematics',
+    'rxjs',
+    'webpack',
+  ],
   'eslint-plugin-nx': ['@angular-eslint/eslint-plugin'],
   jest: [
     'jest',
@@ -46,6 +68,7 @@ const IGNORE_MATCHES = {
     'identity-obj-proxy',
     '@angular-devkit/schematics',
   ],
+  js: ['@nrwl/linter'],
   linter: [
     'eslint',
     '@angular-devkit/schematics',
@@ -66,26 +89,35 @@ const IGNORE_MATCHES = {
     'webpack',
   ],
   react: [
-    'babel-plugin-emotion',
-    'babel-plugin-styled-components',
-    'rollup',
-    'webpack',
+    // These are brought in by the webpack, rollup, or vite packages via init generators.
+    '@babel/preset-react',
+    '@module-federation/node',
+    '@phenomnomnominal/tsquery',
+    '@pmmmwh/react-refresh-webpack-plugin',
+    '@svgr/rollup',
+    '@rollup/plugin-url',
+    '@svgr/webpack',
     '@swc/jest',
     'babel-jest',
-    '@angular-devkit/core',
-    '@angular-devkit/schematics',
-    // TODO(caleb): remove when refactoring plugin to use @nrwl/web
-    //  webpack plugins for cypress component testing dev server
     'babel-loader',
+    'babel-plugin-emotion',
+    'babel-plugin-styled-components',
     'css-loader',
+    'file-loader',
     'less-loader',
+    'react-refresh',
+    'rollup',
     'sass',
     'sass-loader',
     'style-loader',
     'stylus-loader',
     'swc-loader',
     'tsconfig-paths-webpack-plugin',
+    'url-loader',
+    'webpack',
+    'webpack-merge',
   ],
+  rollup: ['@swc/core'],
   storybook: [
     '@angular-devkit/architect',
     '@angular-devkit/core',
@@ -94,6 +126,9 @@ const IGNORE_MATCHES = {
     '@storybook/addon-essentials',
     '@storybook/core',
     '@storybook/core-server',
+    '@storybook/types',
+    // lazy installed with ensurePackage
+    '@nrwl/web',
     'rxjs',
   ],
   nx: [
@@ -102,7 +137,24 @@ const IGNORE_MATCHES = {
     '@angular-devkit/core',
     '@angular-devkit/architect',
     '@angular/cli',
+    '@nrwl/angular',
+    '@nestjs/cli', // nx init nest makes use of nestjs cli (which should be available in NestJS CLI app) to parse the nest-cli.json file
     'ts-node', // We *may* fall back on ts-node, but we want to encourage the use of @swc-node instead so we don't explicitly list ts-node as an optional dep
+    '@nrwl/nx-android-arm-eabi', // native optional deps
+    '@nrwl/nx-android-arm64', // native optional deps
+    '@nrwl/nx-darwin-arm64', // native optional deps
+    '@nrwl/nx-darwin-universal', // native optional deps
+    '@nrwl/nx-darwin-x64', // native optional deps
+    '@nrwl/nx-freebsd-x64', // native optional deps
+    '@nrwl/nx-linux-arm-gnueabihf', // native optional deps
+    '@nrwl/nx-linux-arm64-gnu', // native optional deps
+    '@nrwl/nx-linux-arm64-musl', // native optional deps
+    '@nrwl/nx-linux-x64-gnu', // native optional deps
+    '@nrwl/nx-linux-x64-musl', // native optional deps
+    '@nrwl/nx-win32-arm64-msvc', // native optional deps
+    '@nrwl/nx-win32-ia32-msvc', // native optional deps
+    '@nrwl/nx-win32-x64-msvc', // native optional deps
+    'memfs', // used in mock for handling .node files in tests
   ],
   web: [
     // we don't want to bloat the install of @nrwl/web by including @swc/core and swc-loader as a dependency.
@@ -112,6 +164,7 @@ const IGNORE_MATCHES = {
     'fibers',
     'node-sass',
   ],
+  webpack: ['@swc/core', 'style-loader', 'swc-loader'],
   workspace: [
     'tslint',
     '@angular-devkit/architect',
@@ -126,6 +179,15 @@ const IGNORE_MATCHES = {
   ],
   nest: ['semver'],
   'make-angular-cli-faster': ['@angular/core'],
+};
+
+const IGNORE_MATCHES_BY_FILE: Record<string, string[]> = {
+  '@storybook/core': [
+    join(
+      __dirname,
+      '../../packages/angular/src/migrations/update-12-3-0/update-storybook.ts'
+    ),
+  ],
 };
 
 export default async function getMissingDependencies(
@@ -167,7 +229,6 @@ export default async function getMissingDependencies(
       '.eslintrc.json',
       '*.spec*',
       'src/schematics/**/files/**',
-      'src/migrations/**',
     ],
   };
   let { missing } = await depcheck(path, {
@@ -177,8 +238,11 @@ export default async function getMissingDependencies(
 
   const packagesMissing = Object.keys(missing).filter(
     (m) =>
-      !IGNORE_MATCHES['*'].includes(m) &&
-      !(IGNORE_MATCHES[name] || []).includes(m)
+      !IGNORE_MATCHES_IN_PACKAGE['*'].includes(m) &&
+      !(IGNORE_MATCHES_IN_PACKAGE[name] || []).includes(m) &&
+      missing[m].filter(
+        (occurence) => !IGNORE_MATCHES_BY_FILE[m]?.includes(occurence)
+      ).length
   );
 
   if (verbose) {

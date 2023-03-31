@@ -8,7 +8,7 @@ describe('init', () => {
   let tree: Tree;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
   });
 
   it('should add dependencies into `package.json` file', async () => {
@@ -21,7 +21,7 @@ describe('init', () => {
       json.devDependencies[existing] = existingVersion;
       return json;
     });
-    cypressInitGenerator(tree, {});
+    await cypressInitGenerator(tree, {});
     const packageJson = readJson(tree, 'package.json');
 
     expect(packageJson.devDependencies.cypress).toBeDefined();
@@ -39,7 +39,7 @@ describe('init', () => {
       return json;
     });
 
-    cypressInitGenerator(tree, {});
+    await cypressInitGenerator(tree, {});
 
     expect(
       readJson<NxJsonConfiguration>(tree, 'nx.json').targetDefaults.e2e

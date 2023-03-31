@@ -1,6 +1,6 @@
 import { runCommand } from '../tasks-runner/run-command';
 import { splitArgsIntoNxArgsAndOverrides } from '../utils/command-line-utils';
-import { connectToNxCloudIfExplicitlyAsked } from './connect-to-nx-cloud';
+import { connectToNxCloudIfExplicitlyAsked } from './connect';
 import { performance } from 'perf_hooks';
 import {
   createProjectGraphAsync,
@@ -16,6 +16,8 @@ import {
   TargetDependencyConfig,
 } from '../config/workspace-json-project-json';
 import { readNxJson } from '../config/configuration';
+import { workspaceConfigurationCheck } from '../utils/workspace-configuration-check';
+import { generateGraph } from './dep-graph';
 
 export async function runOne(
   cwd: string,
@@ -24,26 +26,25 @@ export async function runOne(
     string,
     (TargetDependencyConfig | string)[]
   > = {},
-  extraOptions = { excludeTaskDependencies: false } as {
+  extraOptions = { excludeTaskDependencies: false, loadDotEnvFiles: true } as {
     excludeTaskDependencies: boolean;
+    loadDotEnvFiles: boolean;
   }
 ): Promise<void> {
   performance.mark('command-execution-begins');
   performance.measure('code-loading', 'init-local', 'command-execution-begins');
+  workspaceConfigurationCheck();
 
   const nxJson = readNxJson();
   const projectGraph = await createProjectGraphAsync({ exitOnError: true });
 
-  const opts = parseRunOneOptions(cwd, args, {
-    ...readProjectsConfigurationFromProjectGraph(projectGraph),
-    ...nxJson,
-  });
+  const opts = parseRunOneOptions(cwd, args, projectGraph, nxJson);
 
   const { nxArgs, overrides } = splitArgsIntoNxArgsAndOverrides(
     {
       ...opts.parsedArgs,
       configuration: opts.configuration,
-      target: opts.target,
+      targets: [opts.target],
     },
     'run-one',
     { printWarnings: true },
@@ -63,16 +64,31 @@ export async function runOne(
 
   const { projects } = getProjects(projectGraph, opts.project);
 
-  await runCommand(
-    projects,
-    projectGraph,
-    { nxJson },
-    nxArgs,
-    overrides,
-    opts.project,
-    extraTargetDependencies,
-    extraOptions
-  );
+  if (nxArgs.graph) {
+    const projectNames = projects.map((t) => t.name);
+
+    return await generateGraph(
+      {
+        watch: false,
+        open: true,
+        view: 'tasks',
+        targets: nxArgs.targets,
+        projects: projectNames,
+      },
+      projectNames
+    );
+  } else {
+    await runCommand(
+      projects,
+      projectGraph,
+      { nxJson },
+      nxArgs,
+      overrides,
+      opts.project,
+      extraTargetDependencies,
+      extraOptions
+    );
+  }
 }
 
 function getProjects(projectGraph: ProjectGraph, project: string): any {
@@ -101,12 +117,14 @@ const targetAliases = {
 function parseRunOneOptions(
   cwd: string,
   parsedArgs: { [k: string]: any },
-  workspaceConfiguration: ProjectsConfigurations & NxJsonConfiguration
+  projectGraph: ProjectGraph,
+  nxJson: NxJsonConfiguration
 ): { project; target; configuration; parsedArgs } {
   const defaultProjectName = calculateDefaultProjectName(
     cwd,
     workspaceRoot,
-    workspaceConfiguration
+    readProjectsConfigurationFromProjectGraph(projectGraph),
+    nxJson
   );
 
   let project;
@@ -116,7 +134,8 @@ function parseRunOneOptions(
   if (parsedArgs['project:target:configuration'].indexOf(':') > -1) {
     // run case
     [project, target, configuration] = splitTarget(
-      parsedArgs['project:target:configuration']
+      parsedArgs['project:target:configuration'],
+      projectGraph
     );
     // this is to account for "nx npmsript:dev"
     if (project && !target && defaultProjectName) {
@@ -154,29 +173,38 @@ function parseRunOneOptions(
   return res;
 }
 
-function calculateDefaultProjectName(
+export function calculateDefaultProjectName(
   cwd: string,
   root: string,
-  workspaceConfiguration: ProjectsConfigurations & NxJsonConfiguration
+  projectsConfigurations: ProjectsConfigurations,
+  nxJsonConfiguration: NxJsonConfiguration
 ) {
-  let relativeCwd = cwd.replace(/\\/g, '/').split(root.replace(/\\/g, '/'))[1];
-  if (relativeCwd) {
-    relativeCwd = relativeCwd.startsWith('/')
-      ? relativeCwd.substring(1)
-      : relativeCwd;
-    const matchingProject = Object.keys(workspaceConfiguration.projects).find(
-      (p) => {
-        const projectRoot = workspaceConfiguration.projects[p].root;
-        return (
-          relativeCwd == projectRoot ||
-          relativeCwd.startsWith(`${projectRoot}/`)
-        );
-      }
-    );
-    if (matchingProject) return matchingProject;
+  if (cwd && /^[A-Z]:/.test(cwd)) {
+    cwd = cwd.charAt(0).toLowerCase() + cwd.slice(1);
   }
+
+  if (root && /^[A-Z]:/.test(root)) {
+    root = root.charAt(0).toLowerCase() + root.slice(1);
+  }
+
+  let relativeCwd = cwd.replace(/\\/g, '/').split(root.replace(/\\/g, '/'))[1];
+
+  relativeCwd = relativeCwd.startsWith('/')
+    ? relativeCwd.substring(1)
+    : relativeCwd;
+  const matchingProject = Object.keys(projectsConfigurations.projects).find(
+    (p) => {
+      const projectRoot = projectsConfigurations.projects[p].root;
+      return (
+        relativeCwd == projectRoot ||
+        (relativeCwd == '' && projectRoot == '.') ||
+        relativeCwd.startsWith(`${projectRoot}/`)
+      );
+    }
+  );
+  if (matchingProject) return matchingProject;
   return (
-    (workspaceConfiguration.cli as { defaultProjectName: string })
-      ?.defaultProjectName || workspaceConfiguration.defaultProject
+    (nxJsonConfiguration.cli as { defaultProjectName: string })
+      ?.defaultProjectName || nxJsonConfiguration.defaultProject
   );
 }

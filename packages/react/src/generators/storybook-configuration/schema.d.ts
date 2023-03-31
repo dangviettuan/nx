@@ -11,4 +11,8 @@ export interface StorybookConfigureSchema {
   cypressDirectory?: string;
   standaloneConfig?: boolean;
   ignorePaths?: string[];
+  bundler?: 'webpack' | 'vite';
+  configureTestRunner?: boolean;
+  configureStaticServe?: boolean;
+  storybook7Configuration?: boolean;
 }

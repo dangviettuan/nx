@@ -1,6 +1,5 @@
 import type { Tree } from '@nrwl/devkit';
-import { tsquery } from '@phenomnomnominal/tsquery';
-import { forEachExecutorOptions } from '@nrwl/workspace/src/utilities/executor-options-utils';
+import { forEachExecutorOptions } from '@nrwl/devkit/src/generators/executor-options-utils';
 
 export function getMFProjects(
   tree: Tree,
@@ -22,6 +21,7 @@ export function getMFProjects(
         return;
       }
       const webpackConfig = tree.read(webpackPath, 'utf-8');
+      const { tsquery } = require('@phenomnomnominal/tsquery');
       const ast = tsquery.ast(webpackConfig);
       const moduleFederationWebpackConfig = tsquery(
         ast,

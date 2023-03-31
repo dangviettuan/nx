@@ -1,6 +1,6 @@
 import { installedCypressVersion } from '@nrwl/cypress/src/utils/cypress-version';
 import { logger, Tree } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { Linter } from '@nrwl/linter';
 import applicationGenerator from '../application/application';
 import componentGenerator from '../component/component';
@@ -9,18 +9,20 @@ import storybookConfigurationGenerator from './configuration';
 // need to mock cypress otherwise it'll use the nx installed version from package.json
 //  which is v9 while we are testing for the new v10 version
 jest.mock('@nrwl/cypress/src/utils/cypress-version');
+// nested code imports graph from the repo, which might have innacurate graph version
+jest.mock('nx/src/project-graph/project-graph', () => ({
+  ...jest.requireActual<any>('nx/src/project-graph/project-graph'),
+  createProjectGraphAsync: jest
+    .fn()
+    .mockImplementation(async () => ({ nodes: {}, dependencies: {} })),
+}));
+
 describe('react:storybook-configuration', () => {
   let appTree;
   let mockedInstalledCypressVersion: jest.Mock<
     ReturnType<typeof installedCypressVersion>
   > = installedCypressVersion as never;
   beforeEach(async () => {
-    // jest.spyOn(fileUtils, 'readPackageJson').mockReturnValue({
-    //   devDependencies: {
-    //     '@storybook/addon-essentials': '^6.0.21',
-    //     '@storybook/react': '^6.0.21',
-    //   },
-    // });
     mockedInstalledCypressVersion.mockReturnValue(10);
     jest.spyOn(logger, 'warn').mockImplementation(() => {});
     jest.spyOn(logger, 'debug').mockImplementation(() => {});
@@ -35,7 +37,6 @@ describe('react:storybook-configuration', () => {
     await storybookConfigurationGenerator(appTree, {
       name: 'test-ui-lib',
       configureCypress: true,
-      standaloneConfig: false,
     });
 
     expect(appTree.exists('libs/test-ui-lib/.storybook/main.js')).toBeTruthy();
@@ -53,7 +54,6 @@ describe('react:storybook-configuration', () => {
       name: 'test-ui-lib',
       generateStories: true,
       configureCypress: false,
-      standaloneConfig: false,
     });
 
     expect(
@@ -87,7 +87,6 @@ describe('react:storybook-configuration', () => {
       generateStories: true,
       configureCypress: false,
       js: true,
-      standaloneConfig: false,
     });
 
     expect(
@@ -100,7 +99,6 @@ describe('react:storybook-configuration', () => {
     await storybookConfigurationGenerator(appTree, {
       name: 'test-ui-app',
       configureCypress: true,
-      standaloneConfig: false,
     });
 
     expect(appTree.exists('apps/test-ui-app/.storybook/main.js')).toBeTruthy();
@@ -124,7 +122,6 @@ describe('react:storybook-configuration', () => {
       name: 'test-ui-app',
       generateStories: true,
       configureCypress: false,
-      standaloneConfig: false,
     });
 
     // Currently the auto-generate stories feature only picks up components under the 'lib' directory.
@@ -150,7 +147,6 @@ describe('react:storybook-configuration', () => {
       configureCypress: true,
       generateCypressSpecs: true,
       cypressDirectory: 'one/two',
-      standaloneConfig: false,
     });
     [
       'apps/one/two/test-ui-lib-e2e/cypress.config.ts',
@@ -171,7 +167,7 @@ export async function createTestUILib(
   libName: string,
   plainJS = false
 ): Promise<Tree> {
-  let appTree = createTreeWithEmptyV1Workspace();
+  let appTree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
 
   await libraryGenerator(appTree, {
     linter: Linter.EsLint,
@@ -181,7 +177,6 @@ export async function createTestUILib(
     style: 'css',
     unitTestRunner: 'none',
     name: libName,
-    standaloneConfig: false,
   });
   return appTree;
 }
@@ -190,7 +185,7 @@ export async function createTestAppLib(
   libName: string,
   plainJS = false
 ): Promise<Tree> {
-  let appTree = createTreeWithEmptyV1Workspace();
+  let appTree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
 
   await applicationGenerator(appTree, {
     e2eTestRunner: 'none',
@@ -200,7 +195,6 @@ export async function createTestAppLib(
     unitTestRunner: 'none',
     name: libName,
     js: plainJS,
-    standaloneConfig: false,
   });
 
   await componentGenerator(appTree, {

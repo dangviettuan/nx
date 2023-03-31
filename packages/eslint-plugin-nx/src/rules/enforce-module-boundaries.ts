@@ -5,19 +5,18 @@ import {
   ProjectGraphProjectNode,
   workspaceRoot,
 } from '@nrwl/devkit';
-import { isRelativePath } from '@nrwl/workspace/src/utilities/fileutils';
+import { isRelativePath } from 'nx/src/utils/fileutils';
 import {
   checkCircularPath,
   findFilesInCircularPath,
-} from '@nrwl/workspace/src/utils/graph-utils';
+} from '../utils/graph-utils';
 import {
   DepConstraint,
   findConstraintsFor,
   findDependenciesWithTags,
   findProjectUsingImport,
-  findSourceProject,
+  findProject,
   findTransitiveExternalDependencies,
-  findTargetProject,
   getSourceFilePath,
   getTargetProjectBasedOnRelativeImport,
   groupImports,
@@ -31,9 +30,10 @@ import {
   matchImportWithWildcard,
   onlyLoadChildren,
   stringifyTags,
-} from '@nrwl/workspace/src/utils/runtime-lint-utils';
+  isComboDepConstraint,
+} from '../utils/runtime-lint-utils';
 import { AST_NODE_TYPES, TSESTree } from '@typescript-eslint/utils';
-import { TargetProjectLocator } from 'nx/src/utils/target-project-locator';
+import { TargetProjectLocator } from 'nx/src/plugins/js/project-graph/build-dependencies/target-project-locator';
 import { basename, dirname, relative } from 'path';
 import {
   getBarrelEntryPointByImportScope,
@@ -49,6 +49,7 @@ type Options = [
     depConstraints: DepConstraint[];
     enforceBuildableLibDependency: boolean;
     allowCircularSelfDependency: boolean;
+    checkDynamicDependenciesExceptions: string[];
     banTransitiveDependencies: boolean;
     checkNestedExternalImports: boolean;
   }
@@ -66,6 +67,7 @@ export type MessageIds =
   | 'nestedBannedExternalImportsViolation'
   | 'noTransitiveDependencies'
   | 'onlyTagsConstraintViolation'
+  | 'emptyOnlyTagsConstraintViolation'
   | 'notTagsConstraintViolation';
 export const RULE_NAME = 'enforce-module-boundaries';
 
@@ -84,6 +86,7 @@ export default createESLintRule<Options, MessageIds>({
         properties: {
           enforceBuildableLibDependency: { type: 'boolean' },
           allowCircularSelfDependency: { type: 'boolean' },
+          checkDynamicDependenciesExceptions: [{ type: 'string' }],
           banTransitiveDependencies: { type: 'boolean' },
           checkNestedExternalImports: { type: 'boolean' },
           allow: [{ type: 'string' }],
@@ -91,8 +94,18 @@ export default createESLintRule<Options, MessageIds>({
             {
               type: 'object',
               properties: {
-                sourceTag: { type: 'string' },
+                oneOf: [
+                  { sourceTag: { type: 'string' } },
+                  {
+                    allSourceTags: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      minItems: 2,
+                    },
+                  },
+                ],
                 onlyDependOnLibsWithTags: [{ type: 'string' }],
+                allowedExternalImports: [{ type: 'string' }],
                 bannedExternalImports: [{ type: 'string' }],
                 notDependOnLibsWithTags: [{ type: 'string' }],
               },
@@ -117,6 +130,8 @@ export default createESLintRule<Options, MessageIds>({
       nestedBannedExternalImportsViolation: `A project tagged with "{{sourceTag}}" is not allowed to import the "{{package}}" package. Nested import found at {{childProjectName}}`,
       noTransitiveDependencies: `Transitive dependencies are not allowed. Only packages defined in the "package.json" can be imported`,
       onlyTagsConstraintViolation: `A project tagged with "{{sourceTag}}" can only depend on libs tagged with {{tags}}`,
+      emptyOnlyTagsConstraintViolation:
+        'A project tagged with "{{sourceTag}}" cannot depend on any libs with tags',
       notTagsConstraintViolation: `A project tagged with "{{sourceTag}}" can not depend on libs tagged with {{tags}}\n\nViolation detected in:\n{{projects}}`,
     },
   },
@@ -126,6 +141,7 @@ export default createESLintRule<Options, MessageIds>({
       depConstraints: [],
       enforceBuildableLibDependency: false,
       allowCircularSelfDependency: false,
+      checkDynamicDependenciesExceptions: [],
       banTransitiveDependencies: false,
       checkNestedExternalImports: false,
     },
@@ -138,6 +154,7 @@ export default createESLintRule<Options, MessageIds>({
         depConstraints,
         enforceBuildableLibDependency,
         allowCircularSelfDependency,
+        checkDynamicDependenciesExceptions,
         banTransitiveDependencies,
         checkNestedExternalImports,
       },
@@ -151,7 +168,7 @@ export default createESLintRule<Options, MessageIds>({
     );
     const fileName = normalizePath(context.getFilename());
 
-    const projectGraph = readProjectGraph(RULE_NAME);
+    const { projectGraph, projectRootMappings } = readProjectGraph(RULE_NAME);
 
     if (!projectGraph) {
       return {};
@@ -195,7 +212,11 @@ export default createESLintRule<Options, MessageIds>({
 
       const sourceFilePath = getSourceFilePath(fileName, projectPath);
 
-      const sourceProject = findSourceProject(projectGraph, sourceFilePath);
+      const sourceProject = findProject(
+        projectGraph,
+        projectRootMappings,
+        sourceFilePath
+      );
       // If source is not part of an nx workspace, return.
       if (!sourceProject) {
         return;
@@ -207,12 +228,13 @@ export default createESLintRule<Options, MessageIds>({
       let targetProject: ProjectGraphProjectNode | ProjectGraphExternalNode;
 
       if (isAbsoluteImportIntoAnotherProj) {
-        targetProject = findTargetProject(projectGraph, imp);
+        targetProject = findProject(projectGraph, projectRootMappings, imp);
       } else {
         targetProject = getTargetProjectBasedOnRelativeImport(
           imp,
           projectPath,
           projectGraph,
+          projectRootMappings,
           sourceFilePath
         );
       }
@@ -236,7 +258,9 @@ export default createESLintRule<Options, MessageIds>({
                   return;
                 }
 
-                const imports = specifiers.map((s) => s.imported.name);
+                const imports = specifiers
+                  .filter((s) => s.type === 'ImportSpecifier')
+                  .map((s) => s.imported.name);
 
                 // process each potential entry point and try to find the imports
                 const importsToRemap = [];
@@ -245,7 +269,7 @@ export default createESLintRule<Options, MessageIds>({
                   for (const importMember of imports) {
                     const importPath = getRelativeImportPath(
                       importMember,
-                      entryPointPath.path,
+                      joinPathFragments(workspaceRoot, entryPointPath.path),
                       sourceProject.data.sourceRoot
                     );
                     // we cannot remap, so leave it as is
@@ -293,7 +317,7 @@ export default createESLintRule<Options, MessageIds>({
         if (
           !allowCircularSelfDependency &&
           !isRelativePath(imp) &&
-          !isAngularSecondaryEntrypoint(targetProjectLocator, imp)
+          !isAngularSecondaryEntrypoint(imp, sourceFilePath)
         ) {
           context.report({
             node,
@@ -310,7 +334,9 @@ export default createESLintRule<Options, MessageIds>({
                   return;
                 }
                 // imported JS functions to remap
-                const imports = specifiers.map((s) => s.imported.name);
+                const imports = specifiers
+                  .filter((s) => s.type === 'ImportSpecifier')
+                  .map((s) => s.imported.name);
 
                 // process each potential entry point and try to find the imports
                 const importsToRemap = [];
@@ -319,7 +345,7 @@ export default createESLintRule<Options, MessageIds>({
                   for (const importMember of imports) {
                     const importPath = getRelativeImportPath(
                       importMember,
-                      entryPointPath,
+                      joinPathFragments(workspaceRoot, entryPointPath),
                       sourceProject.data.sourceRoot
                     );
                     if (importPath) {
@@ -362,7 +388,10 @@ export default createESLintRule<Options, MessageIds>({
 
       // project => npm package
       if (targetProject.type === 'npm') {
-        if (banTransitiveDependencies && !isDirectDependency(targetProject)) {
+        if (
+          banTransitiveDependencies &&
+          !isDirectDependency(sourceProject, targetProject)
+        ) {
           context.report({
             node,
             messageId: 'noTransitiveDependencies',
@@ -378,7 +407,9 @@ export default createESLintRule<Options, MessageIds>({
             node,
             messageId: 'bannedExternalImportsViolation',
             data: {
-              sourceTag: constraint.sourceTag,
+              sourceTag: isComboDepConstraint(constraint)
+                ? constraint.allSourceTags.join('" and "')
+                : constraint.sourceTag,
               package: targetProject.data.packageName,
             },
           });
@@ -467,6 +498,9 @@ export default createESLintRule<Options, MessageIds>({
       if (
         node.type === AST_NODE_TYPES.ImportDeclaration &&
         node.importKind !== 'type' &&
+        !checkDynamicDependenciesExceptions.some((a) =>
+          matchImportWithWildcard(a, imp)
+        ) &&
         onlyLoadChildren(
           projectGraph,
           sourceProject.name,
@@ -510,8 +544,26 @@ export default createESLintRule<Options, MessageIds>({
               node,
               messageId: 'onlyTagsConstraintViolation',
               data: {
-                sourceTag: constraint.sourceTag,
+                sourceTag: isComboDepConstraint(constraint)
+                  ? constraint.allSourceTags.join('" and "')
+                  : constraint.sourceTag,
                 tags: stringifyTags(constraint.onlyDependOnLibsWithTags),
+              },
+            });
+            return;
+          }
+          if (
+            constraint.onlyDependOnLibsWithTags &&
+            constraint.onlyDependOnLibsWithTags.length === 0 &&
+            targetProject.data.tags.length !== 0
+          ) {
+            context.report({
+              node,
+              messageId: 'emptyOnlyTagsConstraintViolation',
+              data: {
+                sourceTag: isComboDepConstraint(constraint)
+                  ? constraint.allSourceTags.join('" and "')
+                  : constraint.sourceTag,
               },
             });
             return;
@@ -530,7 +582,9 @@ export default createESLintRule<Options, MessageIds>({
                 node,
                 messageId: 'notTagsConstraintViolation',
                 data: {
-                  sourceTag: constraint.sourceTag,
+                  sourceTag: isComboDepConstraint(constraint)
+                    ? constraint.allSourceTags.join('" and "')
+                    : constraint.sourceTag,
                   tags: stringifyTags(constraint.notDependOnLibsWithTags),
                   projects: projectPaths
                     .map(
@@ -559,7 +613,9 @@ export default createESLintRule<Options, MessageIds>({
                   node,
                   messageId: 'bannedExternalImportsViolation',
                   data: {
-                    sourceTag: constraint.sourceTag,
+                    sourceTag: isComboDepConstraint(constraint)
+                      ? constraint.allSourceTags.join('" and "')
+                      : constraint.sourceTag,
                     childProjectName: violatingSource.name,
                     package: target.data.packageName,
                   },

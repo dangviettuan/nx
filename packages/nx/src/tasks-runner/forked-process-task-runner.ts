@@ -1,6 +1,8 @@
 import { readFileSync, writeFileSync } from 'fs';
 import * as dotenv from 'dotenv';
 import { ChildProcess, fork, Serializable } from 'child_process';
+import * as chalk from 'chalk';
+import * as logTransformer from 'strong-log-transformer';
 import { workspaceRoot } from '../utils/workspace-root';
 import { DefaultTasksRunnerOptions } from './default-tasks-runner';
 import { output } from '../utils/output';
@@ -18,7 +20,7 @@ import {
 } from './batch/batch-messages';
 import { stripIndents } from '../utils/strip-indents';
 import { Task } from '../config/task-graph';
-import { addCommandPrefixIfNeeded } from '../utils/add-command-prefix';
+import { Transform } from 'stream';
 
 const workerPath = join(__dirname, './batch/run-batch.js');
 
@@ -59,6 +61,7 @@ export class ForkedProcessTaskRunner {
         this.processes.add(p);
 
         p.once('exit', (code, signal) => {
+          this.processes.delete(p);
           if (code === null) code = this.signalToCode(signal);
           if (code !== 0) {
             const results: BatchResults = {};
@@ -144,29 +147,37 @@ export class ForkedProcessTaskRunner {
           }
         });
 
-        let out = [];
+        if (streamOutput) {
+          if (process.env.NX_PREFIX_OUTPUT === 'true') {
+            const color = getColor(task.target.project);
+            const prefixText = `${task.target.project}:`;
+
+            p.stdout
+              .pipe(
+                logClearLineToPrefixTransformer(color.bold(prefixText) + ' ')
+              )
+              .pipe(logTransformer({ tag: color.bold(prefixText) }))
+              .pipe(process.stdout);
+            p.stderr
+              .pipe(logClearLineToPrefixTransformer(color(prefixText) + ' '))
+              .pipe(logTransformer({ tag: color(prefixText) }))
+              .pipe(process.stderr);
+          } else {
+            p.stdout.pipe(logTransformer()).pipe(process.stdout);
+            p.stderr.pipe(logTransformer()).pipe(process.stderr);
+          }
+        }
+
         let outWithErr = [];
         p.stdout.on('data', (chunk) => {
-          if (streamOutput) {
-            process.stdout.write(
-              addCommandPrefixIfNeeded(task.target.project, chunk, 'utf-8')
-                .content
-            );
-          }
-          out.push(chunk.toString());
           outWithErr.push(chunk.toString());
         });
         p.stderr.on('data', (chunk) => {
-          if (streamOutput) {
-            process.stderr.write(
-              addCommandPrefixIfNeeded(task.target.project, chunk, 'utf-8')
-                .content
-            );
-          }
           outWithErr.push(chunk.toString());
         });
 
         p.on('exit', (code, signal) => {
+          this.processes.delete(p);
           if (code === null) code = this.signalToCode(signal);
           // we didn't print any output as we were running the command
           // print all the collected output|
@@ -345,6 +356,8 @@ export class ForkedProcessTaskRunner {
   ) {
     const env: NodeJS.ProcessEnv = {
       NX_TASK_TARGET_PROJECT: task.target.project,
+      NX_TASK_TARGET_TARGET: task.target.target,
+      NX_TASK_TARGET_CONFIGURATION: task.target.configuration ?? undefined,
       NX_TASK_HASH: task.hash,
       // used when Nx is invoked via Lerna
       LERNA_PACKAGE_NAME: task.target.project,
@@ -374,16 +387,36 @@ export class ForkedProcessTaskRunner {
   }
 
   private getDotenvVariablesForTask(task: Task) {
-    return {
-      ...this.getDotenvVariablesForForkedProcess(),
-      ...parseEnv(`.${task.target.target}.env`),
-      ...parseEnv(`.env.${task.target.target}`),
-      ...parseEnv(`${task.projectRoot}/.env`),
-      ...parseEnv(`${task.projectRoot}/.local.env`),
-      ...parseEnv(`${task.projectRoot}/.env.local`),
-      ...parseEnv(`${task.projectRoot}/.${task.target.target}.env`),
-      ...parseEnv(`${task.projectRoot}/.env.${task.target.target}`),
-    };
+    if (process.env.NX_LOAD_DOT_ENV_FILES == 'true') {
+      return {
+        ...this.getDotenvVariablesForForkedProcess(),
+        ...parseEnv(`.${task.target.target}.env`),
+        ...parseEnv(`.env.${task.target.target}`),
+        ...(task.target.configuration
+          ? parseEnv(`.${task.target.target}.${task.target.configuration}.env`)
+          : {}),
+        ...(task.target.configuration
+          ? parseEnv(`.env.${task.target.target}.${task.target.configuration}`)
+          : {}),
+        ...parseEnv(`${task.projectRoot}/.env`),
+        ...parseEnv(`${task.projectRoot}/.local.env`),
+        ...parseEnv(`${task.projectRoot}/.env.local`),
+        ...parseEnv(`${task.projectRoot}/.${task.target.target}.env`),
+        ...parseEnv(`${task.projectRoot}/.env.${task.target.target}`),
+        ...(task.target.configuration
+          ? parseEnv(
+              `${task.projectRoot}/.${task.target.target}.${task.target.configuration}.env`
+            )
+          : {}),
+        ...(task.target.configuration
+          ? parseEnv(
+              `${task.projectRoot}/.env.${task.target.target}.${task.target.configuration}`
+            )
+          : {}),
+      };
+    } else {
+      return {};
+    }
   }
 
   // endregion Environment Variables
@@ -399,28 +432,36 @@ export class ForkedProcessTaskRunner {
     // When the nx process gets a message, it will be sent into the task's process
     process.on('message', (message: Serializable) => {
       this.processes.forEach((p) => {
-        p.send(message);
+        if (p.connected) {
+          p.send(message);
+        }
       });
     });
 
     // Terminate any task processes on exit
     process.on('SIGINT', () => {
       this.processes.forEach((p) => {
-        p.kill('SIGTERM');
+        if (p.connected) {
+          p.kill('SIGTERM');
+        }
       });
       // we exit here because we don't need to write anything to cache.
       process.exit();
     });
     process.on('SIGTERM', () => {
       this.processes.forEach((p) => {
-        p.kill('SIGTERM');
+        if (p.connected) {
+          p.kill('SIGTERM');
+        }
       });
       // no exit here because we expect child processes to terminate which
       // will store results to the cache and will terminate this process
     });
     process.on('SIGHUP', () => {
       this.processes.forEach((p) => {
-        p.kill('SIGTERM');
+        if (p.connected) {
+          p.kill('SIGTERM');
+        }
       });
       // no exit here because we expect child processes to terminate which
       // will store results to the cache and will terminate this process
@@ -433,4 +474,44 @@ function parseEnv(path: string) {
     const envContents = readFileSync(path);
     return dotenv.parse(envContents);
   } catch (e) {}
+}
+
+const colors = [
+  chalk.green,
+  chalk.greenBright,
+  chalk.red,
+  chalk.redBright,
+  chalk.cyan,
+  chalk.cyanBright,
+  chalk.yellow,
+  chalk.yellowBright,
+  chalk.magenta,
+  chalk.magentaBright,
+];
+
+function getColor(projectName: string) {
+  let code = 0;
+  for (let i = 0; i < projectName.length; ++i) {
+    code += projectName.charCodeAt(i);
+  }
+  const colorIndex = code % colors.length;
+
+  return colors[colorIndex];
+}
+
+/**
+ * Prevents terminal escape sequence from clearing line prefix.
+ */
+function logClearLineToPrefixTransformer(prefix) {
+  let prevChunk = null;
+  return new Transform({
+    transform(chunk, _encoding, callback) {
+      if (prevChunk && prevChunk.toString() === '\x1b[2K') {
+        chunk = chunk.toString().replace(/\x1b\[1G/g, (m) => m + prefix);
+      }
+      this.push(chunk);
+      prevChunk = chunk;
+      callback();
+    },
+  });
 }

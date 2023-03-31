@@ -9,32 +9,40 @@ import {
   AffectedProjectGraphContext,
   TouchedProjectLocator,
 } from './affected-project-graph-models';
-import { getTouchedProjectsInWorkspaceJson } from './locators/workspace-json-changes';
 import { getTouchedProjectsFromTsConfig } from './locators/tsconfig-json-changes';
 import { NxJsonConfiguration } from '../../config/nx-json';
 import { ProjectGraph } from '../../config/project-graph';
 import { reverse } from '../operators';
-import { ProjectConfiguration } from '../../config/workspace-json-project-json';
 import { readNxJson } from '../../config/configuration';
+import { getTouchedProjectsFromProjectGlobChanges } from './locators/project-glob-changes';
 
-export function filterAffected(
-  graph: ProjectGraph<ProjectConfiguration>,
+export async function filterAffected(
+  graph: ProjectGraph,
   touchedFiles: FileChange[],
   nxJson: NxJsonConfiguration = readNxJson(),
   packageJson: any = readPackageJson()
-): ProjectGraph {
+): Promise<ProjectGraph> {
   // Additional affected logic should be in this array.
   const touchedProjectLocators: TouchedProjectLocator[] = [
     getTouchedProjects,
     getImplicitlyTouchedProjects,
     getTouchedNpmPackages,
     getImplicitlyTouchedProjectsByJsonChanges,
-    getTouchedProjectsInWorkspaceJson,
     getTouchedProjectsFromTsConfig,
+    getTouchedProjectsFromProjectGlobChanges,
   ];
-  const touchedProjects = touchedProjectLocators.reduce((acc, f) => {
-    return acc.concat(f(touchedFiles, graph.nodes, nxJson, packageJson, graph));
-  }, [] as string[]);
+
+  const touchedProjects = [];
+  for (const locator of touchedProjectLocators) {
+    const projects = await locator(
+      touchedFiles,
+      graph.nodes,
+      nxJson,
+      packageJson,
+      graph
+    );
+    touchedProjects.push(...projects);
+  }
 
   return filterAffectedProjects(graph, {
     projectGraphNodes: graph.nodes,

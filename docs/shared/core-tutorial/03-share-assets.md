@@ -4,27 +4,21 @@ You probably noticed that you're using the same friendly cow ASCII art in the bl
 
 ## Create an Asset Library
 
-You can make a library project just for holding the ASCII asset files. Let Nx know about the project by creating a `project.json` file like this:
+You can make a library project just for holding the ASCII asset files. Let Nx know about the project by creating a `package.json` file like this:
 
-`packages/ascii/project.json`:
+`packages/ascii/package.json`:
 
 ```json
 {
-  "root": "packages/ascii",
-  "sourceRoot": "packages/ascii/assets",
-  "projectType": "library"
+  "name": "ascii"
 }
 ```
-
-{% callout type="note" title="Prefer a `package.json` file?" %}
-You could choose to make a `package.json` file here instead, if you prefer.
-{% /callout %}
 
 Then move `cow.txt` out of the `cli` project to:
 
 `packages/ascii/assets/cow.txt`:
 
-```bash
+```shell
  _____
 < moo >
  -----
@@ -64,7 +58,7 @@ Then you can reference that shared asset file in a blog post.
 
 `packages/blog/src/posts/ascii.md`:
 
-```markdown
+```markdown {% process=false %}
 ---
 pageTitle: Some ASCII Art
 ---
@@ -72,7 +66,7 @@ pageTitle: Some ASCII Art
 Welcome to [The Restaurant at the End of the Universe](https://hitchhikers.fandom.com/wiki/Ameglian_Major_Cow)
 
 <pre>
-&#123;% renderFile "../ascii/assets/cow.txt" %&#125;
+{% renderFile "../ascii/assets/cow.txt" %}
 </pre>
 
 Art courtesy of [cowsay](https://www.npmjs.com/package/cowsay).
@@ -119,7 +113,7 @@ For the blog project, you'll need to add `ascii` as a `dependency` (or `devDepen
   "name": "blog",
   "description": "eleventy blog",
   "version": "1.0.0",
-  "dependency": {
+  "dependencies": {
     "ascii": "*"
   },
   "scripts": {
@@ -162,13 +156,13 @@ For the cli project, you add the implicit dependencies in the `project.json` fil
 
 You should now be able to run
 
-```bash
+```shell
 nx serve blog
 ```
 
 and
 
-```bash
+```shell
 nx serve cli
 ```
 
@@ -178,7 +172,7 @@ and get the same results as before.
 
 You can view a visual representation of the project graph by running:
 
-```bash
+```shell
 nx graph
 ```
 

@@ -7,9 +7,10 @@ import {
   displayNewlyAddedDepsMessage,
   syncDeps,
 } from '../sync-deps/sync-deps.impl';
-import { chmodSync } from 'fs';
 import { ReactNativeRunAndroidOptions } from './schema';
 import { runCliStart } from '../start/start.impl';
+import { chmodAndroidGradlewFiles } from '../../utils/chmod-android-gradle-files';
+import { getCliOptions } from '../../utils/get-cli-options';
 
 export interface ReactNativeRunAndroidOutput {
   success: boolean;
@@ -21,10 +22,10 @@ export default async function* runAndroidExecutor(
   options: ReactNativeRunAndroidOptions,
   context: ExecutorContext
 ): AsyncGenerator<ReactNativeRunAndroidOutput> {
-  const projectRoot = context.workspace.projects[context.projectName].root;
+  const projectRoot =
+    context.projectsConfigurations.projects[context.projectName].root;
   ensureNodeModulesSymlink(context.root, projectRoot);
-  chmodSync(join(context.root, projectRoot, 'android', 'gradlew'), 0o775);
-  chmodSync(join(context.root, projectRoot, 'android', 'gradlew.bat'), 0o775);
+  chmodAndroidGradlewFiles(join(projectRoot, 'android'));
 
   if (options.sync) {
     displayNewlyAddedDepsMessage(
@@ -96,27 +97,14 @@ function runCliRunAndroid(
   });
 }
 
-const nxOrStartOptions = [
-  'sync',
-  'install',
-  'packager',
-  'port',
-  'resetCache',
-  'interactive',
-];
+const nxOptions = ['sync', 'packager'];
+const startOptions = ['port', 'resetCache'];
+const deprecatedOptions = ['variant', 'jetifier'];
 
-function createRunAndroidOptions(options) {
-  return Object.keys(options).reduce((acc, k) => {
-    const v = options[k];
-    if (k === 'mainActivity') {
-      acc.push(`--main-activity`, v);
-    } else if (k === 'jetifier') {
-      if (!v) {
-        acc.push(`--no-jetifier`);
-      }
-    } else if (v && !nxOrStartOptions.includes(k)) {
-      acc.push(`--${k}`, v);
-    }
-    return acc;
-  }, []);
+function createRunAndroidOptions(options: ReactNativeRunAndroidOptions) {
+  return getCliOptions<ReactNativeRunAndroidOptions>(
+    options,
+    [...nxOptions, ...startOptions, ...deprecatedOptions],
+    ['appId', 'appIdSuffix']
+  );
 }

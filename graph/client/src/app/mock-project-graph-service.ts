@@ -1,14 +1,18 @@
 // nx-ignore-next-line
 import type {
+  DependencyType,
   ProjectGraphDependency,
   ProjectGraphProjectNode,
 } from '@nrwl/devkit';
 // nx-ignore-next-line
-import type { DepGraphClientResponse } from 'nx/src/command-line/dep-graph';
+import type {
+  ProjectGraphClientResponse,
+  TaskGraphClientResponse,
+} from 'nx/src/command-line/dep-graph';
 import { ProjectGraphService } from '../app/interfaces';
 
 export class MockProjectGraphService implements ProjectGraphService {
-  private response: DepGraphClientResponse = {
+  private projectGraphsResponse: ProjectGraphClientResponse = {
     hash: '79054025255fb1a26e4bc422aef54eb4',
     layout: {
       appsDir: 'apps',
@@ -25,7 +29,13 @@ export class MockProjectGraphService implements ProjectGraphService {
             {
               file: 'some/file.ts',
               hash: 'ecccd8481d2e5eae0e59928be1bc4c2d071729d7',
-              deps: ['existing-lib-1'],
+              dependencies: [
+                {
+                  target: 'existing-lib-1',
+                  source: 'existing-app-1',
+                  type: 'static' as DependencyType,
+                },
+              ],
             },
           ],
         },
@@ -56,21 +66,30 @@ export class MockProjectGraphService implements ProjectGraphService {
     groupByFolder: false,
   };
 
+  private taskGraphsResponse: TaskGraphClientResponse = {
+    taskGraphs: {},
+    errors: {},
+  };
+
   constructor(updateFrequency: number = 5000) {
     setInterval(() => this.updateResponse(), updateFrequency);
   }
 
   async getHash(): Promise<string> {
-    return new Promise((resolve) => resolve(this.response.hash));
+    return new Promise((resolve) => resolve(this.projectGraphsResponse.hash));
   }
 
-  getProjectGraph(url: string): Promise<DepGraphClientResponse> {
-    return new Promise((resolve) => resolve(this.response));
+  getProjectGraph(url: string): Promise<ProjectGraphClientResponse> {
+    return new Promise((resolve) => resolve(this.projectGraphsResponse));
+  }
+
+  getTaskGraph(url: string): Promise<TaskGraphClientResponse> {
+    return new Promise((resolve) => resolve(this.taskGraphsResponse));
   }
 
   private createNewProject(): ProjectGraphProjectNode {
     const type = Math.random() > 0.25 ? 'lib' : 'app';
-    const name = `${type}-${this.response.projects.length + 1}`;
+    const name = `${type}-${this.projectGraphsResponse.projects.length + 1}`;
 
     return {
       name,
@@ -85,7 +104,7 @@ export class MockProjectGraphService implements ProjectGraphService {
 
   private updateResponse() {
     const newProject = this.createNewProject();
-    const libProjects = this.response.projects.filter(
+    const libProjects = this.projectGraphsResponse.projects.filter(
       (project) => project.type === 'lib'
     );
 
@@ -99,11 +118,11 @@ export class MockProjectGraphService implements ProjectGraphService {
       },
     ];
 
-    this.response = {
-      ...this.response,
-      projects: [...this.response.projects, newProject],
+    this.projectGraphsResponse = {
+      ...this.projectGraphsResponse,
+      projects: [...this.projectGraphsResponse.projects, newProject],
       dependencies: {
-        ...this.response.dependencies,
+        ...this.projectGraphsResponse.dependencies,
         [newProject.name]: newDependency,
       },
     };

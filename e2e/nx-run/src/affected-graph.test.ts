@@ -2,23 +2,21 @@ import type { NxJsonConfiguration } from '@nrwl/devkit';
 import {
   getPackageManagerCommand,
   isNotWindows,
-  listFiles,
   newProject,
   readFile,
   readJson,
-  readProjectConfig,
   cleanupProject,
-  rmDist,
   runCLI,
   runCLIAsync,
   runCommand,
   uniq,
   updateFile,
   updateProjectConfig,
-  workspaceConfigName,
   checkFilesExist,
   isWindows,
   fileExists,
+  removeFile,
+  readResolvedConfiguration,
 } from '@nrwl/e2e/utils';
 
 describe('Nx Affected and Graph Tests', () => {
@@ -46,7 +44,7 @@ describe('Nx Affected and Graph Tests', () => {
       updateFile(
         `apps/${myapp}/src/app/app.element.spec.ts`,
         `
-              import '@${proj}/${mylib}';
+              import * as x from '@${proj}/${mylib}';
               describe('sample test', () => {
                 it('should test', () => {
                   expect(1).toEqual(1);
@@ -57,7 +55,7 @@ describe('Nx Affected and Graph Tests', () => {
       updateFile(
         `libs/${mypublishablelib}/src/lib/${mypublishablelib}.spec.ts`,
         `
-              import '@${proj}/${mylib}';
+              import * as x from '@${proj}/${mylib}';
               describe('sample test', () => {
                 it('should test', () => {
                   expect(1).toEqual(1);
@@ -130,7 +128,7 @@ describe('Nx Affected and Graph Tests', () => {
       const build = runCLI(
         `affected:build --files="libs/${mylib}/src/index.ts" --parallel`
       );
-      expect(build).toContain(`Running target build for 3 project(s):`);
+      expect(build).toContain(`Running target build for 3 projects:`);
       expect(build).toContain(`- ${myapp}`);
       expect(build).toContain(`- ${mypublishablelib}`);
       expect(build).not.toContain('is not registered with the build command');
@@ -139,7 +137,7 @@ describe('Nx Affected and Graph Tests', () => {
       const buildExcluded = runCLI(
         `affected:build --files="libs/${mylib}/src/index.ts" --exclude ${myapp}`
       );
-      expect(buildExcluded).toContain(`Running target build for 2 project(s):`);
+      expect(buildExcluded).toContain(`Running target build for 2 projects:`);
       expect(buildExcluded).toContain(`- ${mypublishablelib}`);
 
       // test
@@ -181,8 +179,6 @@ describe('Nx Affected and Graph Tests', () => {
       myapp2 = uniq('myapp');
       mylib = uniq('mylib');
       const nxJson: NxJsonConfiguration = readJson('nx.json');
-
-      delete nxJson.implicitDependencies;
 
       updateFile('nx.json', JSON.stringify(nxJson));
       runCommand(`git init`);
@@ -236,31 +232,60 @@ describe('Nx Affected and Graph Tests', () => {
       }
     });
 
-    it('should detect changes to projects based on the workspace.json', () => {
-      // TODO: investigate why affected gives different results on windows
-      if (isNotWindows()) {
-        generateAll();
-        updateProjectConfig(myapp, (config) => ({
-          ...config,
-          prefix: 'my-app',
-        }));
-
-        expect(runCLI('affected:apps')).toContain(myapp);
-        expect(runCLI('affected:apps')).not.toContain(myapp2);
-        expect(runCLI('affected:libs')).not.toContain(mylib);
-      }
-    });
-
     it('should affect all projects by removing projects', () => {
       generateAll();
-      updateFile(workspaceConfigName(), (old) => {
-        const workspaceJson = JSON.parse(old);
-        delete workspaceJson.projects[mylib];
-        return JSON.stringify(workspaceJson, null, 2);
-      });
+      const root = readResolvedConfiguration().projects[mylib].root;
+      removeFile(root);
       expect(runCLI('affected:apps')).toContain(myapp);
       expect(runCLI('affected:apps')).toContain(myapp2);
       expect(runCLI('affected:libs')).not.toContain(mylib);
+    });
+
+    it('should detect changes to implicitly dependant projects', () => {
+      generateAll();
+      updateProjectConfig(myapp, (config) => ({
+        ...config,
+        implicitDependencies: ['*', `!${myapp2}`],
+      }));
+
+      runCommand('git commit -m "setup test"');
+      updateFile(`libs/${mylib}/index.html`, '<html></html>');
+
+      const affectedApps = runCLI('affected:apps');
+      const affectedLibs = runCLI('affected:libs');
+
+      expect(affectedApps).toContain(myapp);
+      expect(affectedApps).not.toContain(myapp2);
+      expect(affectedLibs).toContain(mylib);
+
+      // Clear implicit deps to not interfere with other tests.
+      updateProjectConfig(myapp, (config) => ({
+        ...config,
+        implicitDependencies: [],
+      }));
+    });
+
+    it('should handle file renames', () => {
+      generateAll();
+
+      // Move file
+      updateFile(
+        `apps/${myapp2}/src/index.html`,
+        readFile(`apps/${myapp}/src/index.html`)
+      );
+      removeFile(`apps/${myapp}/src/index.html`);
+
+      const affectedProjects = runCLI(
+        'print-affected --uncommitted --select projects'
+      )
+        .replace(
+          /.*nx print-affected --uncommitted --select projects( --verbose)?\n/,
+          ''
+        )
+        .split(', ');
+
+      expect(affectedProjects).toContain(myapp);
+      expect(affectedProjects).toContain(myapp2);
     });
   });
 
@@ -337,7 +362,7 @@ describe('Nx Affected and Graph Tests', () => {
         command: `${runNx} run ${myapp}:test`,
         outputs: [`coverage/apps/${myapp}`],
       });
-      compareTwoArrays(resWithTarget.projects, [`${myapp}-e2e`, myapp]);
+      compareTwoArrays(resWithTarget.projects, [myapp]);
 
       const resWithTargetWithSelect1 = (
         await runCLIAsync(
@@ -345,18 +370,15 @@ describe('Nx Affected and Graph Tests', () => {
           { silent: true }
         )
       ).stdout.trim();
-      compareTwoSerializedArrays(
-        resWithTargetWithSelect1,
-        `${myapp}-e2e, ${myapp}`
-      );
+      compareTwoSerializedArrays(resWithTargetWithSelect1, myapp);
 
       const resWithTargetWithSelect2 = (
         await runCLIAsync(
-          `print-affected --files=apps/${myapp}/src/app.element.spec.ts --target=test --select="tasks.target.project"`,
+          `print-affected --files=apps/${myapp}/src/app/app.element.spec.ts --target=test --select="tasks.target.project"`,
           { silent: true }
         )
       ).stdout.trim();
-      compareTwoSerializedArrays(resWithTargetWithSelect2, `${myapp}`);
+      compareTwoSerializedArrays(resWithTargetWithSelect2, myapp);
     }, 120000);
 
     function compareTwoSerializedArrays(a: string, b: string) {
@@ -471,7 +493,7 @@ describe('Nx Affected and Graph Tests', () => {
               target: mylib,
               type: 'static',
             },
-            { source: myapp, target: mylib2, type: 'static' },
+            { source: myapp, target: mylib2, type: 'dynamic' },
           ],
           [myappE2e]: [
             {
@@ -580,9 +602,8 @@ describe('Nx Affected and Graph Tests', () => {
 
       expect(() => checkFilesExist('project-graph.html')).not.toThrow();
       expect(() => checkFilesExist('static/styles.css')).not.toThrow();
-      expect(() => checkFilesExist('static/runtime.esm.js')).not.toThrow();
-      expect(() => checkFilesExist('static/polyfills.esm.js')).not.toThrow();
-      expect(() => checkFilesExist('static/main.esm.js')).not.toThrow();
+      expect(() => checkFilesExist('static/runtime.js')).not.toThrow();
+      expect(() => checkFilesExist('static/main.js')).not.toThrow();
       expect(() => checkFilesExist('static/environment.js')).not.toThrow();
 
       const environmentJs = readFile('static/environment.js');
@@ -596,7 +617,7 @@ describe('Nx Affected and Graph Tests', () => {
 
       const environmentJs = readFile('static/environment.js');
       const affectedProjects = environmentJs
-        .match(/"affected":\[(.*)\],/)[1]
+        .match(/"affected":\[(.*?)\]/)[1]
         ?.split(',');
 
       expect(affectedProjects).toContain(`"${myapp}"`);

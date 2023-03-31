@@ -4,9 +4,9 @@ import {
   ProjectGraphDependency,
   readJsonFile,
 } from '@nrwl/devkit';
-import { DependentBuildableProjectNode } from '@nrwl/workspace/src/utilities/buildable-libs-utils';
-import { readTsConfig } from '@nrwl/workspace/src/utilities/typescript';
+import { DependentBuildableProjectNode } from './buildable-libs-utils';
 import { join } from 'path';
+import { readTsConfig } from './typescript/ts-config';
 import { ExecutorOptions, SwcExecutorOptions } from './schema';
 import { getSwcrcPath } from './swc/get-swcrc-path';
 

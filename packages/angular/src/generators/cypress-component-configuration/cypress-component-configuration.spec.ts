@@ -5,12 +5,12 @@ import {
   ProjectGraph,
   readProjectConfiguration,
   Tree,
+  updateProjectConfiguration,
 } from '@nrwl/devkit';
 import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
-import { applicationGenerator } from '../application/application';
 import { componentGenerator } from '../component/component';
-import librarySecondaryEntryPointGenerator from '../library-secondary-entry-point/library-secondary-entry-point';
-import { libraryGenerator } from '../library/library';
+import { librarySecondaryEntryPointGenerator } from '../library-secondary-entry-point/library-secondary-entry-point';
+import { generateTestApplication, generateTestLibrary } from '../utils/testing';
 import { cypressComponentConfiguration } from './cypress-component-configuration';
 
 let projectGraph: ProjectGraph;
@@ -21,6 +21,14 @@ jest.mock('@nrwl/devkit', () => ({
     .fn()
     .mockImplementation(async () => projectGraph),
 }));
+// nested code imports graph from the repo, which might have innacurate graph version
+jest.mock('nx/src/project-graph/project-graph', () => ({
+  ...jest.requireActual<any>('nx/src/project-graph/project-graph'),
+  readCachedProjectGraph: jest
+    .fn()
+    .mockImplementation(async () => projectGraph),
+}));
+
 describe('Cypress Component Testing Configuration', () => {
   let tree: Tree;
   let mockedInstalledCypressVersion: jest.Mock<
@@ -28,17 +36,17 @@ describe('Cypress Component Testing Configuration', () => {
   > = installedCypressVersion as never;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
     tree.write('.gitignore', '');
     mockedInstalledCypressVersion.mockReturnValue(10);
   });
 
   describe('updateProjectConfig', () => {
     it('should add project config with --target=<project>:<target>', async () => {
-      await applicationGenerator(tree, {
+      await generateTestApplication(tree, {
         name: 'fancy-app',
       });
-      await libraryGenerator(tree, {
+      await generateTestLibrary(tree, {
         name: 'fancy-lib',
       });
       await componentGenerator(tree, {
@@ -62,7 +70,7 @@ describe('Cypress Component Testing Configuration', () => {
               ...readProjectConfiguration(tree, 'fancy-lib'),
             },
           },
-        },
+        } as any,
         dependencies: {
           'fancy-app': [
             {
@@ -97,10 +105,10 @@ describe('Cypress Component Testing Configuration', () => {
     });
 
     it('should add project config with --target=<project>:<target>:<config>', async () => {
-      await applicationGenerator(tree, {
+      await generateTestApplication(tree, {
         name: 'fancy-app',
       });
-      await libraryGenerator(tree, {
+      await generateTestLibrary(tree, {
         name: 'fancy-lib',
       });
       await componentGenerator(tree, {
@@ -116,13 +124,13 @@ describe('Cypress Component Testing Configuration', () => {
             data: {
               ...readProjectConfiguration(tree, 'fancy-app'),
             },
-          },
+          } as any,
           'fancy-lib': {
             name: 'fancy-lib',
             type: 'lib',
             data: {
               ...readProjectConfiguration(tree, 'fancy-lib'),
-            },
+            } as any,
           },
         },
         dependencies: {
@@ -158,24 +166,63 @@ describe('Cypress Component Testing Configuration', () => {
       });
     });
 
-    it('should throw if --build-target is invalid', async () => {
-      await libraryGenerator(tree, {
+    it('should throw with invalid --build-target', async () => {
+      await generateTestApplication(tree, {
+        name: 'fancy-app',
+      });
+      await generateTestLibrary(tree, {
         name: 'fancy-lib',
       });
-      await expect(
-        cypressComponentConfiguration(tree, {
+      await componentGenerator(tree, {
+        name: 'fancy-cmp',
+        project: 'fancy-lib',
+        export: true,
+      });
+      const appConfig = readProjectConfiguration(tree, 'fancy-app');
+      appConfig.targets['build'].executor = 'something/else';
+      updateProjectConfiguration(tree, 'fancy-app', appConfig);
+      projectGraph = {
+        nodes: {
+          'fancy-app': {
+            name: 'fancy-app',
+            type: 'app',
+            data: {
+              ...appConfig,
+            } as any,
+          },
+          'fancy-lib': {
+            name: 'fancy-lib',
+            type: 'lib',
+            data: {
+              ...readProjectConfiguration(tree, 'fancy-lib'),
+            } as any,
+          },
+        },
+        dependencies: {
+          'fancy-app': [
+            {
+              type: DependencyType.static,
+              source: 'fancy-app',
+              target: 'fancy-lib',
+            },
+          ],
+        },
+      };
+      await expect(async () => {
+        await cypressComponentConfiguration(tree, {
           project: 'fancy-lib',
-          buildTarget: 'fancy-app:build:development',
+          buildTarget: 'fancy-app:build',
           generateTests: false,
-        })
-      ).rejects
-        .toThrow(`Error trying to find build configuration. Try manually specifying the build target with the --build-target flag.
-Provided project? fancy-lib
-Provided build target? fancy-app:build:development
-Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular:browser`);
+        });
+      }).rejects.toThrowErrorMatchingInlineSnapshot(`
+        "Error trying to find build configuration. Try manually specifying the build target with the --build-target flag.
+        Provided project? fancy-lib
+        Provided build target? fancy-app:build
+        Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular:browser"
+      `);
     });
     it('should use own project config', async () => {
-      await applicationGenerator(tree, {
+      await generateTestApplication(tree, {
         name: 'fancy-app',
       });
       await componentGenerator(tree, {
@@ -190,7 +237,7 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
             type: 'app',
             data: {
               ...readProjectConfiguration(tree, 'fancy-app'),
-            },
+            } as any,
           },
         },
         dependencies: {},
@@ -213,10 +260,10 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
     });
 
     it('should use the project graph to find the correct project config', async () => {
-      await applicationGenerator(tree, {
+      await generateTestApplication(tree, {
         name: 'fancy-app',
       });
-      await libraryGenerator(tree, {
+      await generateTestLibrary(tree, {
         name: 'fancy-lib',
       });
       await componentGenerator(tree, {
@@ -235,14 +282,14 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
             type: 'app',
             data: {
               ...readProjectConfiguration(tree, 'fancy-app'),
-            },
+            } as any,
           },
           'fancy-lib': {
             name: 'fancy-lib',
             type: 'lib',
             data: {
               ...readProjectConfiguration(tree, 'fancy-lib'),
-            },
+            } as any,
           },
         },
         dependencies: {
@@ -273,8 +320,9 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
     });
   });
 
+  it('should throw if an invalid --build-target', async () => {});
   it('should work with simple components', async () => {
-    await libraryGenerator(tree, {
+    await generateTestLibrary(tree, {
       name: 'my-lib',
     });
 
@@ -290,14 +338,14 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
           type: 'app',
           data: {
             ...readProjectConfiguration(tree, 'something'),
-          },
+          } as any,
         },
         'my-lib': {
           name: 'my-lib',
           type: 'lib',
           data: {
             ...readProjectConfiguration(tree, 'my-lib'),
-          },
+          } as any,
         },
       },
       dependencies: {
@@ -326,7 +374,7 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
   });
 
   it('should work with standalone component', async () => {
-    await libraryGenerator(tree, {
+    await generateTestLibrary(tree, {
       name: 'my-lib-standalone',
     });
 
@@ -342,14 +390,14 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
           type: 'app',
           data: {
             ...readProjectConfiguration(tree, 'something'),
-          },
+          } as any,
         },
         'my-lib-standalone': {
           name: 'my-lib-standalone',
           type: 'lib',
           data: {
             ...readProjectConfiguration(tree, 'my-lib-standalone'),
-          },
+          } as any,
         },
       },
       dependencies: {
@@ -378,7 +426,7 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
   });
 
   it('should work with complex component', async () => {
-    await libraryGenerator(tree, {
+    await generateTestLibrary(tree, {
       name: 'with-inputs-cmp',
     });
 
@@ -396,14 +444,14 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
           type: 'app',
           data: {
             ...readProjectConfiguration(tree, 'something'),
-          },
+          } as any,
         },
         'with-inputs-cmp': {
           name: 'with-inputs-cmp',
           type: 'lib',
           data: {
             ...readProjectConfiguration(tree, 'with-inputs-cmp'),
-          },
+          } as any,
         },
       },
       dependencies: {
@@ -432,7 +480,7 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
   });
 
   it('should work with complex standalone component', async () => {
-    await libraryGenerator(tree, {
+    await generateTestLibrary(tree, {
       name: 'with-inputs-standalone-cmp',
     });
 
@@ -450,14 +498,14 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
           type: 'app',
           data: {
             ...readProjectConfiguration(tree, 'something'),
-          },
+          } as any,
         },
         'with-inputs-standalone-cmp': {
           name: 'with-inputs-standalone-cmp',
           type: 'lib',
           data: {
             ...readProjectConfiguration(tree, 'with-inputs-standalone-cmp'),
-          },
+          } as any,
         },
       },
       dependencies: {
@@ -486,10 +534,10 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
   });
 
   it('should work with secondary entry point libs', async () => {
-    await applicationGenerator(tree, {
+    await generateTestApplication(tree, {
       name: 'my-cool-app',
     });
-    await libraryGenerator(tree, {
+    await generateTestLibrary(tree, {
       name: 'secondary',
       buildable: true,
     });
@@ -517,14 +565,14 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
           type: 'app',
           data: {
             ...readProjectConfiguration(tree, 'my-cool-app'),
-          },
+          } as any,
         },
         secondary: {
           name: 'secondary',
           type: 'lib',
           data: {
             ...readProjectConfiguration(tree, 'secondary'),
-          },
+          } as any,
         },
       },
       dependencies: {},
@@ -550,7 +598,7 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
   });
 
   it('should not overwrite existing component test', async () => {
-    await libraryGenerator(tree, {
+    await generateTestLibrary(tree, {
       name: 'cool-lib',
       flat: true,
     });
@@ -574,14 +622,14 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
           type: 'app',
           data: {
             ...readProjectConfiguration(tree, 'abc'),
-          },
+          } as any,
         },
         'cool-lib': {
           name: 'cool-lib',
           type: 'lib',
           data: {
             ...readProjectConfiguration(tree, 'cool-lib'),
-          },
+          } as any,
         },
       },
       dependencies: {},
@@ -604,7 +652,7 @@ Provided Executors? @nrwl/angular:webpack-browser, @angular-devkit/build-angular
 
   // TODO: should we support this?
   it.skip('should handle multiple components per file', async () => {
-    await libraryGenerator(tree, {
+    await generateTestLibrary(tree, {
       name: 'multiple-components',
       flat: true,
     });
@@ -695,7 +743,7 @@ async function setup(
     basePath?: string;
   }
 ) {
-  await applicationGenerator(tree, {
+  await generateTestApplication(tree, {
     name: options.name,
     standalone: options.standalone,
   });

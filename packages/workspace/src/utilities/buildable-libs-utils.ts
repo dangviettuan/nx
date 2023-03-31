@@ -1,17 +1,20 @@
-import { dirname, join, relative, resolve } from 'path';
+import { dirname, join, relative } from 'path';
 import { directoryExists, fileExists } from './fileutils';
 import type { ProjectGraph, ProjectGraphProjectNode } from '@nrwl/devkit';
 import {
+  getOutputsForTargetAndConfiguration,
   ProjectGraphExternalNode,
   readJsonFile,
   stripIndents,
   writeJsonFile,
-  getOutputsForTargetAndConfiguration,
 } from '@nrwl/devkit';
-import * as ts from 'typescript';
+import type * as ts from 'typescript';
 import { unlinkSync } from 'fs';
 import { output } from './output';
 import { isNpmProject } from 'nx/src/project-graph/operators';
+import { ensureTypescript } from './typescript';
+
+let tsModule: typeof import('typescript');
 
 function isBuildable(target: string, node: ProjectGraphProjectNode): boolean {
   return (
@@ -21,12 +24,18 @@ function isBuildable(target: string, node: ProjectGraphProjectNode): boolean {
   );
 }
 
+/**
+ * @deprecated This type will be removed from @nrwl/workspace in version 17. Prefer importing from @nrwl/js.
+ */
 export type DependentBuildableProjectNode = {
   name: string;
   outputs: string[];
   node: ProjectGraphProjectNode | ProjectGraphExternalNode;
 };
 
+/**
+ * @deprecated This function will be removed from @nrwl/workspace in version 17. Prefer importing from @nrwl/js.
+ */
 export function calculateProjectDependencies(
   projGraph: ProjectGraph,
   root: string,
@@ -111,6 +120,9 @@ export function calculateProjectDependencies(
       return project;
     })
     .filter((x) => !!x);
+
+  dependencies.sort((a, b) => (a.name > b.name ? 1 : b.name > a.name ? -1 : 0));
+
   return {
     target,
     dependencies,
@@ -128,8 +140,17 @@ function collectDependencies(
 ): { name: string; isTopLevel: boolean }[] {
   (projGraph.dependencies[project] || []).forEach((dependency) => {
     if (!acc.some((dep) => dep.name === dependency.target)) {
+      // Temporary skip this. Currently the set of external nodes is built from package.json, not lock file.
+      // As a result, some nodes might be missing. This should not cause any issues, we can just skip them.
+      if (
+        dependency.target.startsWith('npm:') &&
+        !projGraph.externalNodes[dependency.target]
+      )
+        return;
+
       acc.push({ name: dependency.target, isTopLevel: areTopLevelDeps });
-      if (!shallow) {
+      const isInternalTarget = projGraph.nodes[dependency.target];
+      if (!shallow && isInternalTarget) {
         collectDependencies(dependency.target, projGraph, acc, shallow, false);
       }
     }
@@ -163,8 +184,8 @@ function readTsConfigWithRemappedPaths(
   return generatedTsConfig;
 }
 
-export function computeCompilerOptionsPaths(
-  tsConfig: string,
+function computeCompilerOptionsPaths(
+  tsConfig: string | ts.ParsedCommandLine,
   dependencies: DependentBuildableProjectNode[]
 ) {
   const paths = readPaths(tsConfig) || {};
@@ -172,16 +193,27 @@ export function computeCompilerOptionsPaths(
   return paths;
 }
 
-function readPaths(tsConfig: string) {
+function readPaths(tsConfig: string | ts.ParsedCommandLine) {
+  if (!tsModule) {
+    tsModule = ensureTypescript();
+  }
   try {
-    const parsedTSConfig = ts.readConfigFile(tsConfig, ts.sys.readFile).config;
-    if (
-      parsedTSConfig.compilerOptions &&
-      parsedTSConfig.compilerOptions.paths
-    ) {
-      return parsedTSConfig.compilerOptions.paths;
-    } else if (parsedTSConfig.extends) {
-      return readPaths(resolve(dirname(tsConfig), parsedTSConfig.extends));
+    let config: ts.ParsedCommandLine;
+    if (typeof tsConfig === 'string') {
+      const configFile = tsModule.readConfigFile(
+        tsConfig,
+        tsModule.sys.readFile
+      );
+      config = tsModule.parseJsonConfigFileContent(
+        configFile.config,
+        tsModule.sys,
+        dirname(tsConfig)
+      );
+    } else {
+      config = tsConfig;
+    }
+    if (config.options?.paths) {
+      return config.options.paths;
     } else {
       return null;
     }
@@ -190,6 +222,9 @@ function readPaths(tsConfig: string) {
   }
 }
 
+/**
+ * @deprecated This function will be removed from @nrwl/workspace in version 17. Prefer importing from @nrwl/js.
+ */
 export function createTmpTsConfig(
   tsconfigPath: string,
   workspaceRoot: string,
@@ -220,6 +255,9 @@ function cleanupTmpTsConfigFile(tmpTsConfigPath) {
   } catch (e) {}
 }
 
+/**
+ * @deprecated This function will be removed from @nrwl/workspace in version 17. Prefer importing from @nrwl/js.
+ */
 export function checkDependentProjectsHaveBeenBuilt(
   root: string,
   projectName: string,
@@ -237,8 +275,8 @@ export function checkDependentProjectsHaveBeenBuilt(
       It looks like all of ${projectName}'s dependencies have not been built yet:
       ${missing.map((x) => ` - ${x.node.name}`).join('\n')}
 
-      You might be missing a "targetDefaults" configuration in your root nx.json (https://nx.dev/configuration/projectjson#target-defaults),
-      or "dependsOn" configured in ${projectName}'s project.json (https://nx.dev/configuration/projectjson#dependson) 
+      You might be missing a "targetDefaults" configuration in your root nx.json (https://nx.dev/reference/project-configuration#target-defaults),
+      or "dependsOn" configured in ${projectName}'s project.json (https://nx.dev/reference/project-configuration#dependson) 
     `);
     return false;
   } else {
@@ -246,6 +284,9 @@ export function checkDependentProjectsHaveBeenBuilt(
   }
 }
 
+/**
+ * @deprecated This function will be removed from @nrwl/workspace in version 17. Prefer importing from @nrwl/js.
+ */
 export function findMissingBuildDependencies(
   root: string,
   projectName: string,
@@ -270,6 +311,9 @@ export function findMissingBuildDependencies(
   return depLibsToBuildFirst;
 }
 
+/**
+ * @deprecated This function will be removed from @nrwl/workspace in version 17. Prefer importing from @nrwl/js.
+ */
 export function updatePaths(
   dependencies: DependentBuildableProjectNode[],
   paths: Record<string, string[]>
@@ -297,7 +341,7 @@ export function updatePaths(
           );
 
           // Get the dependency's package name
-          const { root } = dep.node?.data || {};
+          const { root } = (dep.node?.data || {}) as any;
           if (root) {
             // Update nested mappings to point to the dependency's output paths
             mappedPaths = mappedPaths.concat(
@@ -317,6 +361,7 @@ export function updatePaths(
 /**
  * Updates the peerDependencies section in the `dist/lib/xyz/package.json` with
  * the proper dependency and version
+ * @deprecated This function will be removed from @nrwl/workspace in version 17. Prefer importing from @nrwl/js.
  */
 export function updateBuildableProjectPackageJsonDependencies(
   root: string,

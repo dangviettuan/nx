@@ -77,13 +77,13 @@ export class Hasher {
         : []
     ).map((r) => ({ runtime: r }));
 
+    if (process.env.NX_CLOUD_ENCRYPTION_KEY) {
+      legacyRuntimeInputs.push({ env: 'NX_CLOUD_ENCRYPTION_KEY' });
+    }
+
     const legacyFilesetInputs = [
       ...Object.keys(this.nxJson.implicitDependencies ?? {}),
       'nx.json',
-      //TODO: vsavkin move the special cases into explicit ts support
-      'package-lock.json',
-      'yarn.lock',
-      'pnpm-lock.yaml',
 
       // ignore files will change the set of inputs to the hasher
       '.gitignore',
@@ -157,7 +157,12 @@ export class Hasher {
    */
   async hashSource(task: Task): Promise<string> {
     const hash = await this.taskHasher.hashTask(task, [task.target.project]);
-    return hash.details[`${task.target.project}:$filesets`];
+    for (let n of Object.keys(hash.details)) {
+      if (n.startsWith(`${task.target.project}:`)) {
+        return hash.details[n];
+      }
+    }
+    return '';
   }
 
   hashArray(values: string[]): string {
@@ -181,7 +186,7 @@ export class Hasher {
   }
 }
 
-const DEFAULT_INPUTS = [
+const DEFAULT_INPUTS: ReadonlyArray<InputDefinition> = [
   {
     projects: 'self',
     fileset: '{projectRoot}/**/*',
@@ -216,27 +221,31 @@ class TaskHasher {
       if (!projectNode) {
         return this.hashExternalDependency(task.target.project);
       }
-      const namedInputs = {
-        default: [{ fileset: '{projectRoot}/**/*' }],
-        ...this.nxJson.namedInputs,
-        ...projectNode.data.namedInputs,
-      };
+      const namedInputs = getNamedInputs(this.nxJson, projectNode);
       const targetData = projectNode.data.targets[task.target.target];
       const targetDefaults = (this.nxJson.targetDefaults || {})[
         task.target.target
       ];
       const { selfInputs, depsInputs } = splitInputsIntoSelfAndDependencies(
-        targetData.inputs || targetDefaults?.inputs || DEFAULT_INPUTS,
+        targetData.inputs || targetDefaults?.inputs || (DEFAULT_INPUTS as any),
         namedInputs
       );
 
-      return this.hashSelfAndDepsInputs(
+      const selfAndInputs = await this.hashSelfAndDepsInputs(
         task.target.project,
-        'default',
         selfInputs,
         depsInputs,
         visited
       );
+
+      const target = this.hashTarget(task.target.project, task.target.target);
+      if (target) {
+        return {
+          value: this.hashing.hashArray([selfAndInputs.value, target.value]),
+          details: { ...selfAndInputs.details, ...target.details },
+        };
+      }
+      return selfAndInputs;
     });
   }
 
@@ -259,7 +268,6 @@ class TaskHasher {
     const depsInputs = [{ input: namedInput }];
     return this.hashSelfAndDepsInputs(
       projectName,
-      namedInput,
       selfInputs,
       depsInputs,
       visited
@@ -268,14 +276,15 @@ class TaskHasher {
 
   private async hashSelfAndDepsInputs(
     projectName: string,
-    namedInput: string,
     selfInputs: ExpandedSelfInput[],
     depsInputs: { input: string }[],
     visited: string[]
   ) {
     const projectGraphDeps = this.projectGraph.dependencies[projectName] ?? [];
+    // we don't want random order of dependencies to change the hash
+    projectGraphDeps.sort((a, b) => a.target.localeCompare(b.target));
 
-    const self = await this.hashSelfInputs(projectName, namedInput, selfInputs);
+    const self = await this.hashSelfInputs(projectName, selfInputs);
     const deps = await this.hashDepsInputs(
       depsInputs,
       projectGraphDeps,
@@ -331,21 +340,15 @@ class TaskHasher {
     const n = this.projectGraph.externalNodes[projectName];
     const version = n?.data?.version;
     let hash: string;
-    if (version) {
-      hash = this.hashing.hashArray([version]);
+    if (n?.data?.hash) {
+      // we already know the hash of this dependency
+      hash = n.data.hash;
     } else {
       // unknown dependency
-      // this may occur if a file has a dependency to a npm package
-      // which is not directly registestered in package.json
-      // but only indirectly through dependencies of registered
-      // npm packages
-      // when it is at a later stage registered in package.json
-      // the cache project graph will not know this module but
-      // the new project graph will know it
-      // The actual checksum added here is of no importance as
-      // the version is unknown and may only change when some
-      // other change occurs in package.json and/or package-lock.json
-      hash = `__${projectName}__`;
+      // this may occur if dependency is not an npm package
+      // but rather symlinked in node_modules or it's pointing to a remote git repo
+      // in this case we have no information about the versioning of the given package
+      hash = version ? `__${projectName}@${version}__` : `__${projectName}__`;
     }
     return {
       value: hash,
@@ -355,14 +358,44 @@ class TaskHasher {
     };
   }
 
+  private hashTarget(projectName: string, targetName: string): PartialHash {
+    const projectNode = this.projectGraph.nodes[projectName];
+    const target = projectNode.data.targets[targetName];
+
+    if (!target) {
+      return;
+    }
+
+    // we can only vouch for @nrwl packages's executors
+    // if it's "run commands" we skip traversing since we have no info what this command depends on
+    // for everything else we take the hash of the @nrwl package dependency tree
+    if (
+      target.executor.startsWith(`@nrwl/`) &&
+      target.executor !== `@nrwl/workspace:run-commands`
+    ) {
+      const executorPackage = target.executor.split(':')[0];
+      const executorNode = `npm:${executorPackage}`;
+      if (this.projectGraph.externalNodes?.[executorNode]) {
+        return this.hashExternalDependency(executorNode);
+      }
+    }
+
+    const hash = this.hashing.hashArray([
+      JSON.stringify(this.projectGraph.externalNodes),
+    ]);
+    return {
+      value: hash,
+      details: {
+        [projectNode.name]: target.executor,
+      },
+    };
+  }
+
   private async hashSelfInputs(
     projectName: string,
-    namedInput: string,
     inputs: ExpandedSelfInput[]
   ): Promise<PartialHash[]> {
-    const filesets = inputs
-      .filter((r) => !!r['fileset'])
-      .map((r) => r['fileset']);
+    const filesets = extractPatternsFromFileSets(inputs);
 
     const projectFilesets = [];
     const workspaceFilesets = [];
@@ -403,7 +436,7 @@ class TaskHasher {
 
     const notFilesets = inputs.filter((r) => !r['fileset']);
     return Promise.all([
-      this.hashProjectFileset(projectName, namedInput, projectFilesets),
+      this.hashProjectFileset(projectName, projectFilesets),
       ...[
         ...workspaceFilesets,
         ...this.legacyFilesetInputs.map((r) => r.fileset),
@@ -420,19 +453,17 @@ class TaskHasher {
     if (!this.filesetHashes[mapKey]) {
       this.filesetHashes[mapKey] = new Promise(async (res) => {
         const parts = [];
-        if (fileset.indexOf('*') > -1) {
+        const matchingFile = this.projectGraph.allWorkspaceFiles.find(
+          (t) => t.file === withoutWorkspaceRoot
+        );
+        if (matchingFile) {
+          parts.push(matchingFile.hash);
+        } else {
           this.projectGraph.allWorkspaceFiles
             .filter((f) => minimatch(f.file, withoutWorkspaceRoot))
             .forEach((f) => {
               parts.push(f.hash);
             });
-        } else {
-          const matchingFile = this.projectGraph.allWorkspaceFiles.find(
-            (t) => t.file === withoutWorkspaceRoot
-          );
-          if (matchingFile) {
-            parts.push(matchingFile.hash);
-          }
         }
         const value = this.hashing.hashArray(parts);
         res({
@@ -446,20 +477,16 @@ class TaskHasher {
 
   private async hashProjectFileset(
     projectName: string,
-    namedInput: string,
     filesetPatterns: string[]
   ): Promise<PartialHash> {
-    const mapKey = `${projectName}:$filesets:${namedInput}`;
+    const mapKey = `${projectName}:${filesetPatterns.join(',')}`;
     if (!this.filesetHashes[mapKey]) {
       this.filesetHashes[mapKey] = new Promise(async (res) => {
         const p = this.projectGraph.nodes[projectName];
-        const filesetWithExpandedProjectRoot = filesetPatterns.map((f) =>
-          f.replace('{projectRoot}', p.data.root)
-        );
         const filteredFiles = filterUsingGlobPatterns(
           p.data.root,
           p.data.files,
-          filesetWithExpandedProjectRoot
+          filesetPatterns
         );
         const fileNames = filteredFiles.map((f) => f.file);
         const values = filteredFiles.map((f) => f.hash);
@@ -536,9 +563,52 @@ class TaskHasher {
   }
 }
 
+export function getNamedInputs(
+  nxJson: NxJsonConfiguration,
+  project: ProjectGraphProjectNode
+) {
+  return {
+    default: [{ fileset: '{projectRoot}/**/*' }],
+    ...nxJson.namedInputs,
+    ...project.data.namedInputs,
+  };
+}
+
+export function getTargetInputs(
+  nxJson: NxJsonConfiguration,
+  projectNode: ProjectGraphProjectNode,
+  target: string
+) {
+  const namedInputs = getNamedInputs(nxJson, projectNode);
+
+  const targetData = projectNode.data.targets[target];
+  const targetDefaults = (nxJson.targetDefaults || {})[target];
+
+  const inputs = splitInputsIntoSelfAndDependencies(
+    targetData.inputs || targetDefaults?.inputs || DEFAULT_INPUTS,
+    namedInputs
+  );
+
+  const selfInputs = extractPatternsFromFileSets(inputs.selfInputs);
+
+  const dependencyInputs = extractPatternsFromFileSets(
+    inputs.depsInputs.map((s) => expandNamedInput(s.input, namedInputs)).flat()
+  );
+
+  return { selfInputs, dependencyInputs };
+}
+
+export function extractPatternsFromFileSets(
+  inputs: readonly ExpandedSelfInput[]
+): string[] {
+  return inputs
+    .filter((c): c is { fileset: string } => !!c['fileset'])
+    .map((c) => c['fileset']);
+}
+
 export function splitInputsIntoSelfAndDependencies(
-  inputs: (InputDefinition | string)[],
-  namedInputs: { [inputName: string]: (InputDefinition | string)[] }
+  inputs: ReadonlyArray<InputDefinition | string>,
+  namedInputs: { [inputName: string]: ReadonlyArray<InputDefinition | string> }
 ): {
   depsInputs: { input: string }[];
   selfInputs: ExpandedSelfInput[];
@@ -564,8 +634,8 @@ export function splitInputsIntoSelfAndDependencies(
 }
 
 function expandSelfInputs(
-  inputs: (InputDefinition | string)[],
-  namedInputs: { [inputName: string]: (InputDefinition | string)[] }
+  inputs: ReadonlyArray<InputDefinition | string>,
+  namedInputs: { [inputName: string]: ReadonlyArray<InputDefinition | string> }
 ): ExpandedSelfInput[] {
   const expanded = [];
   for (const d of inputs) {
@@ -596,7 +666,7 @@ function expandSelfInputs(
 
 export function expandNamedInput(
   input: string,
-  namedInputs: { [inputName: string]: (InputDefinition | string)[] }
+  namedInputs: { [inputName: string]: ReadonlyArray<InputDefinition | string> }
 ): ExpandedSelfInput[] {
   namedInputs ||= {};
   if (!namedInputs[input]) throw new Error(`Input '${input}' is not defined`);
@@ -604,13 +674,22 @@ export function expandNamedInput(
 }
 
 export function filterUsingGlobPatterns(
-  projectRoot: string,
+  root: string,
   files: FileData[],
   patterns: string[]
 ): FileData[] {
+  const filesetWithExpandedProjectRoot = patterns
+    .map((f) => f.replace('{projectRoot}', root))
+    .map((r) => {
+      // handling root level projects that create './' pattern that doesn't work with minimatch
+      if (r.startsWith('./')) return r.substring(2);
+      if (r.startsWith('!./')) return '!' + r.substring(3);
+      return r;
+    });
+
   const positive = [];
   const negative = [];
-  for (const p of patterns) {
+  for (const p of filesetWithExpandedProjectRoot) {
     if (p.startsWith('!')) {
       negative.push(p);
     } else {
@@ -626,7 +705,7 @@ export function filterUsingGlobPatterns(
     let matchedPositive = false;
     if (
       positive.length === 0 ||
-      (positive.length === 1 && positive[0] === `${projectRoot}/**/*`)
+      (positive.length === 1 && positive[0] === `${root}/**/*`)
     ) {
       matchedPositive = true;
     } else {

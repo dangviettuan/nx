@@ -104,9 +104,6 @@ export function cacheCompilerHost(
           }
         }
 
-        // Rename file to index.d.ts so that TypeScript can resolve types without
-        // them needing to be referenced in the package.json manifest.
-        fileName = fileName.replace(flatModuleFileDtsFilename, 'index.d.ts');
         sourceFiles.forEach((source) => {
           const cache = sourcesFileCache.getOrCreate(source.fileName);
           if (!cache.declarationFileName) {
@@ -177,6 +174,10 @@ export function cacheCompilerHost(
 
       const cache = sourcesFileCache.getOrCreate(fileName);
       if (cache.content === undefined) {
+        if (!compilerHost.fileExists(fileName)) {
+          throw new Error(`Cannot read file ${fileName}.`);
+        }
+
         if (/(?:html?|svg)$/.test(path.extname(fileName))) {
           // template
           cache.content = compilerHost.readFile.call(this, fileName);
@@ -186,10 +187,6 @@ export function cacheCompilerHost(
             filePath: fileName,
             content: compilerHost.readFile.call(this, fileName),
           });
-        }
-
-        if (cache.content === undefined) {
-          throw new Error(`Cannot read file ${fileName}.`);
         }
 
         cache.exists = true;

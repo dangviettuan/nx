@@ -1,8 +1,9 @@
 import type {
-  TargetConfiguration,
+  ProjectConfiguration,
+  ProjectsConfigurations,
   Workspace,
 } from './workspace-json-project-json';
-import { InputDefinition } from './workspace-json-project-json';
+import { NxJsonConfiguration } from './nx-json';
 
 /**
  * Some metadata about a file
@@ -10,9 +11,9 @@ import { InputDefinition } from './workspace-json-project-json';
 export interface FileData {
   file: string;
   hash: string;
-  /** @deprecated this field will be removed in v13. Use {@link path.extname} to parse extension */
-  ext?: string;
+  /** @deprecated this field will be removed in v17. Use {@link dependencies} instead */
   deps?: string[];
+  dependencies?: ProjectGraphDependency[];
 }
 
 /**
@@ -25,17 +26,9 @@ export interface ProjectFileMap {
 /**
  * A Graph of projects in the workspace and dependencies between them
  */
-export interface ProjectGraph<T = any> {
-  nodes: Record<string, ProjectGraphProjectNode<T>>;
+export interface ProjectGraph {
+  nodes: Record<string, ProjectGraphProjectNode>;
   externalNodes?: Record<string, ProjectGraphExternalNode>;
-  dependencies: Record<string, ProjectGraphDependency[]>;
-  // this is optional otherwise it might break folks who use project graph creation
-  allWorkspaceFiles?: FileData[];
-  version?: string;
-}
-
-export interface ProjectGraphV4<T = any> {
-  nodes: Record<string, ProjectGraphNode<T>>;
   dependencies: Record<string, ProjectGraphDependency[]>;
   // this is optional otherwise it might break folks who use project graph creation
   allWorkspaceFiles?: FileData[];
@@ -60,53 +53,39 @@ export enum DependencyType {
   implicit = 'implicit',
 }
 
-/**
- * A node describing a project or an external node in a workspace
- */
-export type ProjectGraphNode<T = any> =
-  | ProjectGraphProjectNode<T>
+/** @deprecated this type will be removed in v16. Use {@link ProjectGraphProjectNode} or {@link ProjectGraphExternalNode} instead */
+export type ProjectGraphNode =
+  | ProjectGraphProjectNode
   | ProjectGraphExternalNode;
 
 /**
  * A node describing a project in a workspace
  */
-export interface ProjectGraphProjectNode<T = any> {
+export interface ProjectGraphProjectNode {
   type: 'app' | 'e2e' | 'lib';
   name: string;
   /**
    * Additional metadata about a project
    */
-  data: T & {
-    /**
-     * The project's root directory
-     */
-    root: string;
-    sourceRoot?: string;
-    /**
-     * Named inputs associated with a project
-     */
-    namedInputs?: { [inputName: string]: (string | InputDefinition)[] };
-    /**
-     * Targets associated to the project
-     */
-    targets?: { [targetName: string]: TargetConfiguration };
-    /**
-     * Project's tags used for enforcing module boundaries
-     */
-    tags?: string[];
-    /**
-     * Projects on which this node implicitly depends on
-     */
-    implicitDependencies?: string[];
+  data: ProjectConfiguration & {
     /**
      * Files associated to the project
      */
     files: FileData[];
+
+    description?: string;
   };
 }
 
 /**
  * A node describing an external dependency
+ * `name` has as form of:
+ * - `npm:packageName` for root dependencies or
+ * - `npm:packageName@version` for nested transitive dependencies
+ *
+ * This is vital for our node discovery to always point to root dependencies,
+ * while allowing tracking of the full tree of different nested versions
+ *
  */
 export interface ProjectGraphExternalNode {
   type: 'npm';
@@ -114,6 +93,7 @@ export interface ProjectGraphExternalNode {
   data: {
     version: string;
     packageName: string;
+    hash?: string;
   };
 }
 
@@ -138,8 +118,13 @@ export interface ProjectGraphDependency {
 export interface ProjectGraphProcessorContext {
   /**
    * Workspace information such as projects and configuration
+   * @deprecated use {@link projectsConfigurations} or {@link nxJsonConfiguration} instead
    */
   workspace: Workspace;
+
+  projectsConfigurations: ProjectsConfigurations;
+
+  nxJsonConfiguration: NxJsonConfiguration;
 
   /**
    * All files in the workspace

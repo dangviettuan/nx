@@ -1,11 +1,13 @@
 jest.mock('@nrwl/devkit');
-jest.mock('@nrwl/workspace/src/utilities/buildable-libs-utils');
+jest.mock('@nrwl/js/src/utils/buildable-libs-utils');
 jest.mock('ng-packagr');
+jest.mock('ng-packagr/lib/utils/ng-compiler-cli');
 jest.mock('./ng-packagr-adjustments/ng-package/options.di');
 
 import type { ExecutorContext } from '@nrwl/devkit';
-import * as buildableLibsUtils from '@nrwl/workspace/src/utilities/buildable-libs-utils';
+import * as buildableLibsUtils from '@nrwl/js/src/utils/buildable-libs-utils';
 import * as ngPackagr from 'ng-packagr';
+import { ngCompilerCli } from 'ng-packagr/lib/utils/ng-compiler-cli';
 import { BehaviorSubject } from 'rxjs';
 import type { BuildAngularLibraryExecutorOptions } from '../package/schema';
 import { NX_ENTRY_POINT_PROVIDERS } from './ng-packagr-adjustments/ng-package/entry-point/entry-point.di';
@@ -23,6 +25,7 @@ describe('NgPackagrLite executor', () => {
   let ngPackagrWatchMock: jest.Mock;
   let ngPackagrWithBuildTransformMock: jest.Mock;
   let ngPackagrWithTsConfigMock: jest.Mock;
+  let ngCliReadConfigurationMock: jest.Mock;
   let options: BuildAngularLibraryExecutorOptions;
 
   beforeEach(async () => {
@@ -46,13 +49,19 @@ describe('NgPackagrLite executor', () => {
       withBuildTransform: ngPackagrWithBuildTransformMock,
       withTsConfig: ngPackagrWithTsConfigMock,
     }));
+    ngCliReadConfigurationMock = jest.fn();
+    (ngCompilerCli as jest.Mock).mockImplementation(() => ({
+      readConfiguration: ngCliReadConfigurationMock,
+    }));
 
     context = {
       root: '/root',
       projectName: 'my-lib',
       targetName: 'build',
       configurationName: 'production',
-      workspace: { projects: { 'my-lib': { root: '/libs/my-lib' } } },
+      projectsConfigurations: {
+        projects: { 'my-lib': { root: '/libs/my-lib' } },
+      },
     } as any;
     options = { project: 'my-lib' };
   });
@@ -131,20 +140,27 @@ describe('NgPackagrLite executor', () => {
     (
       buildableLibsUtils.checkDependentProjectsHaveBeenBuilt as jest.Mock
     ).mockReturnValue(true);
-    const generatedTsConfig = '/root/tmp/my-lib/tsconfig.app.generated.json';
+    const tsConfig = 'libs/my-lib/tsconfig.lib.json';
+    const generatedTsConfig =
+      '/root/tmp/libs/my-lib/tsconfig.lib.generated.json';
     (buildableLibsUtils.createTmpTsConfig as jest.Mock).mockImplementation(
       () => generatedTsConfig
     );
+    ngCliReadConfigurationMock.mockReturnValue({
+      options: { configFilePath: generatedTsConfig },
+    });
 
     // ACT
     const result = await ngPackagrLiteExecutor(
-      { ...options, tsConfig: '/root/my-lib/tsconfig.app.json' },
+      { ...options, tsConfig },
       context
     ).next();
 
     // ASSERT
     expect(buildableLibsUtils.createTmpTsConfig).toHaveBeenCalled();
-    expect(ngPackagrWithTsConfigMock).toHaveBeenCalledWith(generatedTsConfig);
+    expect(ngPackagrWithTsConfigMock).toHaveBeenCalledWith({
+      options: { configFilePath: `/root/${tsConfig}` },
+    });
     expect(ngPackagrBuildMock).toHaveBeenCalled();
     expect(result.value).toEqual({ success: true });
     expect(result.done).toBe(true);

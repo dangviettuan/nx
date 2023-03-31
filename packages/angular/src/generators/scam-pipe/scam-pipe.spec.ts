@@ -5,7 +5,7 @@ import scamPipeGenerator from './scam-pipe';
 describe('SCAM Pipe Generator', () => {
   it('should create the inline scam pipe correctly', async () => {
     // ARRANGE
-    const tree = createTreeWithEmptyWorkspace();
+    const tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
     addProjectConfiguration(tree, 'app1', {
       projectType: 'application',
       sourceRoot: 'apps/app1/src',
@@ -30,14 +30,12 @@ describe('SCAM Pipe Generator', () => {
       import { CommonModule } from '@angular/common';
 
       @Pipe({
-        name: 'example'
+        name: 'example',
       })
       export class ExamplePipe implements PipeTransform {
-
         transform(value: unknown, ...args: unknown[]): unknown {
           return null;
         }
-
       }
 
       @NgModule({
@@ -45,13 +43,14 @@ describe('SCAM Pipe Generator', () => {
         declarations: [ExamplePipe],
         exports: [ExamplePipe],
       })
-      export class ExamplePipeModule {}"
+      export class ExamplePipeModule {}
+      "
     `);
   });
 
   it('should create the separate scam pipe correctly', async () => {
     // ARRANGE
-    const tree = createTreeWithEmptyWorkspace();
+    const tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
     addProjectConfiguration(tree, 'app1', {
       projectType: 'application',
       sourceRoot: 'apps/app1/src',
@@ -81,13 +80,14 @@ describe('SCAM Pipe Generator', () => {
         declarations: [ExamplePipe],
         exports: [ExamplePipe],
       })
-      export class ExamplePipeModule {}"
+      export class ExamplePipeModule {}
+      "
     `);
   });
 
   it('should create the scam pipe correctly and export it for a secondary entrypoint', async () => {
     // ARRANGE
-    const tree = createTreeWithEmptyWorkspace();
+    const tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
     addProjectConfiguration(tree, 'lib1', {
       projectType: 'library',
       sourceRoot: 'libs/lib1/src',
@@ -122,22 +122,24 @@ describe('SCAM Pipe Generator', () => {
         declarations: [ExamplePipe],
         exports: [ExamplePipe],
       })
-      export class ExamplePipeModule {}"
+      export class ExamplePipeModule {}
+      "
     `);
     const secondaryEntryPointSource = tree.read(
       `libs/lib1/feature/src/index.ts`,
       'utf-8'
     );
     expect(secondaryEntryPointSource).toMatchInlineSnapshot(`
-      "export * from \\"./lib/example.pipe\\";
-      export * from \\"./lib/example.module\\";"
+      "export * from './lib/example.pipe';
+      export * from './lib/example.module';
+      "
     `);
   });
 
   describe('--path', () => {
     it('should not throw when the path does not exist under project', async () => {
       // ARRANGE
-      const tree = createTreeWithEmptyWorkspace();
+      const tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
       addProjectConfiguration(tree, 'app1', {
         projectType: 'application',
         sourceRoot: 'apps/app1/src',
@@ -163,14 +165,12 @@ describe('SCAM Pipe Generator', () => {
         import { CommonModule } from '@angular/common';
 
         @Pipe({
-          name: 'example'
+          name: 'example',
         })
         export class ExamplePipe implements PipeTransform {
-
           transform(value: unknown, ...args: unknown[]): unknown {
             return null;
           }
-
         }
 
         @NgModule({
@@ -178,13 +178,14 @@ describe('SCAM Pipe Generator', () => {
           declarations: [ExamplePipe],
           exports: [ExamplePipe],
         })
-        export class ExamplePipeModule {}"
+        export class ExamplePipeModule {}
+        "
       `);
     });
 
     it('should not matter if the path starts with a slash', async () => {
       // ARRANGE
-      const tree = createTreeWithEmptyWorkspace();
+      const tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
       addProjectConfiguration(tree, 'app1', {
         projectType: 'application',
         sourceRoot: 'apps/app1/src',
@@ -210,14 +211,12 @@ describe('SCAM Pipe Generator', () => {
         import { CommonModule } from '@angular/common';
 
         @Pipe({
-          name: 'example'
+          name: 'example',
         })
         export class ExamplePipe implements PipeTransform {
-
           transform(value: unknown, ...args: unknown[]): unknown {
             return null;
           }
-
         }
 
         @NgModule({
@@ -225,13 +224,14 @@ describe('SCAM Pipe Generator', () => {
           declarations: [ExamplePipe],
           exports: [ExamplePipe],
         })
-        export class ExamplePipeModule {}"
+        export class ExamplePipeModule {}
+        "
       `);
     });
 
     it('should throw when the path does not exist under project', async () => {
       // ARRANGE
-      const tree = createTreeWithEmptyWorkspace();
+      const tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
       addProjectConfiguration(tree, 'app1', {
         projectType: 'application',
         sourceRoot: 'apps/app1/src',

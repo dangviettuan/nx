@@ -1,7 +1,12 @@
-import { cypressComponentProject } from '@nrwl/cypress';
-import { formatFiles, readProjectConfiguration, Tree } from '@nrwl/devkit';
+import {
+  ensurePackage,
+  formatFiles,
+  readProjectConfiguration,
+  Tree,
+} from '@nrwl/devkit';
+import { nxVersion } from '../../utils/versions';
 import { addFiles } from './lib/add-files';
-import { updateProjectConfig, updateTsConfig } from './lib/update-configs';
+import { FoundTarget, updateProjectConfig } from './lib/update-configs';
 import { CypressComponentConfigurationSchema } from './schema.d';
 
 /**
@@ -13,15 +18,15 @@ export async function cypressComponentConfigGenerator(
   tree: Tree,
   options: CypressComponentConfigurationSchema
 ) {
+  const { cypressComponentProject } = ensurePackage('@nrwl/cypress', nxVersion);
   const projectConfig = readProjectConfiguration(tree, options.project);
   const installTask = await cypressComponentProject(tree, {
     project: options.project,
     skipFormat: true,
   });
 
-  await updateProjectConfig(tree, options);
-  addFiles(tree, projectConfig, options);
-  updateTsConfig(tree, projectConfig);
+  const found: FoundTarget = await updateProjectConfig(tree, options);
+  await addFiles(tree, projectConfig, options, found);
   if (options.skipFormat) {
     await formatFiles(tree);
   }

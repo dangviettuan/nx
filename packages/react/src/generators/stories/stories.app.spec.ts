@@ -1,6 +1,6 @@
 import { installedCypressVersion } from '@nrwl/cypress/src/utils/cypress-version';
 import { Tree } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { Linter } from '@nrwl/linter';
 import applicationGenerator from '../application/application';
 import storiesGenerator from './stories';
@@ -109,7 +109,7 @@ describe('react:stories for applications', () => {
     expect(
       appTree.read('apps/test-ui-app/src/app/nx-welcome.stories.tsx', 'utf-8')
     ).toEqual(
-      `import { ComponentStory, ComponentMeta } from '@storybook/react'`
+      `import { ComponentStory, ComponentMeta } from '@storybook/react';\n`
     );
   });
 
@@ -342,17 +342,16 @@ export async function createTestUIApp(
   libName: string,
   plainJS = false
 ): Promise<Tree> {
-  let appTree = createTreeWithEmptyV1Workspace();
+  let appTree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
 
   await applicationGenerator(appTree, {
     e2eTestRunner: 'cypress',
     linter: Linter.EsLint,
-    skipFormat: false,
+    skipFormat: true,
     style: 'css',
     unitTestRunner: 'none',
     name: libName,
     js: plainJS,
-    standaloneConfig: false,
   });
   return appTree;
 }

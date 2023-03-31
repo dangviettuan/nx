@@ -6,6 +6,7 @@ import {
   logger,
   Tree,
 } from '@nrwl/devkit';
+import { warnForSchematicUsage } from '../utils/warn-for-schematic-usage';
 import { ConvertTSLintToESLintSchema, ProjectConverter } from '@nrwl/linter';
 import type { Linter } from 'eslint';
 import { addLintingGenerator } from '../add-linting/add-linting';
@@ -39,7 +40,7 @@ export async function conversionGenerator(
          * does and remove the config again if it doesn't, so that it is most efficient.
          */
         setParserOptionsProject: true,
-        skipFormat: options.skipFormat,
+        skipFormat: true,
       });
     },
   });
@@ -104,7 +105,7 @@ export async function conversionGenerator(
          * step of this parent generator, if applicable
          */
         removeTSLintIfNoMoreTSLintTargets: false,
-        skipFormat: options.skipFormat,
+        skipFormat: true,
       });
     } catch {
       logger.warn(
@@ -137,7 +138,9 @@ export async function conversionGenerator(
   };
 }
 
-export const conversionSchematic = convertNxGenerator(conversionGenerator);
+export const conversionSchematic = warnForSchematicUsage(
+  convertNxGenerator(conversionGenerator)
+);
 
 /**
  * In the case of Angular lint rules, we need to apply them to correct override depending upon whether

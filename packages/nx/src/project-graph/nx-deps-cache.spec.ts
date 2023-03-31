@@ -4,7 +4,6 @@ import {
   ProjectGraphCache,
   shouldRecomputeWholeGraph,
 } from './nx-deps-cache';
-import { createCache } from './nx-deps-cache';
 import { ProjectGraph } from '../config/project-graph';
 import { WorkspaceJsonConfiguration } from '../config/workspace-json-project-json';
 import { NxJsonConfiguration } from '../config/nx-json';
@@ -14,7 +13,7 @@ describe('nx deps utils', () => {
     it('should be false when nothing changes', () => {
       expect(
         shouldRecomputeWholeGraph(
-          createCache({ version: '5.0' }),
+          createCache({ version: '5.1' }),
           createPackageJsonDeps({}),
           createWorkspaceJson({}),
           createNxJson({}),
@@ -317,7 +316,7 @@ describe('nx deps utils', () => {
 
   function createCache(p: Partial<ProjectGraphCache>): ProjectGraphCache {
     const defaults: ProjectGraphCache = {
-      version: '5.0',
+      version: '5.1',
       deps: {
         '@nrwl/workspace': '12.0.0',
         plugin: '1.0.0',

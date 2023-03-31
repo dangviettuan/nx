@@ -18,4 +18,6 @@ export interface Schema {
   watch?: boolean;
   poll?: number;
   devRemotes?: string[];
+  skipRemotes?: string[];
+  pathToManifestFile?: string;
 }

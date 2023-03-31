@@ -1,10 +1,12 @@
 import {
   addDependenciesToPackageJson,
   convertNxGenerator,
-  readWorkspaceConfiguration,
+  GeneratorCallback,
+  readNxJson,
   removeDependenciesFromPackageJson,
+  runTasksInSerial,
   Tree,
-  updateWorkspaceConfiguration,
+  updateNxJson,
 } from '@nrwl/devkit';
 import {
   cypressVersion,
@@ -12,25 +14,26 @@ import {
   typesNodeVersion,
 } from '../../utils/versions';
 import { Schema } from './schema';
+import { initGenerator } from '@nrwl/js';
 
 function setupE2ETargetDefaults(tree: Tree) {
-  const workspaceConfiguration = readWorkspaceConfiguration(tree);
+  const nxJson = readNxJson(tree);
 
-  if (!workspaceConfiguration.namedInputs) {
+  if (!nxJson.namedInputs) {
     return;
   }
 
   // E2e targets depend on all their project's sources + production sources of dependencies
-  workspaceConfiguration.targetDefaults ??= {};
+  nxJson.targetDefaults ??= {};
 
-  const productionFileSet = !!workspaceConfiguration.namedInputs?.production;
-  workspaceConfiguration.targetDefaults.e2e ??= {};
-  workspaceConfiguration.targetDefaults.e2e.inputs ??= [
+  const productionFileSet = !!nxJson.namedInputs?.production;
+  nxJson.targetDefaults.e2e ??= {};
+  nxJson.targetDefaults.e2e.inputs ??= [
     'default',
     productionFileSet ? '^production' : '^default',
   ];
 
-  updateWorkspaceConfiguration(tree, workspaceConfiguration);
+  updateNxJson(tree, nxJson);
 }
 
 function updateDependencies(tree: Tree) {
@@ -47,9 +50,23 @@ function updateDependencies(tree: Tree) {
   );
 }
 
-export function cypressInitGenerator(tree: Tree, options: Schema) {
+export async function cypressInitGenerator(tree: Tree, options: Schema) {
   setupE2ETargetDefaults(tree);
-  return !options.skipPackageJson ? updateDependencies(tree) : () => {};
+
+  const tasks: GeneratorCallback[] = [];
+
+  tasks.push(
+    await initGenerator(tree, {
+      ...options,
+      skipFormat: true,
+    })
+  );
+
+  if (!options.skipPackageJson) {
+    tasks.push(updateDependencies(tree));
+  }
+
+  return runTasksInSerial(...tasks);
 }
 
 export default cypressInitGenerator;

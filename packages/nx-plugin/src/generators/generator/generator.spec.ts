@@ -1,6 +1,11 @@
-import { readJson, readProjectConfiguration, Tree } from '@nrwl/devkit';
+import {
+  GeneratorsJson,
+  readJson,
+  readProjectConfiguration,
+  Tree,
+} from '@nrwl/devkit';
 import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
-import { libraryGenerator } from '@nrwl/js';
+import { libraryGenerator as jsLibraryGenerator } from '@nrwl/js';
 import { pluginGenerator } from '../plugin/plugin';
 import { generatorGenerator } from './generator';
 
@@ -10,7 +15,7 @@ describe('NxPlugin Generator Generator', () => {
 
   beforeEach(async () => {
     projectName = 'my-plugin';
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
     await pluginGenerator(tree, {
       name: projectName,
     } as any);
@@ -91,9 +96,9 @@ describe('NxPlugin Generator Generator', () => {
   });
 
   it('should create generators.json if it is not present', async () => {
-    await libraryGenerator(tree, {
+    await jsLibraryGenerator(tree, {
       name: 'test-js-lib',
-      buildable: true,
+      bundler: 'tsc',
     });
     const libConfig = readProjectConfiguration(tree, 'test-js-lib');
     await generatorGenerator(tree, {
@@ -158,6 +163,27 @@ describe('NxPlugin Generator Generator', () => {
           )
         ).toBeFalsy();
       });
+    });
+  });
+
+  describe('preset generator', () => {
+    it('should default to standalone layout: true', async () => {
+      await generatorGenerator(tree, {
+        project: projectName,
+        name: 'preset',
+        unitTestRunner: 'none',
+      });
+
+      const generatorJson = readJson<GeneratorsJson>(
+        tree,
+        'libs/my-plugin/generators.json'
+      );
+
+      console.log(generatorJson.generators['preset']);
+
+      expect(
+        generatorJson.generators['preset']['x-use-standalone-layout']
+      ).toEqual(true);
     });
   });
 });

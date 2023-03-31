@@ -4,7 +4,6 @@ import {
   findExportDeclarationsForJsx,
   getComponentNode,
 } from '../../utils/ast-utils';
-import * as ts from 'typescript';
 import {
   convertNxGenerator,
   getProjects,
@@ -15,11 +14,10 @@ import {
   visitNotIgnoredFiles,
 } from '@nrwl/devkit';
 import { basename, join } from 'path';
-import {
-  findStorybookAndBuildTargetsAndCompiler,
-  isTheFileAStory,
-} from '@nrwl/storybook/src/utils/utilities';
 import minimatch = require('minimatch');
+import { ensureTypescript } from '@nrwl/js/src/utils/typescript/ensure-typescript';
+
+let tsModule: typeof import('typescript');
 
 export interface StorybookStoriesSchema {
   project: string;
@@ -29,7 +27,13 @@ export interface StorybookStoriesSchema {
   ignorePaths?: string[];
 }
 
-export function projectRootPath(config: ProjectConfiguration): string {
+export async function projectRootPath(
+  tree: Tree,
+  config: ProjectConfiguration
+): Promise<string> {
+  const { findStorybookAndBuildTargetsAndCompiler } = await import(
+    '@nrwl/storybook/src/utils/utilities'
+  );
   let projectDir: string;
   if (config.projectType === 'application') {
     const { nextBuildTarget } = findStorybookAndBuildTargetsAndCompiler(
@@ -53,15 +57,19 @@ export function containsComponentDeclaration(
   tree: Tree,
   componentPath: string
 ): boolean {
+  if (!tsModule) {
+    tsModule = ensureTypescript();
+  }
+
   const contents = tree.read(componentPath, 'utf-8');
   if (contents === null) {
     throw new Error(`Failed to read ${componentPath}`);
   }
 
-  const sourceFile = ts.createSourceFile(
+  const sourceFile = tsModule.createSourceFile(
     componentPath,
     contents,
-    ts.ScriptTarget.Latest,
+    tsModule.ScriptTarget.Latest,
     true
   );
 
@@ -79,12 +87,16 @@ export async function createAllStories(
   cypressProject?: string,
   ignorePaths?: string[]
 ) {
+  const { isTheFileAStory } = await import(
+    '@nrwl/storybook/src/utils/utilities'
+  );
   const projects = getProjects(tree);
   const projectConfiguration = projects.get(projectName);
   const { sourceRoot, root } = projectConfiguration;
   let componentPaths: string[] = [];
 
-  visitNotIgnoredFiles(tree, projectRootPath(projectConfiguration), (path) => {
+  const projectPath = await projectRootPath(tree, projectConfiguration);
+  visitNotIgnoredFiles(tree, projectPath, (path) => {
     // Ignore private files starting with "_".
     if (basename(path).startsWith('_')) return;
 

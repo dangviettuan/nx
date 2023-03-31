@@ -2,6 +2,10 @@
 
 In this tutorial you create multiple projects in a monorepo and take advantage of the core Nx features with a minimum of configuration.
 
+{% callout type="check" title="Package-Based Repo" %}
+This tutorial sets up a [package-based repo](/concepts/integrated-vs-package-based). If you prefer an [integrated repo](/concepts/integrated-vs-package-based), check out the [React](/react-tutorial/1-code-generation), [Angular](/angular-tutorial/1-code-generation) or [Node](/getting-started/node-server-tutorial) tutorials.
+{% /callout %}
+
 ## Contents:
 
 - [1 - Create Blog](/core-tutorial/01-create-blog)
@@ -15,13 +19,13 @@ In this tutorial you create multiple projects in a monorepo and take advantage o
 
 **Start by creating a new workspace.**
 
-```bash
+```shell
 npx create-nx-workspace@latest
 ```
 
 You then receive the following prompts in your command line:
 
-```bash
+```shell
 Workspace name (e.g., org name)         myorg
 What to create in the new workspace     npm
 ```
@@ -59,14 +63,14 @@ To install Eleventy run:
 {% tabs %}
 {% tab label="yarn" %}
 
-```bash
-yarn add -D @11ty/eleventy@1.0.0
+```shell
+yarn add -D -W @11ty/eleventy@1.0.0
 ```
 
 {% /tab %}
 {% tab label="npm" %}
 
-```bash
+```shell
 npm install -D @11ty/eleventy@1.0.0
 ```
 
@@ -101,11 +105,15 @@ Next, add `packages/blog/src/index.html`:
 <p>Hello, Eleventy</p>
 ```
 
+## Clean Up
+
+If you have a `workspace.json` file in the root, delete it.
+
 ## Running Eleventy with Nx
 
 Now that we have the bare minimum set up for Eleventy, you can run:
 
-```bash
+```shell
 nx serve blog
 ```
 
@@ -113,7 +121,7 @@ And you can see `Hello, Eleventy` at `http://localhost:8080`.
 
 Also, if you run:
 
-```bash
+```shell
 nx build blog
 ```
 

@@ -1,14 +1,15 @@
 import { readJson, Tree } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
-import { applicationGenerator, libraryGenerator } from '@nrwl/react';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { Linter } from '@nrwl/linter';
+import { applicationGenerator } from '../application/application';
+import { libraryGenerator } from '../library/library';
 import { reduxGenerator } from './redux';
 
 describe('redux', () => {
   let appTree: Tree;
 
   beforeEach(async () => {
-    appTree = createTreeWithEmptyV1Workspace();
+    appTree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
     await libraryGenerator(appTree, {
       name: 'my-lib',
       linter: Linter.EsLint,
@@ -16,7 +17,6 @@ describe('redux', () => {
       skipTsConfig: false,
       style: 'css',
       unitTestRunner: 'jest',
-      standaloneConfig: false,
     });
   });
 
@@ -54,7 +54,6 @@ describe('redux', () => {
         style: 'css',
         unitTestRunner: 'none',
         name: 'my-app',
-        standaloneConfig: false,
       });
       await reduxGenerator(appTree, {
         name: 'my-slice',

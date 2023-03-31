@@ -4,28 +4,29 @@ import {
   readProjectConfiguration,
   Tree,
   updateProjectConfiguration,
-  WorkspaceJsonConfiguration,
 } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { cypressProjectGenerator } from './cypress-project';
 import { Schema } from './schema';
 import { Linter } from '@nrwl/linter';
 import { installedCypressVersion } from '../../utils/cypress-version';
+import { cypressInitGenerator } from '../init/init';
 
 jest.mock('../../utils/cypress-version');
-
+jest.mock('../init/init');
 describe('Cypress Project', () => {
   let tree: Tree;
   const defaultOptions: Omit<Schema, 'name' | 'project'> = {
     linter: Linter.EsLint,
-    standaloneConfig: false,
   };
   let mockedInstalledCypressVersion: jest.Mock<
     ReturnType<typeof installedCypressVersion>
   > = installedCypressVersion as never;
+  let mockInitCypress: jest.Mock<ReturnType<typeof cypressInitGenerator>> =
+    cypressInitGenerator as never;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyV1Workspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
 
     addProjectConfiguration(tree, 'my-app', {
       root: 'my-app',
@@ -55,6 +56,26 @@ describe('Cypress Project', () => {
   });
   afterEach(() => jest.clearAllMocks());
 
+  it('should call init if cypress is not installed', async () => {
+    mockedInstalledCypressVersion.mockReturnValue(null);
+    await cypressProjectGenerator(tree, {
+      ...defaultOptions,
+      name: 'my-app-e2e',
+      project: 'my-app',
+    });
+    expect(mockInitCypress).toHaveBeenCalled();
+  });
+
+  it('should call not init if cypress is installed', async () => {
+    mockedInstalledCypressVersion.mockReturnValue(10);
+    await cypressProjectGenerator(tree, {
+      ...defaultOptions,
+      name: 'my-app-e2e',
+      project: 'my-app',
+    });
+    expect(mockInitCypress).not.toHaveBeenCalled();
+  });
+
   describe('> v10', () => {
     beforeEach(() => {
       mockedInstalledCypressVersion.mockReturnValue(10);
@@ -80,17 +101,14 @@ describe('Cypress Project', () => {
       expect(tree.exists('apps/my-app-e2e/src/support/e2e.ts')).toBeTruthy();
     });
 
-    it('should add update `workspace.json` file properly when eslint is passed', async () => {
+    it('should update configuration when eslint is passed', async () => {
       await cypressProjectGenerator(tree, {
         name: 'my-app-e2e',
         project: 'my-app',
         linter: Linter.EsLint,
-        standaloneConfig: false,
       });
-      const workspaceJson = readJson(tree, 'workspace.json');
-      const project = workspaceJson.projects['my-app-e2e'];
-
-      expect(project.architect.lint).toMatchSnapshot();
+      const project = readProjectConfiguration(tree, 'my-app-e2e');
+      expect(project.targets.lint).toMatchSnapshot();
     });
 
     it('should not add lint target when "none" is passed', async () => {
@@ -98,12 +116,9 @@ describe('Cypress Project', () => {
         name: 'my-app-e2e',
         project: 'my-app',
         linter: Linter.None,
-        standaloneConfig: false,
       });
-      const workspaceJson = readJson(tree, 'workspace.json');
-      const project = workspaceJson.projects['my-app-e2e'];
-
-      expect(project.architect.lint).toBeUndefined();
+      const project = readProjectConfiguration(tree, 'my-app-e2e');
+      expect(project.targets.lint).toBeUndefined();
     });
 
     it('should update tags and implicit dependencies', async () => {
@@ -111,7 +126,6 @@ describe('Cypress Project', () => {
         name: 'my-app-e2e',
         project: 'my-app',
         linter: Linter.EsLint,
-        standaloneConfig: false,
       });
 
       const project = readProjectConfiguration(tree, 'my-app-e2e');
@@ -164,6 +178,22 @@ describe('Cypress Project', () => {
 
       const tsConfig = readJson(tree, 'apps/my-app-e2e/tsconfig.json');
       expect(tsConfig.extends).toBe('../../tsconfig.json');
+    });
+
+    describe('for bundler:vite', () => {
+      it('should pass the bundler info to nxE2EPreset in `cypress.config.ts`', async () => {
+        await cypressProjectGenerator(tree, {
+          ...defaultOptions,
+          name: 'my-app-e2e',
+          project: 'my-app',
+          bundler: 'vite',
+        });
+        const cypressConfig = tree.read(
+          'apps/my-app-e2e/cypress.config.ts',
+          'utf-8'
+        );
+        expect(cypressConfig).toMatchSnapshot();
+      });
     });
 
     describe('nested', () => {
@@ -222,6 +252,57 @@ describe('Cypress Project', () => {
         const tsConfig = readJson(tree, 'apps/my-dir/my-app-e2e/tsconfig.json');
         expect(tsConfig.extends).toBe('../../../tsconfig.json');
       });
+
+      describe('root project', () => {
+        it('should generate in option.name when root project detected', async () => {
+          addProjectConfiguration(tree, 'root', {
+            root: '.',
+          });
+          await cypressProjectGenerator(tree, {
+            ...defaultOptions,
+            name: 'e2e-tests',
+            baseUrl: 'http://localhost:1234',
+            project: 'root',
+          });
+          expect(tree.listChanges().map((c) => c.path)).toEqual(
+            expect.arrayContaining([
+              'e2e-tests/cypress.config.ts',
+              'e2e-tests/src/e2e/app.cy.ts',
+              'e2e-tests/src/fixtures/example.json',
+              'e2e-tests/src/support/app.po.ts',
+              'e2e-tests/src/support/commands.ts',
+              'e2e-tests/src/support/e2e.ts',
+              'e2e-tests/tsconfig.json',
+            ])
+          );
+        });
+
+        it('should not generate a root project when the passed in project is not the root project', async () => {
+          addProjectConfiguration(tree, 'root', {
+            root: '.',
+          });
+          addProjectConfiguration(tree, 'my-cool-app', {
+            root: 'apps/my-app',
+          });
+          await cypressProjectGenerator(tree, {
+            ...defaultOptions,
+            name: 'e2e-tests',
+            baseUrl: 'http://localhost:1234',
+            project: 'my-app',
+          });
+          expect(tree.listChanges().map((c) => c.path)).toEqual(
+            expect.arrayContaining([
+              'apps/e2e-tests/cypress.config.ts',
+              'apps/e2e-tests/src/e2e/app.cy.ts',
+              'apps/e2e-tests/src/fixtures/example.json',
+              'apps/e2e-tests/src/support/app.po.ts',
+              'apps/e2e-tests/src/support/commands.ts',
+              'apps/e2e-tests/src/support/e2e.ts',
+              'apps/e2e-tests/tsconfig.json',
+            ])
+          );
+        });
+      });
     });
 
     describe('--project', () => {
@@ -233,11 +314,7 @@ describe('Cypress Project', () => {
             baseUrl: 'http://localhost:7788',
           });
 
-          const workspaceJson = readJson<WorkspaceJsonConfiguration>(
-            tree,
-            'workspace.json'
-          );
-          const projectConfig = workspaceJson.projects['my-app-e2e'];
+          const projectConfig = readProjectConfiguration(tree, 'my-app-e2e');
           expect(projectConfig.implicitDependencies).not.toBeDefined();
           expect(projectConfig.tags).toEqual([]);
         });
@@ -268,12 +345,54 @@ describe('Cypress Project', () => {
         project: 'my-app',
         directory: 'one/two',
       });
-      const workspace = readJson(tree, 'workspace.json');
-      expect(workspace.projects['one-two-other-e2e']).toBeDefined();
+      const project = readProjectConfiguration(tree, 'one-two-other-e2e');
+      expect(project).toBeDefined();
       [
         'apps/one/two/other-e2e/cypress.config.ts',
         'apps/one/two/other-e2e/src/e2e/app.cy.ts',
       ].forEach((path) => expect(tree.exists(path)).toBeTruthy());
+    });
+
+    describe('serve-static', () => {
+      it('should configure Cypress with ci configuration if serve-static is found', async () => {
+        const appConfig = readProjectConfiguration(tree, 'my-app');
+        appConfig.targets['serve-static'] = {
+          executor: 'serve-static-executor',
+          options: {},
+          configurations: {
+            production: {},
+          },
+        };
+        updateProjectConfiguration(tree, 'my-app', appConfig);
+
+        await cypressProjectGenerator(tree, {
+          ...defaultOptions,
+          name: 'my-app-e2e',
+          project: 'my-app',
+        });
+
+        const e2eConfig = readProjectConfiguration(tree, 'my-app-e2e');
+        expect(e2eConfig.targets.e2e).toMatchObject({
+          options: {
+            devServerTarget: 'my-app:serve',
+          },
+          configurations: {
+            production: { devServerTarget: 'my-app:serve:production' },
+            ci: { devServerTarget: 'my-app:serve-static' },
+          },
+        });
+      });
+
+      it('should not configure Cypress with ci configuration if serve-static is not found', async () => {
+        await cypressProjectGenerator(tree, {
+          ...defaultOptions,
+          name: 'my-app-e2e',
+          project: 'my-app',
+        });
+
+        const e2eConfig = readProjectConfiguration(tree, 'my-app-e2e');
+        expect(e2eConfig.targets.e2e.configurations.ci).toBeUndefined();
+      });
     });
   });
 
@@ -319,38 +438,34 @@ describe('Cypress Project', () => {
       expect(tree.exists('apps/my-app-e2e/src/plugins/index.js')).toBeTruthy();
     });
 
-    it('should add update `workspace.json` file', async () => {
+    it('should update configuration', async () => {
       await cypressProjectGenerator(tree, {
         name: 'my-app-e2e',
         project: 'my-app',
-        linter: Linter.TsLint,
-        standaloneConfig: false,
+        linter: Linter.EsLint,
       });
-      const workspaceJson = readJson(tree, 'workspace.json');
-      const project = workspaceJson.projects['my-app-e2e'];
+
+      const project = readProjectConfiguration(tree, 'my-app-e2e');
 
       expect(project.root).toEqual('apps/my-app-e2e');
 
-      expect(project.architect).toMatchSnapshot();
+      expect(project.targets).toMatchSnapshot();
     });
 
-    it('should add update `workspace.json` file (baseUrl)', async () => {
+    it('should update configuration (baseUrl)', async () => {
       await cypressProjectGenerator(tree, {
         name: 'my-app-e2e',
         project: 'my-app',
         baseUrl: 'http://localhost:3000',
-        linter: Linter.TsLint,
-        standaloneConfig: false,
+        linter: Linter.EsLint,
       });
-      const workspaceJson = readJson(tree, 'workspace.json');
-      const project = workspaceJson.projects['my-app-e2e'];
 
+      const project = readProjectConfiguration(tree, 'my-app-e2e');
       expect(project.root).toEqual('apps/my-app-e2e');
-
-      expect(project.architect).toMatchSnapshot();
+      expect(project.targets).toMatchSnapshot();
     });
 
-    it('should add update `workspace.json` file for a project with a defaultConfiguration', async () => {
+    it('should update configuration', async () => {
       const originalProject = readProjectConfiguration(tree, 'my-app');
       originalProject.targets.serve.defaultConfiguration = 'development';
       originalProject.targets.serve.configurations.development = {};
@@ -359,32 +474,31 @@ describe('Cypress Project', () => {
       await cypressProjectGenerator(tree, {
         name: 'my-app-e2e',
         project: 'my-app',
-        linter: Linter.TsLint,
-        standaloneConfig: false,
+        linter: Linter.EsLint,
       });
-      const workspaceJson = readJson(tree, 'workspace.json');
-      const project = workspaceJson.projects['my-app-e2e'];
+
+      const project = readProjectConfiguration(tree, 'my-app-e2e');
 
       expect(project.root).toEqual('apps/my-app-e2e');
 
-      expect(project.architect).toMatchSnapshot();
+      expect(project.targets).toMatchSnapshot();
     });
 
     describe('nested', () => {
-      it('should update workspace.json', async () => {
+      it('should update configuration', async () => {
         await cypressProjectGenerator(tree, {
           name: 'my-app-e2e',
           project: 'my-dir-my-app',
           directory: 'my-dir',
-          linter: Linter.TsLint,
-          standaloneConfig: false,
+          linter: Linter.EsLint,
         });
-        const projectConfig = readJson(tree, 'workspace.json').projects[
-          'my-dir-my-app-e2e'
-        ];
 
+        const projectConfig = readProjectConfiguration(
+          tree,
+          'my-dir-my-app-e2e'
+        );
         expect(projectConfig).toBeDefined();
-        expect(projectConfig.architect).toMatchSnapshot();
+        expect(projectConfig.targets).toMatchSnapshot();
       });
     });
 
@@ -395,7 +509,6 @@ describe('Cypress Project', () => {
             name: 'my-app-e2e',
             project: 'my-app',
             linter: Linter.EsLint,
-            standaloneConfig: false,
           });
           const packageJson = readJson(tree, 'package.json');
           expect(
@@ -413,18 +526,17 @@ describe('Cypress Project', () => {
         await cypressProjectGenerator(tree, {
           name: 'my-dir/my-app-e2e',
           project: 'my-dir-my-app',
-          linter: Linter.TsLint,
-          standaloneConfig: false,
+          linter: Linter.EsLint,
         });
       });
 
-      it('should update workspace.json', async () => {
-        const projectConfig = readJson(tree, 'workspace.json').projects[
+      it('should update configuration', async () => {
+        const projectConfig = readProjectConfiguration(
+          tree,
           'my-dir-my-app-e2e'
-        ];
-
+        );
         expect(projectConfig).toBeDefined();
-        expect(projectConfig.architect).toMatchSnapshot();
+        expect(projectConfig.targets).toMatchSnapshot();
       });
 
       it('should update nx.json', async () => {

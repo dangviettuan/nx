@@ -6,7 +6,7 @@ import {
   updateJson,
   updateProjectConfiguration,
 } from '@nrwl/devkit';
-import { getRelativePathToRootTsConfig } from '@nrwl/workspace/src/utilities/typescript';
+import { getRelativePathToRootTsConfig } from '@nrwl/js';
 import type { NormalizedSchema } from './normalized-schema';
 
 export function updateE2eProject(tree: Tree, options: NormalizedSchema) {
@@ -35,7 +35,6 @@ export function updateE2eProject(tree: Tree, options: NormalizedSchema) {
     tags: [],
   };
   project.targets.e2e.options.protractorConfig = `${options.e2eProjectRoot}/protractor.conf.js`;
-  // update workspace.json / angular.json
   addProjectConfiguration(tree, options.e2eProjectName, project);
 
   delete proj.targets.e2e;

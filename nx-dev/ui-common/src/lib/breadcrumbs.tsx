@@ -1,4 +1,4 @@
-import { ChevronRightIcon } from '@heroicons/react/solid';
+import { ChevronRightIcon } from '@heroicons/react/24/solid';
 import classNames from 'classnames';
 
 export function Breadcrumbs({ path }: { path: string }): JSX.Element {
@@ -10,11 +10,11 @@ export function Breadcrumbs({ path }: { path: string }): JSX.Element {
       .split('/')
       .filter(Boolean)
       .map((segment, index, segments) => ({
-        name: segment,
+        name: segment.includes('#')
+          ? segment.slice(0, segment.indexOf('#'))
+          : segment,
         // We do not have dedicated page view for executors & generators
-        href: ['executors', 'generators'].includes(segment)
-          ? '#'
-          : '/' + segments.slice(0, index + 1).join('/'),
+        href: '/' + segments.slice(0, index + 1).join('/'),
         current: '/' + segments.slice(0, index + 1).join('/') === cleanedPath,
       })),
   ];
@@ -25,7 +25,7 @@ export function Breadcrumbs({ path }: { path: string }): JSX.Element {
       <nav className="flex" aria-labelledby="breadcrumb">
         <ol role="list" className="flex items-center space-x-4">
           {pages.map((page, index) => (
-            <li key={page.name}>
+            <li key={page.name.concat('-', index.toString())}>
               <div className="flex items-center">
                 {!!index && (
                   <ChevronRightIcon

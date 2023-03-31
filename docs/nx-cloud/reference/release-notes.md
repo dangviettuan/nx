@@ -92,6 +92,32 @@ Cleanup: Handle issues with the network and the api in a consistent fashion.
 
 # Docker Containers
 
+## 13-02-2023T23-45-24
+
+- Feat: Targettable agents for DTE. You can now ask specific agents to pick up specific tasks (via `--targets
+- Fix: DTE fixes for 404 not found artefacts errors
+- Fix: issue when using Github integration with self-hosted Github instances
+
+## 26-01-2023T21-22-48
+
+- Misc: Fixes to the Gitlab integration
+
+## 05-01-2023T17-53-45
+
+- Misc: This release contains small bug fixes and UI improvements.
+
+## 14-12-2022T19-43-44
+
+- Feat: IAM Role Auth. We have now deprecated "aws_access_key_id" and "aws_access_key_secret" in favor of service accounts and IAM roles for accessing AWS resources. See the [new guide here](https://github.com/nrwl/nx-cloud-helm/blob/main/aws-guide/AWS-GUIDE.md) for details.
+
+## 13-10-2022T16-45-30
+
+- Misc: This release mostly contains improvements that apply to the Public SASS version of NxCloud. No significant changes for the On-Prem version.
+
+## 13-10-2022T16-45-30
+
+- Feat: Private Cloud now runs completely as Kubernetes cluster. See the [Helm example repo](https://github.com/nrwl/nx-cloud-helm) for more details
+
 ## 05-08-2022T15-42-20
 
 - Fix: issue with retrieving hashes during reads

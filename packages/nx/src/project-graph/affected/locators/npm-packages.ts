@@ -1,6 +1,15 @@
 import { isWholeFileChange, WholeFileChange } from '../../file-utils';
-import { DiffType, isJsonChange, JsonChange } from '../../../utils/json-diff';
+import {
+  JsonDiffType,
+  isJsonChange,
+  JsonChange,
+} from '../../../utils/json-diff';
+import { logger } from '../../../utils/logger';
 import { TouchedProjectLocator } from '../affected-project-graph-models';
+import {
+  ProjectGraphExternalNode,
+  ProjectGraphProjectNode,
+} from '../../../config/project-graph';
 
 export const getTouchedNpmPackages: TouchedProjectLocator<
   WholeFileChange | JsonChange
@@ -13,6 +22,8 @@ export const getTouchedNpmPackages: TouchedProjectLocator<
 
   const npmPackages = Object.values(projectGraph.externalNodes);
 
+  const missingTouchedNpmPackages: string[] = [];
+
   for (const c of changes) {
     if (
       isJsonChange(c) &&
@@ -20,13 +31,21 @@ export const getTouchedNpmPackages: TouchedProjectLocator<
       c.path.length === 2
     ) {
       // A package was deleted so mark all workspace projects as touched.
-      if (c.type === DiffType.Deleted) {
+      if (c.type === JsonDiffType.Deleted) {
         touched = Object.keys(projectGraph.nodes);
         break;
       } else {
-        const npmPackage = npmPackages.find(
-          (pkg) => pkg.data.packageName === c.path[1]
-        );
+        let npmPackage: ProjectGraphProjectNode | ProjectGraphExternalNode =
+          npmPackages.find((pkg) => pkg.data.packageName === c.path[1]);
+        if (!npmPackage) {
+          // dependency can also point to a workspace project
+          const nodes = Object.values(projectGraph.nodes);
+          npmPackage = nodes.find((n) => n.name === c.path[1]);
+        }
+        if (!npmPackage) {
+          missingTouchedNpmPackages.push(c.path[1]);
+          continue;
+        }
         touched.push(npmPackage.name);
         // If it was a type declarations package then also mark its corresponding implementation package as affected
         if (npmPackage.name.startsWith('npm:@types/')) {
@@ -45,5 +64,12 @@ export const getTouchedNpmPackages: TouchedProjectLocator<
     }
   }
 
+  if (missingTouchedNpmPackages.length) {
+    logger.warn(
+      `The affected projects might have not been identified properly. The package(s) ${missingTouchedNpmPackages.join(
+        ', '
+      )} were not found. Please open an issue in GitHub including the package.json file.`
+    );
+  }
   return touched;
 };

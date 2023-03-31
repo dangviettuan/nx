@@ -1,9 +1,24 @@
 {
+  "version": 2,
   "title": "Cypress Target",
-  "description": "Cypress target option for Build Facade.",
+  "description": "Run Cypress for e2e, integration and component testing.",
   "type": "object",
   "outputCapture": "pipe",
   "cli": "nx",
+  "presets": [
+    {
+      "name": "Starting Dev Server",
+      "keys": ["cypressConfig", "devServerTarget"]
+    },
+    {
+      "name": "Custom Base Url",
+      "keys": ["cypressConfig", "baseUrl"]
+    },
+    {
+      "name": "Component Testing",
+      "keys": ["cypressConfig", "devServerTarget", "testingType", "skipServe"]
+    }
+  ],
   "properties": {
     "cypressConfig": {
       "type": "string",
@@ -33,9 +48,9 @@
     },
     "headless": {
       "type": "boolean",
-      "description": "Hide the browser instead of running headed (default for cypress run).",
+      "description": "Hide the browser instead of running headed.",
       "default": false,
-      "x-deprecated": true
+      "x-deprecated": "Cypress runs headless by default. Use the --watch flag to control head/headless behavior instead."
     },
     "exit": {
       "type": "boolean",
@@ -52,13 +67,15 @@
       "default": false
     },
     "parallel": {
+      "aliases": ["p"],
       "type": "boolean",
       "description": "Whether or not Cypress should run its tests in parallel (CI only).",
       "default": false
     },
     "baseUrl": {
       "type": "string",
-      "description": "The address (with the port) which your application is running on."
+      "description": "The address (with the port) which your application is running on.",
+      "x-priority": "important"
     },
     "browser": {
       "type": "string",
@@ -75,7 +92,8 @@
     "copyFiles": {
       "type": "string",
       "description": "A regex string that is used to choose what additional integration files to copy to the dist folder.",
-      "x-deprecated": true
+      "x-deprecated": "No longer used since cypress supports typescript out of the box. If specified, it will be ignored.",
+      "x-priority": "internal"
     },
     "ciBuildId": {
       "oneOf": [
@@ -93,6 +111,7 @@
       "description": "A named group for recorded runs in the Cypress dashboard."
     },
     "ignoreTestFiles": {
+      "aliases": ["excludeSpecPattern"],
       "type": "string",
       "description": "A String or Array of glob patterns used to ignore test files that would otherwise be shown in your list of tests. Cypress uses minimatch with the options: `{dot: true, matchBase: true}`. We suggest using https://globster.xyz to test what files would match."
     },
@@ -119,8 +138,21 @@
       "type": "string",
       "description": "A comma delimited list to identify a run with.",
       "aliases": ["t"]
+    },
+    "port": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["cypress-auto"]
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "description": "Pass a specified port value to the devServerTarget, if the value is 'cypress-auto' a free port will automatically be picked for the devServerTarget."
     }
   },
   "additionalProperties": true,
-  "required": ["cypressConfig"]
+  "required": ["cypressConfig"],
+  "examplesFile": "../../../docs/cypress-examples.md"
 }

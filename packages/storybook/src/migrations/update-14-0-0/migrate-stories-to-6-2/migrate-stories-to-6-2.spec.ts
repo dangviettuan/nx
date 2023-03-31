@@ -4,9 +4,9 @@ import {
   updateProjectConfiguration,
 } from '@nrwl/devkit';
 import { joinPathFragments, writeJson } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { storybookVersion } from '@nrwl/storybook';
-import { findNodes } from '@nrwl/workspace/src/utils/ast-utils';
+import { findNodes } from 'nx/src/utils/typescript';
 import * as ts from 'typescript';
 import { SyntaxKind } from 'typescript';
 import { nxVersion } from '../../../utils/versions';
@@ -16,6 +16,14 @@ import {
   wrapAngularDevkitSchematic,
 } from '@nrwl/devkit/ngcli-adapter';
 import { getTsSourceFile } from '@nrwl/storybook/src/utils/utilities';
+
+// nested code imports graph from the repo, which might have innacurate graph version
+jest.mock('nx/src/project-graph/project-graph', () => ({
+  ...jest.requireActual<any>('nx/src/project-graph/project-graph'),
+  createProjectGraphAsync: jest
+    .fn()
+    .mockImplementation(async () => ({ nodes: {}, dependencies: {} })),
+}));
 
 const componentSchematic = wrapAngularDevkitSchematic(
   '@schematics/angular',
@@ -43,7 +51,7 @@ describe('migrate-stories-to-6-2 schematic', () => {
         ),
       });
 
-      appTree = createTreeWithEmptyV1Workspace();
+      appTree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
 
       await runAngularLibrarySchematic(appTree, {
         name: 'test-ui-lib',
@@ -66,6 +74,7 @@ describe('migrate-stories-to-6-2 schematic', () => {
       await runAngularStorybookSchematic(appTree, {
         name: 'test-ui-lib',
         configureCypress: true,
+        configureStaticServe: false,
       });
 
       appTree.write(

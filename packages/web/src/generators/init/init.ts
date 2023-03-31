@@ -1,17 +1,16 @@
-import { cypressInitGenerator } from '@nrwl/cypress';
 import {
   addDependenciesToPackageJson,
   convertNxGenerator,
+  ensurePackage,
   formatFiles,
   GeneratorCallback,
-  readWorkspaceConfiguration,
   removeDependenciesFromPackageJson,
+  runTasksInSerial,
   Tree,
-  updateWorkspaceConfiguration,
-  writeJson,
 } from '@nrwl/devkit';
-import { jestInitGenerator } from '@nrwl/jest';
-import { runTasksInSerial } from '@nrwl/workspace/src/utilities/run-tasks-in-serial';
+
+import { addBabelInputs } from '@nrwl/js/src/utils/add-babel-inputs';
+import { initGenerator as jsInitGenerator } from '@nrwl/js';
 import {
   nxVersion,
   tsLibVersion,
@@ -19,8 +18,13 @@ import {
 } from '../../utils/versions';
 import { Schema } from './schema';
 
-function updateDependencies(tree: Tree) {
+function updateDependencies(tree: Tree, schema: Schema) {
   removeDependenciesFromPackageJson(tree, ['@nrwl/web'], []);
+
+  const devDependencies = {
+    '@nrwl/web': nxVersion,
+    '@types/node': typesNodeVersion,
+  };
 
   return addDependenciesToPackageJson(
     tree,
@@ -29,46 +33,42 @@ function updateDependencies(tree: Tree) {
       'regenerator-runtime': '0.13.7',
       tslib: tsLibVersion,
     },
-    {
-      '@nrwl/web': nxVersion,
-      '@types/node': typesNodeVersion,
-    }
+    devDependencies
   );
 }
 
-function initRootBabelConfig(tree: Tree) {
-  if (tree.exists('/babel.config.json') || tree.exists('/babel.config.js')) {
-    return;
-  }
-
-  writeJson(tree, '/babel.config.json', {
-    babelrcRoots: ['*'], // Make sure .babelrc files other than root can be loaded in a monorepo
-  });
-
-  const workspaceConfiguration = readWorkspaceConfiguration(tree);
-
-  if (workspaceConfiguration.namedInputs?.sharedGlobals) {
-    workspaceConfiguration.namedInputs.sharedGlobals.push(
-      '{workspaceRoot}/babel.config.json'
-    );
-  }
-  updateWorkspaceConfiguration(tree, workspaceConfiguration);
-}
-
 export async function webInitGenerator(tree: Tree, schema: Schema) {
-  let tasks: GeneratorCallback[] = [];
+  const tasks: GeneratorCallback[] = [];
+
+  const jsInitTask = await jsInitGenerator(tree, {
+    js: false,
+    skipFormat: true,
+  });
+  tasks.push(jsInitTask);
 
   if (!schema.unitTestRunner || schema.unitTestRunner === 'jest') {
-    const jestTask = jestInitGenerator(tree, {});
+    const { jestInitGenerator } = await ensurePackage('@nrwl/jest', nxVersion);
+    const jestTask = await jestInitGenerator(tree, {
+      skipPackageJson: schema.skipPackageJson,
+    });
     tasks.push(jestTask);
   }
   if (!schema.e2eTestRunner || schema.e2eTestRunner === 'cypress') {
-    const cypressTask = cypressInitGenerator(tree, {});
+    const { cypressInitGenerator } = await ensurePackage(
+      '@nrwl/cypress',
+      nxVersion
+    );
+    const cypressTask = await cypressInitGenerator(tree, {
+      skipPackageJson: schema.skipPackageJson,
+    });
     tasks.push(cypressTask);
   }
-  const installTask = updateDependencies(tree);
-  tasks.push(installTask);
-  initRootBabelConfig(tree);
+  if (!schema.skipPackageJson) {
+    const installTask = updateDependencies(tree, schema);
+    tasks.push(installTask);
+  }
+  addBabelInputs(tree);
+
   if (!schema.skipFormat) {
     await formatFiles(tree);
   }

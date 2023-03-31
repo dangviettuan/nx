@@ -1,5 +1,5 @@
-import { Tree, readJson, NxJsonConfiguration } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { readProjectConfiguration, Tree } from '@nrwl/devkit';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { overrideCollectionResolutionForTesting } from '@nrwl/devkit/ngcli-adapter';
 import { presetGenerator } from './preset';
 import * as path from 'path';
@@ -9,7 +9,7 @@ describe('preset', () => {
   let tree: Tree;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyV1Workspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
     overrideCollectionResolutionForTesting({
       '@nrwl/workspace': path.join(
         __dirname,
@@ -41,40 +41,35 @@ describe('preset', () => {
     overrideCollectionResolutionForTesting(null);
   });
 
-  it(`should create files (preset = ${Preset.Angular})`, async () => {
+  it(`should create files (preset = ${Preset.AngularMonorepo})`, async () => {
     await presetGenerator(tree, {
       name: 'proj',
-      preset: Preset.Angular,
-      cli: 'nx',
+      preset: Preset.AngularMonorepo,
       style: 'css',
       linter: 'eslint',
-      standaloneConfig: false,
     });
     expect(tree.children('apps/proj')).toMatchSnapshot();
     expect(tree.children('apps/proj/src/')).toMatchSnapshot();
     expect(tree.children('apps/proj/src/app')).toMatchSnapshot();
-  }, 10000);
+  }, 20000);
 
   it(`should create files (preset = ${Preset.WebComponents})`, async () => {
     await presetGenerator(tree, {
       name: 'proj',
       preset: Preset.WebComponents,
-      cli: 'nx',
-      standaloneConfig: false,
     });
     expect(tree.exists('/apps/proj/src/main.ts')).toBe(true);
   });
 
-  it(`should create files (preset = ${Preset.React})`, async () => {
+  it(`should create files (preset = ${Preset.ReactMonorepo})`, async () => {
     await presetGenerator(tree, {
       name: 'proj',
-      preset: Preset.React,
+      preset: Preset.ReactMonorepo,
       style: 'css',
       linter: 'eslint',
-      cli: 'nx',
-      standaloneConfig: false,
     });
     expect(tree.exists('/apps/proj/src/main.tsx')).toBe(true);
+    expect(readProjectConfiguration(tree, 'proj').targets.serve).toBeDefined();
   });
 
   it(`should create files (preset = ${Preset.NextJs})`, async () => {
@@ -83,46 +78,8 @@ describe('preset', () => {
       preset: Preset.NextJs,
       style: 'css',
       linter: 'eslint',
-      cli: 'nx',
-      standaloneConfig: false,
     });
     expect(tree.exists('/apps/proj/pages/index.tsx')).toBe(true);
-  });
-
-  it(`should create files (preset = ${Preset.AngularWithNest})`, async () => {
-    await presetGenerator(tree, {
-      name: 'proj',
-      preset: Preset.AngularWithNest,
-      style: 'css',
-      linter: 'eslint',
-      cli: 'nx',
-      standaloneConfig: false,
-    });
-
-    expect(tree.exists('/apps/proj/src/app/app.component.ts')).toBe(true);
-    expect(tree.exists('/apps/api/src/app/app.controller.ts')).toBe(true);
-    expect(tree.exists('/libs/api-interfaces/src/lib/api-interfaces.ts')).toBe(
-      true
-    );
-  });
-
-  it(`should create files (preset = ${Preset.ReactWithExpress})`, async () => {
-    await presetGenerator(tree, {
-      name: 'proj',
-      preset: Preset.ReactWithExpress,
-      style: 'css',
-      linter: 'eslint',
-      cli: 'nx',
-      standaloneConfig: false,
-    });
-
-    expect(tree.exists('/apps/proj/src/app/app.tsx')).toBe(true);
-    expect(tree.exists('/libs/api-interfaces/src/lib/api-interfaces.ts')).toBe(
-      true
-    );
-    expect(tree.exists('/apps/proj/.eslintrc.json')).toBe(true);
-    expect(tree.exists('/apps/api/.eslintrc.json')).toBe(true);
-    expect(tree.exists('/libs/api-interfaces/.eslintrc.json')).toBe(true);
   });
 
   it(`should create files (preset = ${Preset.Express})`, async () => {
@@ -130,8 +87,6 @@ describe('preset', () => {
       name: 'proj',
       preset: Preset.Express,
       linter: 'eslint',
-      cli: 'nx',
-      standaloneConfig: false,
     });
 
     expect(tree.exists('apps/proj/src/main.ts')).toBe(true);
@@ -143,63 +98,36 @@ describe('preset', () => {
       name: 'proj',
       preset: Preset.ReactNative,
       linter: 'eslint',
-      cli: 'nx',
-      standaloneConfig: false,
     });
 
     expect(tree.exists('/apps/proj/src/app/App.tsx')).toBe(true);
   });
 
-  describe('core preset', () => {
-    it('should not contain workspace.json or angular.json', async () => {
-      await presetGenerator(tree, {
-        name: 'proj',
-        preset: Preset.Core,
-        linter: 'eslint',
-        cli: 'nx',
-        standaloneConfig: false,
-        packageManager: 'npm',
-      });
-      expect(tree.exists('workspace.json')).toBeFalsy();
-      expect(tree.exists('angular.json')).toBeFalsy();
+  it(`should create files (preset = ${Preset.ReactStandalone} bundler = webpack)`, async () => {
+    await presetGenerator(tree, {
+      name: 'proj',
+      preset: Preset.ReactStandalone,
+      style: 'css',
+      linter: 'eslint',
+      bundler: 'webpack',
     });
+    expect(tree.exists('webpack.config.js')).toBe(true);
+    expect(
+      readProjectConfiguration(tree, 'proj').targets.serve
+    ).toMatchSnapshot();
+  });
 
-    describe('package manager workspaces', () => {
-      it('should be configured in package.json', async () => {
-        await presetGenerator(tree, {
-          name: 'proj',
-          preset: Preset.Core,
-          linter: 'eslint',
-          cli: 'nx',
-          standaloneConfig: false,
-          packageManager: 'npm',
-        });
-
-        expect(readJson(tree, 'package.json').workspaces)
-          .toMatchInlineSnapshot(`
-          Array [
-            "packages/**",
-          ]
-        `);
-      });
-
-      it('should be configured in pnpm-workspace.yaml', async () => {
-        await presetGenerator(tree, {
-          name: 'proj',
-          preset: Preset.Core,
-          linter: 'eslint',
-          cli: 'nx',
-          standaloneConfig: false,
-          packageManager: 'pnpm',
-        });
-
-        expect(tree.read('pnpm-workspace.yaml', 'utf-8'))
-          .toMatchInlineSnapshot(`
-          "packages:
-            - 'packages/**'
-          "
-        `);
-      });
+  it(`should create files (preset = ${Preset.ReactStandalone} bundler = vite)`, async () => {
+    await presetGenerator(tree, {
+      name: 'proj',
+      preset: Preset.ReactStandalone,
+      style: 'css',
+      linter: 'eslint',
+      bundler: 'vite',
     });
+    expect(tree.exists('vite.config.ts')).toBe(true);
+    expect(
+      readProjectConfiguration(tree, 'proj').targets.serve
+    ).toMatchSnapshot();
   });
 });

@@ -1,13 +1,14 @@
-import { pluginGenerator } from './plugin';
 import {
-  Tree,
-  readProjectConfiguration,
-  readJson,
+  getProjects,
   joinPathFragments,
+  readJson,
+  readProjectConfiguration,
+  Tree,
 } from '@nrwl/devkit';
 import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
-import { Schema } from './schema';
 import { Linter } from '@nrwl/linter';
+import { pluginGenerator } from './plugin';
+import { Schema } from './schema';
 
 const getSchema: (overrides?: Partial<Schema>) => Schema = (
   overrides = {}
@@ -26,7 +27,7 @@ describe('NxPlugin Plugin Generator', () => {
   let tree: Tree;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
   });
 
   it('should update the workspace.json file', async () => {
@@ -79,10 +80,16 @@ describe('NxPlugin Plugin Generator', () => {
     });
     expect(project.targets.test).toEqual({
       executor: '@nrwl/jest:jest',
-      outputs: ['coverage/libs/my-plugin'],
+      outputs: ['{workspaceRoot}/coverage/{projectRoot}'],
       options: {
         jestConfig: 'libs/my-plugin/jest.config.ts',
         passWithNoTests: true,
+      },
+      configurations: {
+        ci: {
+          ci: true,
+          codeCoverage: true,
+        },
       },
     });
   });
@@ -265,6 +272,14 @@ describe('NxPlugin Plugin Generator', () => {
       );
 
       expect(name).toEqual('@my-company/my-plugin');
+    });
+  });
+
+  describe('--e2eTestRunner', () => {
+    it('should allow the e2e project to be skipped', async () => {
+      await pluginGenerator(tree, getSchema({ e2eTestRunner: 'none' }));
+      const projects = getProjects(tree);
+      expect(projects.has('plugins-my-plugin-e2e')).toBe(false);
     });
   });
 });

@@ -1,5 +1,5 @@
 import { addProjectConfiguration, readJson, Tree } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import {
   reactNativeSvgTransformerVersion,
   reactNativeSvgVersion,
@@ -10,7 +10,7 @@ describe('Add react-native-svg to dev dependencies', () => {
   let tree: Tree;
 
   beforeEach(async () => {
-    tree = createTreeWithEmptyV1Workspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
     addProjectConfiguration(tree, 'products', {
       root: 'apps/products',
       sourceRoot: 'apps/products/src',
@@ -58,7 +58,7 @@ describe('Add react-native-svg to dev dependencies', () => {
 
     const jestConfig = tree.read('apps/products/jest.config.js', 'utf-8');
     expect(jestConfig).toContain(
-      `moduleNameMapper: {'\\.svg': '@nrwl/react-native/plugins/jest/svg-mock'},`
+      `moduleNameMapper: { '.svg': '@nrwl/react-native/plugins/jest/svg-mock' },`
     );
   });
 

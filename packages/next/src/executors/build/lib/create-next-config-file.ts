@@ -3,7 +3,7 @@ import { ExecutorContext } from '@nrwl/devkit';
 import { copyFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
-import { NextBuildBuilderOptions } from '../../../utils/types';
+import type { NextBuildBuilderOptions } from '../../../utils/types';
 
 export function createNextConfigFile(
   options: NextBuildBuilderOptions,

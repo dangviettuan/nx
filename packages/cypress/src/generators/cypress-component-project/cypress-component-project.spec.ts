@@ -4,9 +4,10 @@ import {
   readJson,
   readProjectConfiguration,
   Tree,
+  updateJson,
   updateProjectConfiguration,
 } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { installedCypressVersion } from '../../utils/cypress-version';
 import { cypressComponentProject } from './cypress-component-project';
 
@@ -37,7 +38,7 @@ describe('Cypress Component Project', () => {
   > = installedCypressVersion as never;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyV1Workspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
     addProjectConfiguration(tree, 'cool-lib', projectConfig);
     tree.write(
       '.gitignore',
@@ -115,21 +116,64 @@ describe('Cypress Component Project', () => {
     expect(tree.exists('libs/cool-lib/cypress/support/component.ts')).toEqual(
       true
     );
-    expect(tree.exists('libs/cool-lib/tsconfig.cy.json')).toEqual(true);
     expect(projectConfig.targets['component-test']).toMatchSnapshot();
+
+    expect(tree.exists('libs/cool-lib/cypress/tsconfig.cy.json')).toEqual(true);
+    const cyTsConfig = readJson(tree, 'libs/cool-lib/cypress/tsconfig.cy.json');
+    expect(cyTsConfig.include).toEqual([
+      'support/**/*.ts',
+      '../cypress.config.ts',
+      '../**/*.cy.ts',
+      '../**/*.cy.tsx',
+      '../**/*.cy.js',
+      '../**/*.cy.jsx',
+      '../**/*.d.ts',
+    ]);
+    expect(cyTsConfig.compilerOptions.outDir).toEqual('../../../dist/out-tsc');
+    const libTsConfig = readJson(tree, 'libs/cool-lib/tsconfig.lib.json');
+    expect(libTsConfig.exclude).toEqual(
+      expect.arrayContaining([
+        'cypress/**/*',
+        'cypress.config.ts',
+        '**/*.cy.ts',
+        '**/*.cy.js',
+        '**/*.cy.tsx',
+        '**/*.cy.jsx',
+      ])
+    );
+    const baseTsConfig = readJson(tree, 'libs/cool-lib/tsconfig.json');
+    expect(baseTsConfig.references).toEqual(
+      expect.arrayContaining([{ path: './cypress/tsconfig.cy.json' }])
+    );
   });
 
   it('should update cacheable operations', async () => {
     mockedInstalledCypressVersion.mockReturnValue(10);
+    updateJson(tree, 'nx.json', (json) => {
+      json.namedInputs = {
+        production: [],
+        targetDefaults: [],
+      };
+      return json;
+    });
     await cypressComponentProject(tree, {
       project: 'cool-lib',
       skipFormat: false,
     });
 
+    const nxJson = readJson(tree, 'nx.json');
+
     expect(
-      readJson(tree, 'nx.json').tasksRunnerOptions.default.options
-        .cacheableOperations
+      nxJson.tasksRunnerOptions.default.options.cacheableOperations
     ).toEqual(expect.arrayContaining(['component-test']));
+    expect(nxJson.targetDefaults['component-test']).toEqual({
+      inputs: ['default', '^production'],
+    });
+    expect(nxJson.namedInputs.production).toEqual([
+      '!{projectRoot}/cypress/**/*',
+      '!{projectRoot}/**/*.cy.[jt]s?(x)',
+      '!{projectRoot}/cypress.config.[jt]s',
+    ]);
   });
 
   it('should not error when rerunning on an existing project', async () => {
@@ -160,7 +204,7 @@ describe('Cypress Component Project', () => {
 
     expect(tree.exists('libs/cool-lib/cypress.config.ts')).toEqual(true);
     expect(tree.exists('libs/cool-lib/cypress')).toEqual(true);
-    expect(tree.exists('libs/cool-lib/tsconfig.cy.json')).toEqual(true);
+    expect(tree.exists('libs/cool-lib/cypress/tsconfig.cy.json')).toEqual(true);
     expect(actualProjectConfig.targets['component-test']).toMatchSnapshot();
   });
 

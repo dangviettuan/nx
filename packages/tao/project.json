@@ -1,23 +1,13 @@
 {
+  "name": "tao",
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "packages/tao",
   "projectType": "library",
   "targets": {
-    "test": {
-      "executor": "@nrwl/jest:jest",
-      "options": {
-        "jestConfig": "packages/tao/jest.config.ts",
-        "passWithNoTests": true
-      },
-      "outputs": ["coverage/packages/tao"]
-    },
+    "test": {},
     "build-base": {
       "executor": "@nrwl/js:tsc",
       "options": {
-        "outputPath": "build/packages/tao",
-        "tsConfig": "packages/tao/tsconfig.lib.json",
-        "main": "packages/tao/index.ts",
-        "updateBuildableProjectDepsInPackageJson": false,
         "assets": [
           {
             "input": "packages/tao",
@@ -52,12 +42,11 @@
             "output": "/"
           }
         ]
-      },
-      "outputs": ["{options.outputPath}"]
+      }
     },
     "build": {
       "executor": "nx:run-commands",
-      "outputs": ["build/packages/tao"],
+      "outputs": ["{workspaceRoot}/build/packages/tao"],
       "options": {
         "commands": [
           {
@@ -70,19 +59,6 @@
         "parallel": false
       }
     },
-    "lint": {
-      "executor": "@nrwl/linter:eslint",
-      "options": {
-        "lintFilePatterns": [
-          "packages/tao/**/*.ts",
-          "packages/tao/**/*.spec.ts",
-          "packages/tao/**/*.spec.tsx",
-          "packages/tao/**/*.spec.js",
-          "packages/tao/**/*.spec.jsx",
-          "packages/tao/**/*.d.ts"
-        ]
-      },
-      "outputs": ["{options.outputFile}"]
-    }
+    "lint": {}
   }
 }

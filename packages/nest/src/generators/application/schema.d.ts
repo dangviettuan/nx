@@ -5,13 +5,14 @@ export interface ApplicationGeneratorOptions {
   name: string;
   directory?: string;
   frontendProject?: string;
-  linter?: Exclude<Linter, Linter.TsLint>;
+  linter?: Linter;
   skipFormat?: boolean;
   skipPackageJson?: boolean;
   standaloneConfig?: boolean;
   tags?: string;
   unitTestRunner?: UnitTestRunner;
   setParserOptionsProject?: boolean;
+  rootProject?: boolean;
 }
 
 interface NormalizedOptions extends ApplicationGeneratorOptions {

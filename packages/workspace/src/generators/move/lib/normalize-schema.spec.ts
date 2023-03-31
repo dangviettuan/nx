@@ -6,7 +6,7 @@ import {
   Tree,
   updateJson,
 } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { NormalizedSchema, Schema } from '../schema';
 import { normalizeSchema } from './normalize-schema';
 
@@ -20,7 +20,7 @@ describe('normalizeSchema', () => {
   };
 
   beforeEach(() => {
-    tree = createTreeWithEmptyV1Workspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
 
     addProjectConfiguration(tree, schema.projectName, {
       root: 'libs/my-library',
@@ -34,7 +34,7 @@ describe('normalizeSchema', () => {
   it('should calculate importPath, projectName and relativeToRootDestination correctly', () => {
     const expected: NormalizedSchema = {
       destination: 'my/library',
-      importPath: '@proj/my-library',
+      importPath: '@proj/my/library',
       newProjectName: 'my-library',
       projectName: 'my-library',
       relativeToRootDestination: 'libs/my/library',

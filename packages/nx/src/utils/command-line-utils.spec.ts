@@ -9,8 +9,7 @@ describe('splitArgs', () => {
         {
           base: 'sha1',
           head: 'sha2',
-          notNxArg: true,
-          override: true,
+          __overrides_unparsed__: ['--notNxArg', '--override'],
           $0: '',
         },
         'affected',
@@ -27,24 +26,22 @@ describe('splitArgs', () => {
   it('should put every command start with nx to nxArgs', () => {
     const nxArgs = splitArgsIntoNxArgsAndOverrides(
       {
-        'nx-key': 'some-value',
-        nxKey: 'some-value',
-        _: ['--override'],
+        nxBail: 'some-value',
+        __overrides_unparsed__: ['--override'],
         $0: '',
       },
       'affected',
       {} as any,
       {} as any
     ).nxArgs;
-    expect(nxArgs['nxKey']).toEqual('some-value');
+    expect(nxArgs['nxBail']).toEqual('some-value');
   });
 
   it('should default to having a base of main', () => {
     expect(
       splitArgsIntoNxArgsAndOverrides(
         {
-          notNxArg: true,
-          _: ['--override'],
+          __overrides_unparsed__: ['--notNxArg', '--override'],
           $0: '',
         },
         'affected',
@@ -61,8 +58,7 @@ describe('splitArgs', () => {
     expect(
       splitArgsIntoNxArgsAndOverrides(
         {
-          notNxArg: true,
-          _: ['--override'],
+          __overrides_unparsed__: ['--notNxArg', '--override'],
           $0: '',
         },
         'affected',
@@ -79,8 +75,7 @@ describe('splitArgs', () => {
     expect(
       splitArgsIntoNxArgsAndOverrides(
         {
-          notNxArg: true,
-          _: ['affecteda', '--override'],
+          __overrides_unparsed__: ['--notNxArg', 'affecteda', '--override'],
           $0: '',
         },
         'affected',
@@ -98,8 +93,7 @@ describe('splitArgs', () => {
       splitArgsIntoNxArgsAndOverrides(
         {
           files: [''],
-          notNxArg: true,
-          __positional_overrides__: [],
+          __overrides_unparsed__: ['--notNxArg'],
           $0: '',
         },
         'affected',
@@ -107,7 +101,7 @@ describe('splitArgs', () => {
         {} as any
       ).overrides
     ).toEqual({
-      __overrides_unparsed__: ['--notNxArg=true'],
+      __overrides_unparsed__: ['--notNxArg'],
       notNxArg: true,
     });
   });
@@ -117,8 +111,7 @@ describe('splitArgs', () => {
       splitArgsIntoNxArgsAndOverrides(
         {
           files: [''],
-          notNxArg: true,
-          __positional_overrides__: ['positional'],
+          __overrides_unparsed__: ['positional', '--notNxArg'],
           $0: '',
         },
         'affected',
@@ -127,7 +120,7 @@ describe('splitArgs', () => {
       ).overrides
     ).toEqual({
       _: ['positional'],
-      __overrides_unparsed__: ['positional', '--notNxArg=true'],
+      __overrides_unparsed__: ['positional', '--notNxArg'],
       notNxArg: true,
     });
   });
@@ -137,8 +130,7 @@ describe('splitArgs', () => {
       splitArgsIntoNxArgsAndOverrides(
         {
           files: [''],
-          notNxArg: true,
-          _: ['explicit'],
+          __overrides_unparsed__: ['explicit'],
           $0: '',
         },
         'affected',
@@ -151,19 +143,40 @@ describe('splitArgs', () => {
     });
   });
 
-  it('should throw when base and head are set as positional args', () => {
-    expect(() =>
+  it('should be able to parse arguments in __overrides__', () => {
+    expect(
       splitArgsIntoNxArgsAndOverrides(
         {
-          notNxArg: true,
-          __positional_overrides__: ['sha1', 'sha2'],
+          files: [''],
+          __overrides__: ['explicit'],
           $0: '',
         },
         'affected',
         {} as any,
         {} as any
-      )
-    ).toThrow();
+      ).overrides
+    ).toEqual({
+      __overrides_unparsed__: ['explicit'],
+      _: ['explicit'],
+    });
+  });
+
+  it('should split projects when it is a string', () => {
+    expect(
+      splitArgsIntoNxArgsAndOverrides(
+        {
+          projects: 'aaa,bbb',
+          __overrides_unparsed__: [],
+          $0: '',
+        },
+        'run-many',
+        {} as any,
+        {} as any
+      ).nxArgs
+    ).toEqual({
+      projects: ['aaa', 'bbb'],
+      skipNxCache: false,
+    });
   });
 
   it('should set base and head based on environment variables in affected mode, if they are not provided directly on the command', () => {
@@ -175,8 +188,7 @@ describe('splitArgs', () => {
     expect(
       splitArgsIntoNxArgsAndOverrides(
         {
-          notNxArg: true,
-          _: ['--override'],
+          __overrides_unparsed__: ['--notNxArg', 'true', '--override'],
           $0: '',
         },
         'affected',
@@ -192,8 +204,7 @@ describe('splitArgs', () => {
     expect(
       splitArgsIntoNxArgsAndOverrides(
         {
-          notNxArg: true,
-          _: ['--override'],
+          __overrides_unparsed__: ['--notNxArg', 'true', '--override'],
           $0: '',
           head: 'directlyOnCommandSha1', // higher priority than $NX_HEAD
         },
@@ -210,8 +221,7 @@ describe('splitArgs', () => {
     expect(
       splitArgsIntoNxArgsAndOverrides(
         {
-          notNxArg: true,
-          _: ['--override'],
+          __overrides_unparsed__: ['--notNxArg', 'true', '--override'],
           $0: '',
           base: 'directlyOnCommandSha2', // higher priority than $NX_BASE
         },
@@ -230,12 +240,45 @@ describe('splitArgs', () => {
     process.env.NX_HEAD = originalNxHead;
   });
 
+  it('should set runner based on environment variables, if it is not provided directly on the command', () => {
+    const originalRunner = process.env.NX_RUNNER;
+    process.env.NX_RUNNER = 'some-env-runner-name';
+
+    expect(
+      splitArgsIntoNxArgsAndOverrides(
+        {
+          __overrides_unparsed__: ['--notNxArg', 'true', '--override'],
+          $0: '',
+        },
+        'run-one',
+        {} as any,
+        {} as any
+      ).nxArgs.runner
+    ).toEqual('some-env-runner-name');
+
+    expect(
+      splitArgsIntoNxArgsAndOverrides(
+        {
+          __overrides_unparsed__: ['--notNxArg', 'true', '--override'],
+          $0: '',
+          runner: 'directlyOnCommand', // higher priority than $NX_RUNNER
+        },
+        'run-one',
+        {} as any,
+        {} as any
+      ).nxArgs.runner
+    ).toEqual('directlyOnCommand');
+
+    // Reset process data
+    process.env.NX_RUNNER = originalRunner;
+  });
+
   describe('--parallel', () => {
     it('should be a number', () => {
       const parallel = splitArgsIntoNxArgsAndOverrides(
         {
-          _: [],
           $0: '',
+          __overrides_unparsed__: [],
           parallel: '5',
         },
         'affected',
@@ -249,8 +292,8 @@ describe('splitArgs', () => {
     it('should default to 3', () => {
       const parallel = splitArgsIntoNxArgsAndOverrides(
         {
-          _: [],
           $0: '',
+          __overrides_unparsed__: [],
           parallel: '',
         },
         'affected',
@@ -264,8 +307,8 @@ describe('splitArgs', () => {
     it('should be 3 when set to true', () => {
       const parallel = splitArgsIntoNxArgsAndOverrides(
         {
-          _: [],
           $0: '',
+          __overrides_unparsed__: [],
           parallel: 'true',
         },
         'affected',
@@ -279,8 +322,8 @@ describe('splitArgs', () => {
     it('should be 1 when set to false', () => {
       const parallel = splitArgsIntoNxArgsAndOverrides(
         {
-          _: [],
           $0: '',
+          __overrides_unparsed__: [],
           parallel: 'false',
         },
         'affected',
@@ -294,8 +337,8 @@ describe('splitArgs', () => {
     it('should use the maxParallel option when given', () => {
       const parallel = splitArgsIntoNxArgsAndOverrides(
         {
-          _: [],
           $0: '',
+          __overrides_unparsed__: [],
           parallel: '',
           maxParallel: 5,
         },
@@ -310,8 +353,8 @@ describe('splitArgs', () => {
     it('should use the maxParallel option when given', () => {
       const parallel = splitArgsIntoNxArgsAndOverrides(
         {
-          _: [],
           $0: '',
+          __overrides_unparsed__: [],
           parallel: '',
           maxParallel: 5,
         },

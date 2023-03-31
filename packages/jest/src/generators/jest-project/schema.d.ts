@@ -2,14 +2,14 @@ export interface JestProjectSchema {
   project: string;
   supportTsx?: boolean;
   /**
-   * @deprecated
+   * @deprecated use setupFile instead
    */
   skipSetupFile?: boolean;
   setupFile?: 'angular' | 'web-components' | 'none';
   skipSerializers?: boolean;
-  testEnvironment?: 'node' | 'jsdom' | '';
+  testEnvironment?: 'node' | 'jsdom' | 'none';
   /**
-   * @deprecated
+   * @deprecated use compiler: "babel" instead
    */
   babelJest?: boolean;
   skipFormat?: boolean;
@@ -17,3 +17,7 @@ export interface JestProjectSchema {
   skipPackageJson?: boolean;
   js?: boolean;
 }
+
+export type NormalizedJestProjectSchema = JestProjectSchema & {
+  rootProject: boolean;
+};

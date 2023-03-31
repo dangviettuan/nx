@@ -1,10 +1,8 @@
 import {
   addProjectConfiguration,
   ProjectConfiguration,
-  readWorkspaceConfiguration,
   TargetConfiguration,
   Tree,
-  updateWorkspaceConfiguration,
 } from '@nrwl/devkit';
 import { NormalizedSchema } from './normalize-options';
 
@@ -20,14 +18,6 @@ export function addProject(host: Tree, options: NormalizedSchema) {
   addProjectConfiguration(host, options.projectName, {
     ...project,
   });
-
-  const workspace = readWorkspaceConfiguration(host);
-
-  if (!workspace.defaultProject) {
-    workspace.defaultProject = options.projectName;
-
-    updateWorkspaceConfiguration(host, workspace);
-  }
 }
 
 function getTargets(options: NormalizedSchema) {
@@ -41,7 +31,7 @@ function getTargets(options: NormalizedSchema) {
   };
 
   architect.serve = {
-    executor: '@nrwl/workspace:run-commands',
+    executor: 'nx:run-commands',
     options: {
       command: `nx start ${options.name}`,
     },
@@ -54,7 +44,7 @@ function getTargets(options: NormalizedSchema) {
 
   architect['bundle-ios'] = {
     executor: '@nrwl/react-native:bundle',
-    outputs: [`${options.appProjectRoot}/build`],
+    outputs: ['{options.bundleOutput}'],
     options: {
       entryFile: options.entryFile,
       platform: 'ios',
@@ -70,14 +60,26 @@ function getTargets(options: NormalizedSchema) {
   architect['build-android'] = {
     executor: '@nrwl/react-native:build-android',
     outputs: [
-      `${options.appProjectRoot}/android/app/build/outputs/bundle`,
-      `${options.appProjectRoot}/android/app/build/outputs/apk`,
+      `{projectRoot}/android/app/build/outputs/bundle`,
+      `{projectRoot}/android/app/build/outputs/apk`,
     ],
+    options: {},
+  };
+
+  architect['build-ios'] = {
+    executor: '@nrwl/react-native:build-ios',
+    outputs: ['{projectRoot}/ios/build/Build'],
+    options: {},
+  };
+
+  architect['pod-install'] = {
+    executor: '@nrwl/react-native:pod-install',
     options: {},
   };
 
   architect['bundle-android'] = {
     executor: '@nrwl/react-native:bundle',
+    outputs: ['{options.bundleOutput}'],
     options: {
       entryFile: options.entryFile,
       platform: 'android',

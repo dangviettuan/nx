@@ -16,16 +16,16 @@ describe('ProjectGraphBuilder', () => {
             file: 'source/second.ts',
           },
         ],
-      },
+      } as any,
     });
     builder.addNode({
       name: 'target',
       type: 'lib',
-      data: {},
+      data: {} as any,
     });
   });
 
-  it(`should add an implicit dependency`, () => {
+  it(`should add a dependency`, () => {
     expect(() =>
       builder.addImplicitDependency('invalid-source', 'target')
     ).toThrowError();
@@ -34,10 +34,39 @@ describe('ProjectGraphBuilder', () => {
     ).toThrowError();
 
     // ignore the self deps
-    builder.addImplicitDependency('source', 'source');
+    builder.addDynamicDependency('source', 'source', 'source/index.ts');
 
-    // don't include duplicates
+    // don't include duplicates of the same type
     builder.addImplicitDependency('source', 'target');
+    builder.addImplicitDependency('source', 'target');
+    builder.addStaticDependency('source', 'target', 'source/index.ts');
+    builder.addDynamicDependency('source', 'target', 'source/index.ts');
+    builder.addStaticDependency('source', 'target', 'source/index.ts');
+
+    const graph = builder.getUpdatedProjectGraph();
+    expect(graph.dependencies).toEqual({
+      source: [
+        {
+          source: 'source',
+          target: 'target',
+          type: 'implicit',
+        },
+        {
+          source: 'source',
+          target: 'target',
+          type: 'static',
+        },
+        {
+          source: 'source',
+          target: 'target',
+          type: 'dynamic',
+        },
+      ],
+      target: [],
+    });
+  });
+
+  it(`should add an implicit dependency`, () => {
     builder.addImplicitDependency('source', 'target');
 
     const graph = builder.getUpdatedProjectGraph();
@@ -96,10 +125,10 @@ describe('ProjectGraphBuilder', () => {
     });
   });
 
-  it(`should use implicit dep when both implicit and explicit deps are available`, () => {
+  it(`should use both deps when both implicit and explicit deps are available`, () => {
     // don't include duplicates
     builder.addImplicitDependency('source', 'target');
-    builder.addExplicitDependency('source', 'source/index.ts', 'target');
+    builder.addStaticDependency('source', 'target', 'source/index.ts');
 
     const graph = builder.getUpdatedProjectGraph();
     expect(graph.dependencies).toEqual({
@@ -109,8 +138,50 @@ describe('ProjectGraphBuilder', () => {
           target: 'target',
           type: 'implicit',
         },
+        {
+          source: 'source',
+          target: 'target',
+          type: 'static',
+        },
       ],
       target: [],
+    });
+  });
+
+  it(`should record deps for all files when duplicated`, () => {
+    builder.addStaticDependency('source', 'target', 'source/index.ts');
+    builder.addStaticDependency('source', 'target', 'source/second.ts');
+
+    const graph = builder.getUpdatedProjectGraph();
+    expect(graph.dependencies).toEqual({
+      source: [
+        {
+          source: 'source',
+          target: 'target',
+          type: 'static',
+        },
+      ],
+      target: [],
+    });
+    expect(graph.nodes.source.data.files[0]).toMatchObject({
+      file: 'source/index.ts',
+      dependencies: [
+        {
+          source: 'source',
+          target: 'target',
+          type: 'static',
+        },
+      ],
+    });
+    expect(graph.nodes.source.data.files[1]).toMatchObject({
+      file: 'source/second.ts',
+      dependencies: [
+        {
+          source: 'source',
+          target: 'target',
+          type: 'static',
+        },
+      ],
     });
   });
 
@@ -118,10 +189,10 @@ describe('ProjectGraphBuilder', () => {
     builder.addNode({
       name: 'target2',
       type: 'lib',
-      data: {},
+      data: {} as any,
     });
     builder.addImplicitDependency('source', 'target');
-    builder.addExplicitDependency('source', 'source/index.ts', 'target');
+    builder.addStaticDependency('source', 'target', 'source/index.ts');
     builder.addImplicitDependency('source', 'target2');
     builder.removeDependency('source', 'target');
 

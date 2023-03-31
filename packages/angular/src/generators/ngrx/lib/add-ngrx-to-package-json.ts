@@ -1,23 +1,18 @@
 import type { GeneratorCallback, Tree } from '@nrwl/devkit';
-import { addDependenciesToPackageJson, readJson } from '@nrwl/devkit';
+import { addDependenciesToPackageJson } from '@nrwl/devkit';
 import { gte } from 'semver';
-import {
-  ngrxVersion,
-  rxjsVersion as defaultRxjsVersion,
-} from '../../../utils/versions';
-import { checkAndCleanWithSemver } from '@nrwl/workspace/src/utilities/version-utils';
+import { versions } from '../../utils/version-utils';
+import { NormalizedNgRxGeneratorOptions } from './normalize-options';
 
-export function addNgRxToPackageJson(tree: Tree): GeneratorCallback {
-  let rxjsVersion: string;
-  try {
-    rxjsVersion = checkAndCleanWithSemver(
-      'rxjs',
-      readJson(tree, 'package.json').dependencies['rxjs']
-    );
-  } catch {
-    rxjsVersion = checkAndCleanWithSemver('rxjs', defaultRxjsVersion);
-  }
-  const jasmineMarblesVersion = gte(rxjsVersion, '7.0.0') ? '~0.9.1' : '~0.8.3';
+export function addNgRxToPackageJson(
+  tree: Tree,
+  options: NormalizedNgRxGeneratorOptions
+): GeneratorCallback {
+  const jasmineMarblesVersion = gte(options.rxjsVersion, '7.0.0')
+    ? '~0.9.1'
+    : '~0.8.3';
+  const ngrxVersion = versions(tree).ngrxVersion;
+
   return addDependenciesToPackageJson(
     tree,
     {

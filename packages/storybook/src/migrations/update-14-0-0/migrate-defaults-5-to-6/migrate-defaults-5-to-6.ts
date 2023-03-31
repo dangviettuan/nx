@@ -1,5 +1,4 @@
 import {
-  generateFiles,
   GeneratorCallback,
   getProjects,
   installPackagesTask,
@@ -10,18 +9,14 @@ import {
   visitNotIgnoredFiles,
 } from '@nrwl/devkit';
 import { lte } from 'semver';
-import { join } from 'path';
-import { checkAndCleanWithSemver } from '@nrwl/workspace/src/utilities/version-utils';
-import { getRootTsConfigPathInTree } from '@nrwl/workspace/src/utilities/typescript';
+import { checkAndCleanWithSemver } from '@nrwl/devkit/src/utils/semver';
 import { storybookVersion } from '../../../utils/versions';
-import { createProjectStorybookDir } from '../../../generators/configuration/util-functions';
+import { createProjectStorybookDir } from '../../../generators/configuration/lib/util-functions';
 import { StorybookConfigureSchema } from '../../../generators/configuration/schema';
 import { findStorybookAndBuildTargetsAndCompiler } from '../../../utils/utilities';
 
 export function migrateDefaultsGenerator(tree: Tree) {
   migrateAllStorybookInstances(tree);
-
-  migrateRootLevelStorybookInstance(tree);
   return upgradeStorybookPackagesInPackageJson(tree);
 }
 
@@ -182,7 +177,10 @@ function migrateProjectLevelStorybookInstance(
     return;
   }
 
-  const { targets } = readProjectConfiguration(tree, projectName);
+  const { projectType, targets, root } = readProjectConfiguration(
+    tree,
+    projectName
+  );
   const { nextBuildTarget, compiler } =
     findStorybookAndBuildTargetsAndCompiler(targets);
 
@@ -192,26 +190,11 @@ function migrateProjectLevelStorybookInstance(
     uiFramework,
     false,
     false,
+    root,
+    projectType,
+    false,
     !!nextBuildTarget,
     compiler === 'swc'
-  );
-}
-
-function migrateRootLevelStorybookInstance(tree: Tree) {
-  const old_folder_exists_already = tree.exists('.old_storybook');
-  const new_config_exists_already = tree.exists(`.storybook/main.js`);
-
-  if (old_folder_exists_already || new_config_exists_already) {
-    return;
-  }
-
-  moveOldFiles(tree, '.storybook');
-
-  generateFiles(
-    tree,
-    join(__dirname, '../../../generators/configuration/root-files/.storybook'),
-    '.storybook',
-    { rootTsConfigPath: getRootTsConfigPathInTree(tree) }
   );
 }
 

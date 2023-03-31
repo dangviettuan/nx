@@ -1,68 +1,84 @@
 import { join } from 'path';
 import { existsSync } from 'fs';
-import { workspaceRoot } from 'nx/src/utils/workspace-root';
+import { workspaceRoot } from '../../utils/workspace-root';
 import {
   loadNxPlugins,
   mergePluginTargetsWithNxTargets,
-} from 'nx/src/utils/nx-plugin';
-import { ProjectGraphProcessorContext } from 'nx/src/config/project-graph';
-import { mergeNpmScriptsWithTargets } from 'nx/src/utils/project-graph-utils';
+} from '../../utils/nx-plugin';
+import { ProjectGraphProcessorContext } from '../../config/project-graph';
+import { mergeNpmScriptsWithTargets } from '../../utils/project-graph-utils';
 import { ProjectGraphBuilder } from '../project-graph-builder';
-import { PackageJson } from 'nx/src/utils/package-json';
-import { readJsonFile } from 'nx/src/utils/fileutils';
-import { NxJsonConfiguration } from 'nx/src/config/nx-json';
-import { TargetConfiguration } from 'nx/src/config/workspace-json-project-json';
+import { PackageJson } from '../../utils/package-json';
+import { readJsonFile } from '../../utils/fileutils';
+import { NxJsonConfiguration } from '../../config/nx-json';
+import { ProjectConfiguration } from '../../config/workspace-json-project-json';
+import { findMatchingProjects } from '../../utils/find-matching-projects';
+import { NX_PREFIX } from '../../utils/logger';
+import {
+  mergeTargetConfigurations,
+  readTargetDefaultsForTarget,
+} from '../../config/workspaces';
 
-export function buildWorkspaceProjectNodes(
+export async function buildWorkspaceProjectNodes(
   ctx: ProjectGraphProcessorContext,
   builder: ProjectGraphBuilder,
   nxJson: NxJsonConfiguration
 ) {
   const toAdd = [];
-  Object.keys(ctx.workspace.projects).forEach((key) => {
+  const projects = Object.keys(ctx.workspace.projects);
+  const projectsSet = new Set(projects);
+
+  for (const key of projects) {
     const p = ctx.workspace.projects[key];
     const projectRoot = join(workspaceRoot, p.root);
+
     if (existsSync(join(projectRoot, 'package.json'))) {
       p.targets = mergeNpmScriptsWithTargets(projectRoot, p.targets);
 
-      const { nx }: PackageJson = readJsonFile(
-        join(projectRoot, 'package.json')
-      );
-      if (nx?.tags) {
-        p.tags = [...(p.tags || []), ...nx.tags];
-      }
-      if (nx?.implicitDependencies) {
-        p.implicitDependencies = [
-          ...(p.implicitDependencies || []),
-          ...nx.implicitDependencies,
-        ];
-      }
-      if (nx?.namedInputs) {
-        p.namedInputs = { ...(p.namedInputs || {}), ...nx.namedInputs };
+      try {
+        const { nx }: PackageJson = readJsonFile(
+          join(projectRoot, 'package.json')
+        );
+        if (nx?.tags) {
+          p.tags = [...(p.tags || []), ...nx.tags];
+        }
+        if (nx?.implicitDependencies) {
+          p.implicitDependencies = [
+            ...(p.implicitDependencies || []),
+            ...nx.implicitDependencies,
+          ];
+        }
+        if (nx?.namedInputs) {
+          p.namedInputs = { ...(p.namedInputs || {}), ...nx.namedInputs };
+        }
+      } catch {
+        // ignore json parser errors
       }
     }
 
-    p.targets = mergeNxDefaultTargetsWithNxTargets(
-      p.targets,
-      nxJson.targetDefaults
+    p.implicitDependencies = normalizeImplicitDependencies(
+      key,
+      p.implicitDependencies,
+      projects,
+      projectsSet
     );
 
     p.targets = mergePluginTargetsWithNxTargets(
       p.root,
       p.targets,
-      loadNxPlugins(ctx.workspace.plugins)
+      await loadNxPlugins(ctx.workspace.plugins)
     );
 
+    p.targets = normalizeProjectTargets(p, nxJson.targetDefaults, key);
+
+    // TODO: remove in v16
     const projectType =
       p.projectType === 'application'
-        ? key.endsWith('-e2e')
+        ? key.endsWith('-e2e') || key === 'e2e'
           ? 'e2e'
           : 'app'
         : 'lib';
-    const tags =
-      ctx.workspace.projects && ctx.workspace.projects[key]
-        ? ctx.workspace.projects[key].tags || []
-        : [];
+    const tags = ctx.workspace.projects?.[key]?.tags || [];
 
     toAdd.push({
       name: key,
@@ -73,7 +89,7 @@ export function buildWorkspaceProjectNodes(
         files: ctx.fileMap[key],
       },
     });
-  });
+  }
 
   // Sort by root directory length (do we need this?)
   toAdd.sort((a, b) => {
@@ -91,24 +107,72 @@ export function buildWorkspaceProjectNodes(
   });
 }
 
-function mergeNxDefaultTargetsWithNxTargets(
-  targets: Record<string, TargetConfiguration>,
-  defaultTargets: NxJsonConfiguration['targetDefaults']
+/**
+ * Apply target defaults and normalization
+ */
+function normalizeProjectTargets(
+  project: ProjectConfiguration,
+  targetDefaults: NxJsonConfiguration['targetDefaults'],
+  projectName: string
 ) {
-  for (const targetName in defaultTargets) {
-    const target = targets?.[targetName];
-    if (!target) {
-      continue;
+  const targets = project.targets;
+  for (const target in targets) {
+    const executor =
+      targets[target].executor ?? targets[target].command
+        ? 'nx:run-commands'
+        : null;
+
+    const defaults = readTargetDefaultsForTarget(
+      target,
+      targetDefaults,
+      executor
+    );
+
+    if (defaults) {
+      targets[target] = mergeTargetConfigurations(project, target, defaults);
     }
-    if (defaultTargets[targetName].inputs && !target.inputs) {
-      target.inputs = defaultTargets[targetName].inputs;
-    }
-    if (defaultTargets[targetName].dependsOn && !target.dependsOn) {
-      target.dependsOn = defaultTargets[targetName].dependsOn;
-    }
-    if (defaultTargets[targetName].outputs && !target.outputs) {
-      target.outputs = defaultTargets[targetName].outputs;
+
+    const config = targets[target];
+    if (config.command) {
+      if (config.executor) {
+        throw new Error(
+          `${NX_PREFIX} ${projectName}: ${target} should not have executor and command both configured.`
+        );
+      } else {
+        targets[target] = {
+          ...targets[target],
+          executor,
+          options: {
+            ...config.options,
+            command: config.command,
+          },
+        };
+        delete config.command;
+      }
     }
   }
   return targets;
+}
+
+export function normalizeImplicitDependencies(
+  source: string,
+  implicitDependencies: ProjectConfiguration['implicitDependencies'],
+  projectNames: string[],
+  projectsSet: Set<string>
+) {
+  if (!implicitDependencies?.length) {
+    return implicitDependencies ?? [];
+  }
+  const matches = findMatchingProjects(
+    implicitDependencies,
+    projectNames,
+    projectsSet
+  );
+  return (
+    matches
+      .filter((x) => x !== source)
+      // implicit dependencies that start with ! should hang around, to be processed by
+      // implicit-project-dependencies.ts after explicit deps are added to graph.
+      .concat(implicitDependencies.filter((x) => x.startsWith('!')))
+  );
 }

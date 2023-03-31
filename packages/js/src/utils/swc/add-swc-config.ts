@@ -5,14 +5,14 @@ import { join } from 'path';
 
 export const defaultExclude = [
   'jest.config.ts',
-  '.*.spec.tsx?$',
-  '.*.test.tsx?$',
+  '.*\\.spec.tsx?$',
+  '.*\\.test.tsx?$',
   './src/jest-setup.ts$',
   './**/jest-setup.ts$',
   '.*.js$',
 ];
 
-const swcOptionsString = () => `{
+const swcOptionsString = (type: 'commonjs' | 'es6' = 'commonjs') => `{
   "jsc": {
     "target": "es2017",
     "parser": {
@@ -29,7 +29,7 @@ const swcOptionsString = () => `{
     "loose": true
   },
   "module": {
-    "type": "commonjs",
+    "type": "${type}",
     "strict": true,
     "noInterop": true
   },
@@ -37,8 +37,12 @@ const swcOptionsString = () => `{
   "exclude": ${JSON.stringify(defaultExclude)}
 }`;
 
-export function addSwcConfig(tree: Tree, projectDir: string) {
-  const swcrcPath = join(projectDir, '.lib.swcrc');
+export function addSwcConfig(
+  tree: Tree,
+  projectDir: string,
+  type: 'commonjs' | 'es6' = 'commonjs'
+) {
+  const swcrcPath = join(projectDir, '.swcrc');
   if (tree.exists(swcrcPath)) return;
-  tree.write(swcrcPath, swcOptionsString());
+  tree.write(swcrcPath, swcOptionsString(type));
 }

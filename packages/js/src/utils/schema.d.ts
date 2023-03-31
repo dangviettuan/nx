@@ -1,5 +1,5 @@
 // nx-ignore-next-line
-const { Linter } = require('@nrwl/linter');
+const { Linter } = require('@nrwl/linter'); // use require to import to avoid circular dependency
 import type {
   AssetGlob,
   FileInputOutput,
@@ -7,6 +7,7 @@ import type {
 import { TransformerEntry } from './typescript/types';
 
 export type Compiler = 'tsc' | 'swc';
+export type Bundler = 'swc' | 'tsc' | 'rollup' | 'vite' | 'esbuild' | 'none';
 
 export interface LibraryGeneratorSchema {
   name: string;
@@ -16,7 +17,7 @@ export interface LibraryGeneratorSchema {
   simpleModuleName?: boolean;
   skipTsConfig?: boolean;
   includeBabelRc?: boolean;
-  unitTestRunner?: 'jest' | 'none';
+  unitTestRunner?: 'jest' | 'vitest' | 'none';
   linter?: Linter;
   testEnvironment?: 'jsdom' | 'node';
   importPath?: string;
@@ -28,12 +29,15 @@ export interface LibraryGeneratorSchema {
   setParserOptionsProject?: boolean;
   config?: 'workspace' | 'project' | 'npm-scripts';
   compiler?: Compiler;
+  bundler?: Bundler;
   skipTypeCheck?: boolean;
+  minimal?: boolean;
 }
 
 export interface ExecutorOptions {
   assets: Array<AssetGlob | string>;
   main: string;
+  rootDir?: string;
   outputPath: string;
   tsConfig: string;
   swcrc?: string;
@@ -42,12 +46,15 @@ export interface ExecutorOptions {
   transformers: TransformerEntry[];
   updateBuildableProjectDepsInPackageJson?: boolean;
   buildableProjectDepsInPackageJsonType?: 'dependencies' | 'peerDependencies';
+  external?: 'all' | 'none' | string[];
+  externalBuildTargets?: string[];
+  generateLockfile?: boolean;
 }
 
 export interface NormalizedExecutorOptions extends ExecutorOptions {
   root?: string;
   sourceRoot?: string;
-  projectRoot?: string;
+  projectRoot: string;
   mainOutputPath: string;
   files: Array<FileInputOutput>;
 }
@@ -69,6 +76,7 @@ export interface SwcCliOptions {
 
 export interface NormalizedSwcExecutorOptions
   extends NormalizedExecutorOptions {
+  originalProjectRoot: string;
   swcExclude: string[];
   skipTypeCheck: boolean;
   swcCliOptions: SwcCliOptions;

@@ -3,7 +3,7 @@ import { runCommand } from '../tasks-runner/run-command';
 import { output } from '../utils/output';
 import { generateGraph } from './dep-graph';
 import { printAffected } from './print-affected';
-import { connectToNxCloudIfExplicitlyAsked } from './connect-to-nx-cloud';
+import { connectToNxCloudIfExplicitlyAsked } from './connect';
 import type { NxArgs } from '../utils/command-line-utils';
 import {
   parseFiles,
@@ -14,8 +14,9 @@ import { createProjectGraphAsync } from '../project-graph/project-graph';
 import { ProjectGraph, ProjectGraphProjectNode } from '../config/project-graph';
 import { projectHasTarget } from '../utils/project-graph-utils';
 import { filterAffected } from '../project-graph/affected/affected-project-graph';
-import { TargetDependencyConfig } from 'nx/src/config/workspace-json-project-json';
+import { TargetDependencyConfig } from '../config/workspace-json-project-json';
 import { readNxJson } from '../config/configuration';
+import { workspaceConfigurationCheck } from '../utils/workspace-configuration-check';
 
 export async function affected(
   command: 'apps' | 'libs' | 'graph' | 'print-affected' | 'affected',
@@ -26,6 +27,8 @@ export async function affected(
   > = {}
 ): Promise<void> {
   performance.mark('command-execution-begins');
+  workspaceConfigurationCheck();
+
   const nxJson = readNxJson();
   const { nxArgs, overrides } = splitArgsIntoNxArgsAndOverrides(
     args,
@@ -43,7 +46,7 @@ export async function affected(
   await connectToNxCloudIfExplicitlyAsked(nxArgs);
 
   const projectGraph = await createProjectGraphAsync({ exitOnError: true });
-  const projects = projectsToRun(nxArgs, projectGraph);
+  const projects = await projectsToRun(nxArgs, projectGraph);
 
   try {
     switch (command) {
@@ -57,7 +60,7 @@ export async function affected(
           if (apps.length) {
             output.warn({
               title:
-                'Deprecated: Use "nx print-affected --type=app --select=projects" instead. This command will be removed in v15.',
+                'Deprecated: Use "nx print-affected --type=app --select=projects" instead. This command will be removed in v16.',
             });
             output.log({
               title: 'Affected apps:',
@@ -77,7 +80,7 @@ export async function affected(
           if (libs.length) {
             output.warn({
               title:
-                'Deprecated: Use "nx print-affected --type=lib --select=projects" instead. This command will be removed in v15.',
+                'Deprecated: Use "nx print-affected --type=lib --select=projects" instead. This command will be removed in v16.',
             });
             output.log({
               title: 'Affected libs:',
@@ -93,11 +96,9 @@ export async function affected(
         break;
 
       case 'print-affected':
-        if (nxArgs.target) {
-          const projectsWithTarget = allProjectsWithTarget(projects, nxArgs);
+        if (nxArgs.targets && nxArgs.targets.length > 0) {
           await printAffected(
-            projectsWithTarget,
-            projects,
+            allProjectsWithTarget(projects, nxArgs),
             projectGraph,
             { nxJson },
             nxArgs,
@@ -105,7 +106,6 @@ export async function affected(
           );
         } else {
           await printAffected(
-            [],
             projects,
             projectGraph,
             { nxJson },
@@ -117,32 +117,48 @@ export async function affected(
 
       case 'affected': {
         const projectsWithTarget = allProjectsWithTarget(projects, nxArgs);
-        await runCommand(
-          projectsWithTarget,
-          projectGraph,
-          { nxJson },
-          nxArgs,
-          overrides,
-          null,
-          extraTargetDependencies,
-          { excludeTaskDependencies: false }
-        );
+        if (nxArgs.graph) {
+          const projectNames = projectsWithTarget.map((t) => t.name);
+
+          return await generateGraph(
+            {
+              watch: false,
+              open: true,
+              view: 'tasks',
+              targets: nxArgs.targets,
+              projects: projectNames,
+            },
+            projectNames
+          );
+        } else {
+          await runCommand(
+            projectsWithTarget,
+            projectGraph,
+            { nxJson },
+            nxArgs,
+            overrides,
+            null,
+            extraTargetDependencies,
+            { excludeTaskDependencies: false, loadDotEnvFiles: true }
+          );
+        }
         break;
       }
     }
+    await output.drain();
   } catch (e) {
     printError(e, args.verbose);
     process.exit(1);
   }
 }
 
-function projectsToRun(
+async function projectsToRun(
   nxArgs: NxArgs,
   projectGraph: ProjectGraph
-): ProjectGraphProjectNode[] {
+): Promise<ProjectGraphProjectNode[]> {
   let affectedGraph = nxArgs.all
     ? projectGraph
-    : filterAffected(
+    : await filterAffected(
         projectGraph,
         calculateFileChanges(
           parseFiles(nxArgs).files,
@@ -165,7 +181,9 @@ function allProjectsWithTarget(
   projects: ProjectGraphProjectNode[],
   nxArgs: NxArgs
 ) {
-  return projects.filter((p) => projectHasTarget(p, nxArgs.target));
+  return projects.filter((p) =>
+    nxArgs.targets.find((target) => projectHasTarget(p, target))
+  );
 }
 
 function printError(e: any, verbose?: boolean) {

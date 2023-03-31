@@ -1,12 +1,16 @@
-import { runTasksInSerial } from '@nrwl/workspace/src/utilities/run-tasks-in-serial';
 import { Linter, lintProjectGenerator } from '@nrwl/linter';
 import {
   addDependenciesToPackageJson,
+  GeneratorCallback,
   joinPathFragments,
-  updateJson,
+  runTasksInSerial,
   Tree,
+  updateJson,
 } from '@nrwl/devkit';
-import { extraEslintDependencies, createReactEslintJson } from '@nrwl/react';
+import {
+  extendReactEslintJson,
+  extraEslintDependencies,
+} from '@nrwl/react/src/utils/lint';
 import type { Linter as ESLintLinter } from 'eslint';
 
 interface NormalizedSchema {
@@ -15,12 +19,14 @@ interface NormalizedSchema {
   projectRoot: string;
   setParserOptionsProject?: boolean;
   tsConfigPaths: string[];
+  skipPackageJson?: boolean;
 }
 
 export async function addLinting(host: Tree, options: NormalizedSchema) {
   if (options.linter === Linter.None) {
     return () => {};
   }
+  const tasks: GeneratorCallback[] = [];
 
   const lintTask = await lintProjectGenerator(host, {
     linter: options.linter,
@@ -28,42 +34,36 @@ export async function addLinting(host: Tree, options: NormalizedSchema) {
     tsConfigPaths: options.tsConfigPaths,
     eslintFilePatterns: [`${options.projectRoot}/**/*.{ts,tsx,js,jsx}`],
     skipFormat: true,
+    skipPackageJson: options.skipPackageJson,
   });
 
-  if (options.linter === Linter.TsLint) {
-    return () => {};
-  }
-
-  const reactEslintJson = createReactEslintJson(
-    options.projectRoot,
-    options.setParserOptionsProject
-  );
+  tasks.push(lintTask);
 
   updateJson(
     host,
     joinPathFragments(options.projectRoot, '.eslintrc.json'),
     (json: ESLintLinter.Config) => {
-      json = reactEslintJson;
-      json.ignorePatterns = ['!**/*', 'public', '.cache', 'node_modules'];
+      json = extendReactEslintJson(json);
 
-      // Find the override that handles both TS and JS files.
-      const commonOverride = json.overrides?.find((o) =>
-        ['*.ts', '*.tsx', '*.js', '*.jsx'].every((ext) => o.files.includes(ext))
-      );
-      if (commonOverride) {
-        commonOverride.rules = commonOverride.rules || {};
-        commonOverride.rules['@typescript-eslint/ban-ts-comment'] = 'off';
-      }
+      json.ignorePatterns = [
+        ...json.ignorePatterns,
+        'public',
+        '.cache',
+        'node_modules',
+      ];
 
       return json;
     }
   );
 
-  const installTask = await addDependenciesToPackageJson(
-    host,
-    extraEslintDependencies.dependencies,
-    extraEslintDependencies.devDependencies
-  );
+  if (!options.skipPackageJson) {
+    const installTask = await addDependenciesToPackageJson(
+      host,
+      extraEslintDependencies.dependencies,
+      extraEslintDependencies.devDependencies
+    );
+    tasks.push(installTask);
+  }
 
-  return runTasksInSerial(lintTask, installTask);
+  return runTasksInSerial(...tasks);
 }

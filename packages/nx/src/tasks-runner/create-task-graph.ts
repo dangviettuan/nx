@@ -26,30 +26,57 @@ export class ProcessTasks {
   ) {
     for (const projectName of projectNames) {
       for (const target of targets) {
-        const resolvedConfiguration = this.resolveConfiguration(
-          this.projectGraph.nodes[projectName],
-          target,
-          configuration
-        );
-        const id = this.getId(projectName, target, resolvedConfiguration);
-        const task = this.createTask(
-          id,
-          this.projectGraph.nodes[projectName],
-          target,
-          resolvedConfiguration,
-          overrides
-        );
-        this.tasks[task.id] = task;
-        this.dependencies[task.id] = [];
+        const project = this.projectGraph.nodes[projectName];
+        if (targets.length === 1 || project.data.targets[target]) {
+          const resolvedConfiguration = this.resolveConfiguration(
+            project,
+            target,
+            configuration
+          );
+          const id = this.getId(projectName, target, resolvedConfiguration);
+          const task = this.createTask(
+            id,
+            project,
+            target,
+            resolvedConfiguration,
+            overrides
+          );
+          this.tasks[task.id] = task;
+          this.dependencies[task.id] = [];
+        }
       }
     }
 
-    if (!excludeTaskDependencies) {
-      for (const taskId of Object.keys(this.tasks)) {
-        const task = this.tasks[taskId];
-        this.processTask(task, task.target.project, configuration, overrides);
+    // used when excluding tasks
+    const initialTasks = { ...this.tasks };
+
+    for (const taskId of Object.keys(this.tasks)) {
+      const task = this.tasks[taskId];
+      this.processTask(task, task.target.project, configuration, overrides);
+    }
+
+    if (excludeTaskDependencies) {
+      for (let t of Object.keys(this.tasks)) {
+        if (!initialTasks[t]) {
+          delete this.tasks[t];
+          delete this.dependencies[t];
+        }
+      }
+      for (let d of Object.keys(this.dependencies)) {
+        this.dependencies[d] = this.dependencies[d].filter(
+          (dd) => !!initialTasks[dd]
+        );
       }
     }
+
+    for (const projectName of Object.keys(this.dependencies)) {
+      if (this.dependencies[projectName].length > 1) {
+        this.dependencies[projectName] = [
+          ...new Set(this.dependencies[projectName]).values(),
+        ];
+      }
+    }
+
     return Object.keys(this.dependencies).filter(
       (d) => this.dependencies[d].length === 0
     );
@@ -119,16 +146,11 @@ export class ProcessTasks {
                 newTask,
                 newTask.target.project,
                 configuration,
-                taskOverrides
+                overrides
               );
             }
           } else {
-            this.processTask(
-              task,
-              depProject.name,
-              configuration,
-              taskOverrides
-            );
+            this.processTask(task, depProject.name, configuration, overrides);
           }
         }
       } else {
@@ -164,7 +186,7 @@ export class ProcessTasks {
               newTask,
               newTask.target.project,
               configuration,
-              taskOverrides
+              overrides
             );
           }
         }
@@ -179,6 +201,18 @@ export class ProcessTasks {
     resolvedConfiguration: string | undefined,
     overrides: Object
   ): Task {
+    if (!project.data.targets[target]) {
+      throw new Error(
+        `Cannot find configuration for task ${project.name}:${target}`
+      );
+    }
+
+    if (!project.data.targets[target].executor) {
+      throw new Error(
+        `Target "${project.name}:${target}" does not have an executor configured`
+      );
+    }
+
     const qualifiedTarget = {
       project: project.name,
       target,
@@ -198,10 +232,12 @@ export class ProcessTasks {
     target: string,
     configuration: string | undefined
   ) {
-    configuration ??= project.data.targets?.[target]?.defaultConfiguration;
+    const defaultConfiguration =
+      project.data.targets?.[target]?.defaultConfiguration;
+    configuration ??= defaultConfiguration;
     return projectHasTargetAndConfiguration(project, target, configuration)
       ? configuration
-      : undefined;
+      : defaultConfiguration;
   }
 
   getId(

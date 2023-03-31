@@ -1,10 +1,10 @@
 import {
-  createExecutorContext,
-  getProjectConfigByPath,
   nxBaseCypressPreset,
   NxComponentTestingOptions,
 } from '@nrwl/cypress/plugins/cypress-preset';
 import {
+  createExecutorContext,
+  getProjectConfigByPath,
   getTempTailwindPath,
   isCtProjectUsingBuildProject,
 } from '@nrwl/cypress/src/utils/ct-helpers';
@@ -21,10 +21,9 @@ import {
   stripIndents,
   workspaceRoot,
 } from '@nrwl/devkit';
-import { mapProjectGraphFiles } from '@nrwl/workspace/src/utils/runtime-lint-utils';
-import { lstatSync, mkdirSync, writeFileSync } from 'fs';
-import { dirname, join, relative } from 'path';
-import type { BrowserBuilderSchema } from '../src/builders/webpack-browser/webpack-browser.impl';
+import { existsSync, lstatSync, mkdirSync, writeFileSync } from 'fs';
+import { dirname, join, relative, sep } from 'path';
+import type { BrowserBuilderSchema } from '../src/builders/webpack-browser/schema';
 
 /**
  * Angular nx preset for Cypress Component Testing
@@ -86,7 +85,7 @@ ${e.stack ? e.stack : e}`
   const offset = offsetFromRoot(normalizedFromWorkspaceRootPath);
   const buildContext = createExecutorContext(
     graph,
-    graph.nodes[buildTarget.project].data.targets,
+    graph.nodes[buildTarget.project]?.data.targets,
     buildTarget.project,
     buildTarget.target,
     buildTarget.configuration
@@ -101,7 +100,7 @@ ${e.stack ? e.stack : e}`
   return {
     ...nxBaseCypressPreset(pathToConfig),
     // NOTE: cannot use a glob pattern since it will break cypress generated tsconfig.
-    specPattern: ['**/*.cy.ts', '**/*.cy.js'],
+    specPattern: ['src/**/*.cy.ts', 'src/**/*.cy.js'],
     devServer: {
       // cypress uses string union type,
       // need to use const to prevent typing to string
@@ -118,7 +117,7 @@ ${e.stack ? e.stack : e}`
 
 function getBuildableTarget(ctContext: ExecutorContext) {
   const targets =
-    ctContext.projectGraph.nodes[ctContext.projectName].data?.targets;
+    ctContext.projectGraph.nodes[ctContext.projectName]?.data?.targets;
   const targetConfig = targets?.[ctContext.targetName];
 
   if (!targetConfig) {
@@ -148,7 +147,10 @@ function getBuildableTarget(ctContext: ExecutorContext) {
     );
   }
 
-  return parseTargetString(cypressCtOptions.devServerTarget);
+  return parseTargetString(
+    cypressCtOptions.devServerTarget,
+    ctContext.projectGraph
+  );
 }
 
 function normalizeBuildTargetOptions(
@@ -166,17 +168,34 @@ function normalizeBuildTargetOptions(
   );
   const buildOptions = withSchemaDefaults(options);
 
+  // polyfill entries might be local files or files that are resolved from node_modules
+  // like zone.js.
+  // prevents error from webpack saying can't find <offset>/zone.js.
+  const handlePolyfillPath = (polyfill: string) => {
+    const maybeFullPath = join(workspaceRoot, polyfill.split('/').join(sep));
+    if (existsSync(maybeFullPath)) {
+      return joinPathFragments(offset, polyfill);
+    }
+    return polyfill;
+  };
   // paths need to be unix paths for angular devkit
-  buildOptions.polyfills = joinPathFragments(offset, buildOptions.polyfills);
+  buildOptions.polyfills =
+    Array.isArray(buildOptions.polyfills) && buildOptions.polyfills.length > 0
+      ? (buildOptions.polyfills as string[]).map((p) => handlePolyfillPath(p))
+      : handlePolyfillPath(buildOptions.polyfills as string);
+
   buildOptions.main = joinPathFragments(offset, buildOptions.main);
   buildOptions.index =
     typeof buildOptions.index === 'string'
       ? joinPathFragments(offset, buildOptions.index)
-      : (buildOptions.index.input = joinPathFragments(
-          offset,
-          buildOptions.index.input
-        ));
-  buildOptions.tsConfig = joinPathFragments(offset, buildOptions.tsConfig);
+      : {
+          ...buildOptions.index,
+          input: joinPathFragments(offset, buildOptions.index.input),
+        };
+  // cypress creates a tsconfig if one isn't preset
+  // that contains all the support required for angular and component tests
+  delete buildOptions.tsConfig;
+
   buildOptions.fileReplacements = buildOptions.fileReplacements.map((fr) => {
     fr.replace = joinPathFragments(offset, fr.replace);
     fr.with = joinPathFragments(offset, fr.with);
@@ -187,6 +206,7 @@ function normalizeBuildTargetOptions(
   // then we don't want to have the assets/scripts/styles be included to
   // prevent inclusion of unintended stuff like tailwind
   if (
+    buildContext.projectName === ctContext.projectName ||
     isCtProjectUsingBuildProject(
       ctContext.projectGraph,
       buildContext.projectName,
@@ -196,29 +216,48 @@ function normalizeBuildTargetOptions(
     buildOptions.assets = buildOptions.assets.map((asset) => {
       return typeof asset === 'string'
         ? joinPathFragments(offset, asset)
-        : (asset.input = joinPathFragments(offset, asset.input));
+        : { ...asset, input: joinPathFragments(offset, asset.input) };
     });
     buildOptions.styles = buildOptions.styles.map((style) => {
       return typeof style === 'string'
         ? joinPathFragments(offset, style)
-        : (style.input = joinPathFragments(offset, style.input));
+        : { ...style, input: joinPathFragments(offset, style.input) };
     });
     buildOptions.scripts = buildOptions.scripts.map((script) => {
       return typeof script === 'string'
         ? joinPathFragments(offset, script)
-        : (script.input = joinPathFragments(offset, script.input));
+        : { ...script, input: joinPathFragments(offset, script.input) };
     });
+    if (buildOptions.stylePreprocessorOptions?.includePaths.length > 0) {
+      buildOptions.stylePreprocessorOptions = {
+        includePaths: buildOptions.stylePreprocessorOptions.includePaths.map(
+          (path) => {
+            return joinPathFragments(offset, path);
+          }
+        ),
+      };
+    }
   } else {
     const stylePath = getTempStylesForTailwind(ctContext);
     buildOptions.styles = stylePath ? [stylePath] : [];
     buildOptions.assets = [];
     buildOptions.scripts = [];
+    buildOptions.stylePreprocessorOptions = { includePaths: [] };
   }
-  const { root, sourceRoot } =
-    buildContext.projectGraph.nodes[buildContext.projectName].data;
+
+  const config =
+    buildContext.projectGraph.nodes[buildContext.projectName]?.data;
+
+  if (!config.sourceRoot) {
+    logger.warn(stripIndents`Unable to find the 'sourceRoot' in the project configuration.
+Will set 'sourceRoot' to '${config.root}/src'
+Note: this may fail, setting the correct 'sourceRoot' for ${buildContext.projectName} in the project.json file will ensure the correct value is used.`);
+    config.sourceRoot = joinPathFragments(config.root, 'src');
+  }
+
   return {
-    root: joinPathFragments(offset, root),
-    sourceRoot: joinPathFragments(offset, sourceRoot),
+    root: joinPathFragments(offset, config.root),
+    sourceRoot: joinPathFragments(offset, config.sourceRoot),
     buildOptions,
   };
 }
@@ -261,14 +300,22 @@ function withSchemaDefaults(options: any): BrowserBuilderSchema {
  * this file should get cleaned up via the cypress executor
  */
 function getTempStylesForTailwind(ctExecutorContext: ExecutorContext) {
-  const mappedGraph = mapProjectGraphFiles(ctExecutorContext.projectGraph);
   const ctProjectConfig = ctExecutorContext.projectGraph.nodes[
     ctExecutorContext.projectName
-  ].data as ProjectConfiguration;
+  ]?.data as ProjectConfiguration;
   // angular only supports `tailwind.config.{js,cjs}`
-  const ctProjectTailwindConfig = join(ctProjectConfig.root, 'tailwind.config');
-  const isTailWindInCtProject = !!mappedGraph.allFiles[ctProjectTailwindConfig];
-  const isTailWindInRoot = !!mappedGraph.allFiles['tailwind.config'];
+  const ctProjectTailwindConfig = join(
+    ctExecutorContext.root,
+    ctProjectConfig.root,
+    'tailwind.config'
+  );
+  const isTailWindInCtProject =
+    existsSync(ctProjectTailwindConfig + '.js') ||
+    existsSync(ctProjectTailwindConfig + '.cjs');
+  const rootTailwindPath = join(ctExecutorContext.root, 'tailwind.config');
+  const isTailWindInRoot =
+    existsSync(rootTailwindPath + '.js') ||
+    existsSync(rootTailwindPath + '.cjs');
 
   if (isTailWindInRoot || isTailWindInCtProject) {
     const pathToStyle = getTempTailwindPath(ctExecutorContext);

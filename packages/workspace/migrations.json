@@ -50,7 +50,7 @@
     },
     "13-10-0-update-tasks-runner": {
       "version": "13.10.0-beta.0",
-      "description": "Update the tasks runner property to import it from the nx package instead of @nrwl/worksapce",
+      "description": "Update the tasks runner property to import it from the nx package instead of @nrwl/workspace",
       "cli": "nx",
       "implementation": "./src/migrations/update-13-10-0/update-tasks-runner"
     },
@@ -71,6 +71,18 @@
       "description": "Explicitly enable sourceAnalysis for all workspaces extending from npm.json or core.json (this was default behavior prior to 14.2)",
       "cli": "nx",
       "implementation": "./src/migrations/update-14-2-0/enable-source-analysis"
+    },
+    "14-8-0-change-run-commands-executor": {
+      "version": "14.8.0-beta.0",
+      "description": "Migrates from @nrwl/workspace:run-commands to nx:run-commands",
+      "cli": "nx",
+      "implementation": "./src/migrations/update-14-8-0/change-run-commands-executor"
+    },
+    "15-7-0-split-configuration-into-project-json-files": {
+      "version": "15.7.0-beta.0",
+      "description": "Split global configuration files (e.g., workspace.json) into individual project.json files.",
+      "cli": "nx",
+      "implementation": "./src/migrations/update-15-7-0/split-configuration-into-project-json-files"
     }
   },
   "packageJsonUpdates": {
@@ -118,6 +130,28 @@
         "prettier": {
           "version": "^2.6.2",
           "alwaysAddToPackageJson": false
+        }
+      }
+    },
+    "14.8.0": {
+      "version": "14.8.0-beta.0",
+      "x-prompt": "Do you want to update to TypeScript v4.8?",
+      "packages": {
+        "typescript": {
+          "version": "~4.8.2",
+          "alwaysAddToPackageJson": false
+        }
+      }
+    },
+    "15.8.0": {
+      "version": "15.8.0-beta.2",
+      "x-prompt": "Do you want to update to TypeScript v4.9?",
+      "requires": {
+        "typescript": ">=4.8.2 <4.9.0"
+      },
+      "packages": {
+        "typescript": {
+          "version": "~4.9.5"
         }
       }
     }

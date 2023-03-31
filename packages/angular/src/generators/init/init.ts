@@ -1,56 +1,88 @@
 import { cypressInitGenerator } from '@nrwl/cypress';
-import { GeneratorCallback, logger, Tree } from '@nrwl/devkit';
 import {
   addDependenciesToPackageJson,
+  ensurePackage,
   formatFiles,
-  readWorkspaceConfiguration,
-  updateJson,
-  updateWorkspaceConfiguration,
+  GeneratorCallback,
+  logger,
+  readNxJson,
+  runTasksInSerial,
+  Tree,
+  updateNxJson,
 } from '@nrwl/devkit';
 import { jestInitGenerator } from '@nrwl/jest';
 import { Linter } from '@nrwl/linter';
-import { runTasksInSerial } from '@nrwl/workspace/src/utilities/run-tasks-in-serial';
+import { initGenerator as jsInitGenerator } from '@nrwl/js';
 import { E2eTestRunner, UnitTestRunner } from '../../utils/test-runners';
 import {
-  angularVersion,
-  angularDevkitVersion,
-  jestPresetAngularVersion,
-  rxjsVersion,
-  tsNodeVersion,
-  tsLibVersion,
-  zoneJsVersion,
-  protractorVersion,
-  jasmineCoreVersion,
-  jasmineSpecReporterVersion,
-  typesJasmineVersion,
-  typesJasminewd2Version,
-} from '../../utils/versions';
-import { karmaGenerator } from '../karma/karma';
+  addDependenciesToPackageJsonIfDontExist,
+  getInstalledPackageVersion,
+  versions,
+} from '../utils/version-utils';
+import type { PackageVersions } from '../../utils/backward-compatible-versions';
 import { Schema } from './schema';
 
 export async function angularInitGenerator(
-  host: Tree,
+  tree: Tree,
   rawOptions: Schema
 ): Promise<GeneratorCallback> {
+  const tasks: GeneratorCallback[] = [];
   const options = normalizeOptions(rawOptions);
-  setDefaults(host, options);
 
-  if (!options.skipPostInstall) {
-    addPostInstall(host);
+  const pkgVersions = versions(tree);
+
+  const peerDepsToInstall = ['@angular-devkit/core'];
+  let devkitVersion: string;
+  peerDepsToInstall.forEach((pkg) => {
+    const packageVersion = getInstalledPackageVersion(tree, pkg);
+
+    if (!packageVersion) {
+      devkitVersion ??=
+        getInstalledPackageVersion(tree, '@angular-devkit/build-angular') ??
+        pkgVersions.angularDevkitVersion;
+
+      try {
+        ensurePackage(pkg, devkitVersion);
+      } catch {
+        // @schematics/angular cannot be required so this fails but this will still allow wrapping the schematic later on
+      }
+
+      if (!options.skipPackageJson) {
+        tasks.push(
+          addDependenciesToPackageJson(tree, {}, { [pkg]: devkitVersion })
+        );
+      }
+    }
+  });
+  setDefaults(tree, options);
+
+  const jsTask = await jsInitGenerator(tree, {
+    ...options,
+    tsConfigName: options.rootProject ? 'tsconfig.json' : 'tsconfig.base.json',
+    js: false,
+    skipFormat: true,
+  });
+  tasks.push(jsTask);
+
+  if (!options.skipPackageJson) {
+    tasks.push(updateDependencies(tree, pkgVersions));
   }
+  const unitTestTask = await addUnitTestRunner(
+    tree,
+    options,
+    pkgVersions.jestPresetAngularVersion
+  );
+  tasks.push(unitTestTask);
+  const e2eTask = await addE2ETestRunner(tree, options);
+  tasks.push(e2eTask);
 
-  const depsTask = !options.skipPackageJson
-    ? updateDependencies(host)
-    : () => {};
-  const unitTestTask = addUnitTestRunner(host, options);
-  const e2eTask = addE2ETestRunner(host, options);
-  addGitIgnoreEntry(host, '.angular');
+  ignoreAngularCacheDirectory(tree);
 
   if (!options.skipFormat) {
-    await formatFiles(host);
+    await formatFiles(tree);
   }
 
-  return runTasksInSerial(depsTask, unitTestTask, e2eTask);
+  return runTasksInSerial(...tasks);
 }
 
 function normalizeOptions(options: Schema): Required<Schema> {
@@ -59,53 +91,56 @@ function normalizeOptions(options: Schema): Required<Schema> {
     linter: options.linter ?? Linter.EsLint,
     skipFormat: options.skipFormat ?? false,
     skipInstall: options.skipInstall ?? false,
-    skipPostInstall: options.skipPostInstall ?? false,
     skipPackageJson: options.skipPackageJson ?? false,
     style: options.style ?? 'css',
     unitTestRunner: options.unitTestRunner ?? UnitTestRunner.Jest,
+    rootProject: options.rootProject,
   };
 }
 
 function setDefaults(host: Tree, options: Schema) {
-  const workspace = readWorkspaceConfiguration(host);
+  const nxJson = readNxJson(host);
 
-  workspace.generators = workspace.generators || {};
-  workspace.generators['@nrwl/angular:application'] = {
+  nxJson.generators = nxJson.generators || {};
+  nxJson.generators['@nrwl/angular:application'] = {
     style: options.style,
     linter: options.linter,
     unitTestRunner: options.unitTestRunner,
     e2eTestRunner: options.e2eTestRunner,
-    ...(workspace.generators['@nrwl/angular:application'] || {}),
+    ...(nxJson.generators['@nrwl/angular:application'] || {}),
   };
-  workspace.generators['@nrwl/angular:library'] = {
+  nxJson.generators['@nrwl/angular:library'] = {
     linter: options.linter,
     unitTestRunner: options.unitTestRunner,
-    ...(workspace.generators['@nrwl/angular:library'] || {}),
+    ...(nxJson.generators['@nrwl/angular:library'] || {}),
   };
-  workspace.generators['@nrwl/angular:component'] = {
+  nxJson.generators['@nrwl/angular:component'] = {
     style: options.style,
-    ...(workspace.generators['@nrwl/angular:component'] || {}),
+    ...(nxJson.generators['@nrwl/angular:component'] || {}),
   };
 
-  updateWorkspaceConfiguration(host, workspace);
+  updateNxJson(host, nxJson);
 }
 
-function addPostInstall(host: Tree) {
-  updateJson(host, 'package.json', (pkgJson) => {
-    pkgJson.scripts = pkgJson.scripts ?? {};
-    const command = 'ngcc --properties es2020 browser module main';
-    if (!pkgJson.scripts.postinstall) {
-      pkgJson.scripts.postinstall = command;
-    } else if (!pkgJson.scripts.postinstall.includes('ngcc')) {
-      pkgJson.scripts.postinstall = `${pkgJson.scripts.postinstall} && ${command}`;
-    }
-    return pkgJson;
-  });
-}
+function updateDependencies(
+  tree: Tree,
+  versions: PackageVersions
+): GeneratorCallback {
+  const angularVersion =
+    getInstalledPackageVersion(tree, '@angular/core') ??
+    versions.angularVersion;
+  const angularDevkitVersion =
+    getInstalledPackageVersion(tree, '@angular-devkit/build-angular') ??
+    versions.angularDevkitVersion;
+  const rxjsVersion =
+    getInstalledPackageVersion(tree, 'rxjs') ?? versions.rxjsVersion;
+  const tsLibVersion =
+    getInstalledPackageVersion(tree, 'tslib') ?? versions.tsLibVersion;
+  const zoneJsVersion =
+    getInstalledPackageVersion(tree, 'zone.js') ?? versions.zoneJsVersion;
 
-function updateDependencies(host: Tree): GeneratorCallback {
-  return addDependenciesToPackageJson(
-    host,
+  return addDependenciesToPackageJsonIfDontExist(
+    tree,
     {
       '@angular/animations': angularVersion,
       '@angular/common': angularVersion,
@@ -124,18 +159,22 @@ function updateDependencies(host: Tree): GeneratorCallback {
       '@angular/compiler-cli': angularVersion,
       '@angular/language-service': angularVersion,
       '@angular-devkit/build-angular': angularDevkitVersion,
+      '@angular-devkit/schematics': angularDevkitVersion,
+      '@schematics/angular': angularDevkitVersion,
     }
   );
 }
 
-function addUnitTestRunner(host: Tree, options: Schema): GeneratorCallback {
+async function addUnitTestRunner(
+  tree: Tree,
+  options: Schema,
+  jestPresetAngularVersion: string
+): Promise<GeneratorCallback> {
   switch (options.unitTestRunner) {
-    case UnitTestRunner.Karma:
-      return karmaGenerator(host, { skipPackageJson: options.skipPackageJson });
     case UnitTestRunner.Jest:
       if (!options.skipPackageJson) {
-        addDependenciesToPackageJson(
-          host,
+        addDependenciesToPackageJsonIfDontExist(
+          tree,
           {},
           {
             'jest-preset-angular': jestPresetAngularVersion,
@@ -143,7 +182,7 @@ function addUnitTestRunner(host: Tree, options: Schema): GeneratorCallback {
         );
       }
 
-      return jestInitGenerator(host, {
+      return jestInitGenerator(tree, {
         skipPackageJson: options.skipPackageJson,
       });
     default:
@@ -151,25 +190,13 @@ function addUnitTestRunner(host: Tree, options: Schema): GeneratorCallback {
   }
 }
 
-function addE2ETestRunner(host: Tree, options: Schema): GeneratorCallback {
+async function addE2ETestRunner(
+  tree: Tree,
+  options: Schema
+): Promise<GeneratorCallback> {
   switch (options.e2eTestRunner) {
-    case E2eTestRunner.Protractor:
-      return !options.skipPackageJson
-        ? addDependenciesToPackageJson(
-            host,
-            {},
-            {
-              protractor: protractorVersion,
-              'jasmine-core': jasmineCoreVersion,
-              'jasmine-spec-reporter': jasmineSpecReporterVersion,
-              'ts-node': tsNodeVersion,
-              '@types/jasmine': typesJasmineVersion,
-              '@types/jasminewd2': typesJasminewd2Version,
-            }
-          )
-        : () => {};
     case E2eTestRunner.Cypress:
-      return cypressInitGenerator(host, {
+      return cypressInitGenerator(tree, {
         skipPackageJson: options.skipPackageJson,
       });
     default:
@@ -177,18 +204,42 @@ function addE2ETestRunner(host: Tree, options: Schema): GeneratorCallback {
   }
 }
 
-function addGitIgnoreEntry(host: Tree, entry: string) {
-  if (host.exists('.gitignore')) {
-    let content = host.read('.gitignore', 'utf-8');
+function ignoreAngularCacheDirectory(tree: Tree): void {
+  const { cli } = readNxJson(tree);
+  // angular-specific cli config is supported though is not included in the
+  // NxJsonConfiguration type
+  const angularCacheDir = (cli as any)?.cache?.path ?? '.angular';
+
+  addGitIgnoreEntry(tree, angularCacheDir);
+  addPrettierIgnoreEntry(tree, angularCacheDir);
+}
+
+function addGitIgnoreEntry(tree: Tree, entry: string): void {
+  if (tree.exists('.gitignore')) {
+    let content = tree.read('.gitignore', 'utf-8');
     if (/^\.angular$/gm.test(content)) {
       return;
     }
 
     content = `${content}\n${entry}\n`;
-    host.write('.gitignore', content);
+    tree.write('.gitignore', content);
   } else {
     logger.warn(`Couldn't find .gitignore file to update`);
   }
+}
+
+function addPrettierIgnoreEntry(tree: Tree, entry: string): void {
+  if (!tree.exists('.prettierignore')) {
+    return;
+  }
+
+  let content = tree.read('.prettierignore', 'utf-8');
+  if (/^\.angular$/gm.test(content)) {
+    return;
+  }
+
+  content = `${content}\n${entry}\n`;
+  tree.write('.prettierignore', content);
 }
 
 export default angularInitGenerator;

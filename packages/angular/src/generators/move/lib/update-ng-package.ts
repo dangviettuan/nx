@@ -1,11 +1,12 @@
 import {
+  getOutputsForTargetAndConfiguration,
   normalizePath,
   readProjectConfiguration,
   Tree,
   updateJson,
   workspaceRoot,
 } from '@nrwl/devkit';
-import { getNewProjectName } from '@nrwl/workspace/src/generators/move/lib/utils';
+import { getNewProjectName } from '../../utils/get-new-project-name';
 import { join, relative } from 'path';
 import { Schema } from '../schema';
 
@@ -25,10 +26,25 @@ export function updateNgPackage(tree: Tree, schema: Schema): void {
   const rootOffset = normalizePath(
     relative(join(workspaceRoot, project.root), workspaceRoot)
   );
-  let output = `dist/${project.root}`;
-  if (project.targets?.build?.outputs?.length > 0) {
-    output = project.targets.build.outputs[0];
-  }
+  const outputs = getOutputsForTargetAndConfiguration(
+    {
+      target: {
+        project: newProjectName,
+        target: 'build',
+      },
+      overrides: {},
+    },
+    {
+      name: newProjectName,
+      type: 'lib',
+      data: {
+        root: project.root,
+        targets: project.targets,
+      },
+    } as any
+  );
+
+  const output = outputs[0] ?? `dist/${project.root}`;
 
   updateJson(tree, ngPackagePath, (json) => {
     json.dest = `${rootOffset}/${output}`;

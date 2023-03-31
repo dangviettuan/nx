@@ -18,7 +18,7 @@ Each project has the `test` and `build` targets defined. Tasks can be defined as
 {% tabs %}
 {% tab label="package.json" %}
 
-```json
+```json {% fileName="package.json" %}
 {
   "scripts": {
     "build": "webpack -c webpack.conf.js",
@@ -30,7 +30,7 @@ Each project has the `test` and `build` targets defined. Tasks can be defined as
 {% /tab %}
 {% tab label="project.json" %}
 
-```json
+```json {% fileName="project.json" %}
 {
   "targets": {
     "build": {
@@ -56,7 +56,7 @@ Each project has the `test` and `build` targets defined. Tasks can be defined as
 
 To run the `test` target on the `header` project run this command:
 
-```bash
+```shell
 npx nx test header
 ```
 
@@ -64,20 +64,20 @@ npx nx test header
 
 To run the `build` target for all projects in the repo, run:
 
-```bash
+```shell
 npx nx run-many --target=build
 ```
 
 This will build the projects in the right order: `footer` and `header` and then `myapp`.
 
-```bash title="Terminal Output"
+```{% command="npx nx run-many --target=build" %}
     ✔  nx run header:build (501ms)
     ✔  nx run footer:build (503ms)
     ✔  nx run myapp:build (670ms)
 
- —————————————————————————————————————————————————————————————————————————————
+—————————————————————————————————————————————————————————————————————————————
 
- >  NX   Successfully ran target build for 3 projects (1s)
+>  NX   Successfully ran target build for 3 projects (1s)
 ```
 
 Note that Nx doesn't care what each of the build scripts does. The name `build` is also **not** special: it's simply
@@ -85,9 +85,9 @@ the name of the target.
 
 ## Run Tasks Affected by a PR
 
-You can also run a command for all the projects affected in your PR like this:
+You can also run a command for all the projects affected by your PR like this:
 
-```bash
+```shell
 npx nx affected --target=test
 ```
 
@@ -97,17 +97,4 @@ Learn more about the affected command [here](/concepts/affected).
 
 For more control over the order tasks are executed, edit the [Task Pipeline Configuration](../concepts/task-pipeline-configuration).
 
-To speed up your task execution, learn how to [Cache Task Results](./cache-task-results) and [Distribute Task Execution](./distribute-task-execution)
-
-## Related Documentation
-
-### Concepts
-
-- [Task Pipeline Configuration](/concepts/task-pipeline-configuration)
-- [How Affected Works](/concepts/affected)
-
-### Reference
-
-- [run command](/nx/run)
-- [run-many command](/nx/run-many)
-- [affected command](/nx/affected)
+To speed up your task execution, learn how to [Cache Task Results](/core-features/cache-task-results) and [Distribute Task Execution](/core-features/distribute-task-execution)

@@ -1,31 +1,64 @@
+import type { NxJsonConfiguration } from '@nrwl/devkit';
 import {
   cleanupProject,
+  e2eCwd,
+  getPackageManagerCommand,
+  getPublishedVersion,
   isNotWindows,
   newProject,
   readFile,
   readJson,
+  removeFile,
   runCLI,
   runCLIAsync,
   runCommand,
   tmpProjPath,
   uniq,
   updateFile,
+  updateJson,
 } from '@nrwl/e2e/utils';
-import { renameSync } from 'fs';
-import { packagesWeCareAbout } from 'nx/src/command-line/report';
+import { renameSync, writeFileSync } from 'fs';
+import { ensureDirSync } from 'fs-extra';
 import * as path from 'path';
+import { major } from 'semver';
 
 describe('Nx Commands', () => {
   let proj: string;
   beforeAll(() => (proj = newProject()));
 
+  afterAll(() => cleanupProject());
+
+  describe('show', () => {
+    it('should show the list of projects', () => {
+      const app1 = uniq('myapp');
+      const app2 = uniq('myapp');
+      expect(
+        runCLI('show projects').replace(/.*nx show projects( --verbose)?\n/, '')
+      ).toEqual('');
+
+      runCLI(`generate @nrwl/web:app ${app1}`);
+      runCLI(`generate @nrwl/web:app ${app2}`);
+
+      const s = runCLI('show projects').split('\n');
+
+      expect(s.length).toEqual(5);
+      expect(s).toContain(app1);
+      expect(s).toContain(app2);
+      expect(s).toContain(`${app1}-e2e`);
+      expect(s).toContain(`${app2}-e2e`);
+    });
+  });
+
   describe('report and list', () => {
     it(`should report package versions`, async () => {
       const reportOutput = runCLI('report');
 
-      packagesWeCareAbout.forEach((p) => {
-        expect(reportOutput).toContain(p);
-      });
+      expect(reportOutput).toEqual(
+        expect.stringMatching(
+          new RegExp(`\@nrwl\/workspace.*:.*${getPublishedVersion()}`)
+        )
+      );
+      expect(reportOutput).toContain('@nrwl/workspace');
     }, 120000);
 
     it(`should list plugins`, async () => {
@@ -79,6 +112,7 @@ describe('Nx Commands', () => {
       );
     }, 120000);
   });
+
   describe('format', () => {
     const myapp = uniq('myapp');
     const mylib = uniq('mylib');
@@ -87,8 +121,6 @@ describe('Nx Commands', () => {
       runCLI(`generate @nrwl/web:app ${myapp}`);
       runCLI(`generate @nrwl/js:lib ${mylib}`);
     });
-
-    afterAll(() => cleanupProject());
 
     beforeEach(() => {
       updateFile(
@@ -345,6 +377,15 @@ describe('migrate', () => {
   });
 
   it('should run migrations', () => {
+    updateJson('nx.json', (j: NxJsonConfiguration) => {
+      j.installation = {
+        version: getPublishedVersion(),
+        plugins: {
+          'migrate-child-package': '1.0.0',
+        },
+      };
+      return j;
+    });
     runCLI(
       'migrate migrate-parent-package@2.0.0 --from="migrate-parent-package@1.0.0"',
       {
@@ -369,6 +410,10 @@ describe('migrate', () => {
       '9.0.0'
     );
     expect(packageJson.devDependencies['migrate-child-package-5']).toEqual(
+      '9.0.0'
+    );
+    const nxJson: NxJsonConfiguration = readJson(`nx.json`);
+    expect(nxJson.installation.plugins['migrate-child-package']).toEqual(
       '9.0.0'
     );
     // should keep new line on package
@@ -493,5 +538,141 @@ describe('migrate', () => {
     expect(output).toContain(
       `Error: Providing a custom commit prefix requires --create-commits to be enabled`
     );
+  });
+
+  it('should fail if no migrations are present', () => {
+    removeFile(`./migrations.json`);
+
+    // Invalid: runs migrations with a custom commit-prefix but without enabling --create-commits
+    const output = runCLI(`migrate --run-migrations`, {
+      env: {
+        ...process.env,
+        NX_MIGRATE_SKIP_INSTALL: 'true',
+        NX_MIGRATE_USE_LOCAL: 'true',
+      },
+      silenceError: true,
+    });
+
+    expect(output).toContain(
+      `File 'migrations.json' doesn't exist, can't run migrations. Use flag --if-exists to run migrations only if the file exists`
+    );
+  });
+
+  it('should not run migrations if no migrations are present and flag --if-exists is used', () => {
+    removeFile(`./migrations.json`);
+
+    // Invalid: runs migrations with a custom commit-prefix but without enabling --create-commits
+    const output = runCLI(`migrate --run-migrations --if-exists`, {
+      env: {
+        ...process.env,
+        NX_MIGRATE_SKIP_INSTALL: 'true',
+        NX_MIGRATE_USE_LOCAL: 'true',
+      },
+      silenceError: true,
+    });
+
+    expect(output).toContain(`Migrations file 'migrations.json' doesn't exist`);
+  });
+});
+
+describe('global installation', () => {
+  // Additionally, installing Nx under e2eCwd like this still acts like a global install,
+  // but is easier to cleanup and doesn't mess with the users PC if running tests locally.
+  const globalsPath = path.join(e2eCwd, 'globals', 'node_modules', '.bin');
+
+  let oldPath: string;
+
+  beforeAll(() => {
+    newProject();
+
+    ensureDirSync(globalsPath);
+    writeFileSync(
+      path.join(path.dirname(path.dirname(globalsPath)), 'package.json'),
+      JSON.stringify(
+        {
+          dependencies: {
+            nx: getPublishedVersion(),
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    runCommand(getPackageManagerCommand().install, {
+      cwd: path.join(e2eCwd, 'globals'),
+    });
+
+    // Update process.path to have access to modules installed in e2ecwd/node_modules/.bin,
+    // this lets commands run things like `nx`. We put it at the beginning so they are found first.
+    oldPath = process.env.PATH;
+    process.env.PATH = globalsPath + path.delimiter + process.env.PATH;
+  });
+
+  afterAll(() => {
+    process.env.PATH = oldPath;
+  });
+
+  it('should invoke Nx commands from local repo', () => {
+    const nxJsContents = readFile('node_modules/nx/bin/nx.js');
+    updateFile('node_modules/nx/bin/nx.js', `console.log('local install');`);
+    let output: string;
+    expect(() => {
+      output = runCommand(`nx show projects`);
+    }).not.toThrow();
+    expect(output).toContain('local install');
+    updateFile('node_modules/nx/bin/nx.js', nxJsContents);
+  });
+
+  it('should warn if local Nx has higher major version', () => {
+    const packageJsonContents = readFile('node_modules/nx/package.json');
+    updateJson('node_modules/nx/package.json', (json) => {
+      json.version = `${major(getPublishedVersion()) + 2}.0.0`;
+      return json;
+    });
+    let output: string;
+    expect(() => {
+      output = runCommand(`nx show projects`);
+    }).not.toThrow();
+    expect(output).toContain('Its time to update Nx');
+    updateFile('node_modules/nx/package.json', packageJsonContents);
+  });
+
+  it('--version should display global installs version', () => {
+    const packageJsonContents = readFile('node_modules/nx/package.json');
+    const localVersion = `${major(getPublishedVersion()) + 2}.0.0`;
+    updateJson('node_modules/nx/package.json', (json) => {
+      json.version = localVersion;
+      return json;
+    });
+    let output: string;
+    expect(() => {
+      output = runCommand(`nx --version`);
+    }).not.toThrow();
+    expect(output).toContain(`- Local: v${localVersion}`);
+    expect(output).toContain(`- Global: v${getPublishedVersion()}`);
+    updateFile('node_modules/nx/package.json', packageJsonContents);
+  });
+
+  it('report should display global installs version', () => {
+    const packageJsonContents = readFile('node_modules/nx/package.json');
+    const localVersion = `${major(getPublishedVersion()) + 2}.0.0`;
+    updateJson('node_modules/nx/package.json', (json) => {
+      json.version = localVersion;
+      return json;
+    });
+    let output: string;
+    expect(() => {
+      output = runCommand(`nx report`);
+    }).not.toThrow();
+    expect(output).toEqual(
+      expect.stringMatching(new RegExp(`nx.*:.*${localVersion}`))
+    );
+    expect(output).toEqual(
+      expect.stringMatching(
+        new RegExp(`nx \\(global\\).*:.*${getPublishedVersion()}`)
+      )
+    );
+    updateFile('node_modules/nx/package.json', packageJsonContents);
   });
 });

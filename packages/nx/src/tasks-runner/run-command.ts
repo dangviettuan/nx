@@ -24,19 +24,21 @@ import { createTaskGraph } from './create-task-graph';
 import { findCycle, makeAcyclic } from './task-graph-utils';
 import { TargetDependencyConfig } from '../config/workspace-json-project-json';
 import { handleErrors } from '../utils/params';
-import { Workspaces } from 'nx/src/config/workspaces';
-import { Hasher } from 'nx/src/hasher/hasher';
-import { hashDependsOnOtherTasks, hashTask } from 'nx/src/hasher/hash-task';
-import { DaemonClient } from '../daemon/client/client';
+import { Workspaces } from '../config/workspaces';
+import { Hasher } from '../hasher/hasher';
+import { hashDependsOnOtherTasks, hashTask } from '../hasher/hash-task';
+import { daemonClient } from '../daemon/client/client';
+import { StoreRunInformationLifeCycle } from './life-cycles/store-run-information-life-cycle';
 
 async function getTerminalOutputLifeCycle(
   initiatingProject: string,
   projectNames: string[],
   tasks: Task[],
   nxArgs: NxArgs,
-  overrides: Record<string, unknown>,
-  runnerOptions: any
+  nxJson: NxJsonConfiguration,
+  overrides: Record<string, unknown>
 ): Promise<{ lifeCycle: LifeCycle; renderIsDone: Promise<void> }> {
+  const { runnerOptions } = getRunner(nxArgs, nxJson);
   const isRunOne = initiatingProject != null;
   const useDynamicOutput =
     shouldUseDynamicLifeCycle(tasks, runnerOptions, nxArgs.outputStyle) &&
@@ -95,12 +97,59 @@ async function hashTasksThatDontDependOnOtherTasks(
   const res = [] as Promise<void>[];
   for (let t of Object.values(taskGraph.tasks)) {
     if (
-      !hashDependsOnOtherTasks(workspaces, hasher, projectGraph, taskGraph, t)
+      !(await hashDependsOnOtherTasks(
+        workspaces,
+        hasher,
+        projectGraph,
+        taskGraph,
+        t
+      ))
     ) {
       res.push(hashTask(workspaces, hasher, projectGraph, taskGraph, t));
     }
   }
   return Promise.all(res);
+}
+
+function createTaskGraphAndValidateCycles(
+  projectGraph: ProjectGraph,
+  defaultDependencyConfigs: TargetDependencies,
+  projectNames: string[],
+  nxArgs: NxArgs,
+  overrides: any,
+  extraOptions: {
+    excludeTaskDependencies: boolean;
+    loadDotEnvFiles: boolean;
+  }
+) {
+  const taskGraph = createTaskGraph(
+    projectGraph,
+    defaultDependencyConfigs,
+    projectNames,
+    nxArgs.targets,
+    nxArgs.configuration,
+    overrides,
+    extraOptions.excludeTaskDependencies
+  );
+
+  const cycle = findCycle(taskGraph);
+  if (cycle) {
+    if (nxArgs.nxIgnoreCycles) {
+      output.warn({
+        title: `The task graph has a circular dependency`,
+        bodyLines: [`${cycle.join(' --> ')}`],
+      });
+      makeAcyclic(taskGraph);
+    } else {
+      output.error({
+        title: `Could not execute command because the task graph has a circular dependency`,
+        bodyLines: [`${cycle.join(' --> ')}`],
+      });
+      process.exit(1);
+    }
+  }
+
+  return taskGraph;
 }
 
 export async function runCommand(
@@ -111,109 +160,145 @@ export async function runCommand(
   overrides: any,
   initiatingProject: string | null,
   extraTargetDependencies: Record<string, (TargetDependencyConfig | string)[]>,
-  extraOptions: { excludeTaskDependencies: boolean }
+  extraOptions: { excludeTaskDependencies: boolean; loadDotEnvFiles: boolean }
 ) {
   const status = await handleErrors(
     process.env.NX_VERBOSE_LOGGING === 'true',
     async () => {
-      const { tasksRunner, runnerOptions } = getRunner(nxArgs, nxJson);
-
       const defaultDependencyConfigs = mergeTargetDependencies(
         nxJson.targetDefaults,
         extraTargetDependencies
       );
       const projectNames = projectsToRun.map((t) => t.name);
 
-      const taskGraph = createTaskGraph(
+      const taskGraph = createTaskGraphAndValidateCycles(
         projectGraph,
         defaultDependencyConfigs,
         projectNames,
-        [nxArgs.target],
-        nxArgs.configuration,
+        nxArgs,
         overrides,
-        extraOptions.excludeTaskDependencies
+        extraOptions
       );
-
-      const hasher = new Hasher(projectGraph, nxJson, runnerOptions);
-      await hashTasksThatDontDependOnOtherTasks(
-        new Workspaces(workspaceRoot),
-        hasher,
-        projectGraph,
-        taskGraph
-      );
-
-      const cycle = findCycle(taskGraph);
-      if (cycle) {
-        if (nxArgs.nxIgnoreCycles) {
-          output.warn({
-            title: `The task graph has a circular dependency`,
-            bodyLines: [`${cycle.join(' --> ')}`],
-          });
-          makeAcyclic(taskGraph);
-        } else {
-          output.error({
-            title: `Could not execute command because the task graph has a circular dependency`,
-            bodyLines: [`${cycle.join(' --> ')}`],
-          });
-          process.exit(1);
-        }
-      }
-
       const tasks = Object.values(taskGraph.tasks);
-      if (nxArgs.outputStyle == 'stream') {
-        process.env.NX_STREAM_OUTPUT = 'true';
-        process.env.NX_PREFIX_OUTPUT = 'true';
-      }
-      if (nxArgs.outputStyle == 'stream-without-prefixes') {
-        process.env.NX_STREAM_OUTPUT = 'true';
-      }
+
       const { lifeCycle, renderIsDone } = await getTerminalOutputLifeCycle(
         initiatingProject,
         projectNames,
         tasks,
         nxArgs,
-        overrides,
-        runnerOptions
+        nxJson,
+        overrides
       );
-      const lifeCycles = [lifeCycle] as LifeCycle[];
 
-      if (process.env.NX_PERF_LOGGING) {
-        lifeCycles.push(new TaskTimingsLifeCycle());
-      }
-
-      if (process.env.NX_PROFILE) {
-        lifeCycles.push(new TaskProfilingLifeCycle(process.env.NX_PROFILE));
-      }
-
-      const promiseOrObservable = tasksRunner(
+      const status = await invokeTasksRunner({
         tasks,
-        { ...runnerOptions, lifeCycle: new CompositeLifeCycle(lifeCycles) },
-        {
-          initiatingProject:
-            nxArgs.outputStyle === 'compact' ? null : initiatingProject,
-          target: nxArgs.target,
-          projectGraph,
-          nxJson,
-          nxArgs,
-          taskGraph,
-          hasher,
-          daemon: new DaemonClient(nxJson),
-        }
-      );
-      let anyFailures;
-      if ((promiseOrObservable as any).subscribe) {
-        anyFailures = await anyFailuresInObservable(promiseOrObservable);
-      } else {
-        // simply await the promise
-        anyFailures = await anyFailuresInPromise(promiseOrObservable as any);
-      }
+        projectGraph,
+        taskGraph,
+        lifeCycle,
+        nxJson,
+        nxArgs,
+        loadDotEnvFiles: extraOptions.loadDotEnvFiles,
+        initiatingProject,
+      });
+
       await renderIsDone;
-      return anyFailures ? 1 : 0;
+
+      return status;
     }
   );
   // fix for https://github.com/nrwl/nx/issues/1666
   if (process.stdin['unref']) (process.stdin as any).unref();
   process.exit(status);
+}
+
+function setEnvVarsBasedOnArgs(nxArgs: NxArgs, loadDotEnvFiles: boolean) {
+  if (process.env.NX_BATCH_MODE === 'true') {
+    nxArgs.outputStyle = 'stream';
+  }
+  if (nxArgs.outputStyle == 'stream') {
+    process.env.NX_STREAM_OUTPUT = 'true';
+    process.env.NX_PREFIX_OUTPUT = 'true';
+  }
+  if (nxArgs.outputStyle == 'stream-without-prefixes') {
+    process.env.NX_STREAM_OUTPUT = 'true';
+  }
+  if (loadDotEnvFiles) {
+    process.env.NX_LOAD_DOT_ENV_FILES = 'true';
+  }
+}
+
+export async function invokeTasksRunner({
+  tasks,
+  projectGraph,
+  taskGraph,
+  lifeCycle,
+  nxJson,
+  nxArgs,
+  loadDotEnvFiles,
+  initiatingProject,
+}: {
+  tasks: Task[];
+  projectGraph: ProjectGraph;
+  taskGraph: TaskGraph;
+  lifeCycle: LifeCycle;
+  nxJson: NxJsonConfiguration;
+  nxArgs: NxArgs;
+  loadDotEnvFiles: boolean;
+  initiatingProject: string | null;
+}) {
+  setEnvVarsBasedOnArgs(nxArgs, loadDotEnvFiles);
+
+  const { tasksRunner, runnerOptions } = getRunner(nxArgs, nxJson);
+
+  const hasher = new Hasher(projectGraph, nxJson, runnerOptions);
+  // this is used for two reasons: to fetch all remote cache hits AND
+  // to submit everything that is known in advance to Nx Cloud to run in
+  // a distributed fashion
+  await hashTasksThatDontDependOnOtherTasks(
+    new Workspaces(workspaceRoot),
+    hasher,
+    projectGraph,
+    taskGraph
+  );
+
+  const promiseOrObservable = tasksRunner(
+    tasks,
+    {
+      ...runnerOptions,
+      lifeCycle: new CompositeLifeCycle(constructLifeCycles(lifeCycle)),
+    },
+    {
+      initiatingProject:
+        nxArgs.outputStyle === 'compact' ? null : initiatingProject,
+      projectGraph,
+      nxJson,
+      nxArgs,
+      taskGraph,
+      hasher,
+      daemon: daemonClient,
+    }
+  );
+  let anyFailures;
+  if ((promiseOrObservable as any).subscribe) {
+    anyFailures = await anyFailuresInObservable(promiseOrObservable);
+  } else {
+    // simply await the promise
+    anyFailures = await anyFailuresInPromise(promiseOrObservable as any);
+  }
+  return anyFailures ? 1 : 0;
+}
+
+function constructLifeCycles(lifeCycle: LifeCycle) {
+  const lifeCycles = [] as LifeCycle[];
+  lifeCycles.push(new StoreRunInformationLifeCycle());
+  lifeCycles.push(lifeCycle);
+  if (process.env.NX_PERF_LOGGING) {
+    lifeCycles.push(new TaskTimingsLifeCycle());
+  }
+  if (process.env.NX_PROFILE) {
+    lifeCycles.push(new TaskProfilingLifeCycle(process.env.NX_PROFILE));
+  }
+  return lifeCycles;
 }
 
 function mergeTargetDependencies(

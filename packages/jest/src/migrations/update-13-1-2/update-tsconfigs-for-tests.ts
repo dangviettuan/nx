@@ -1,5 +1,3 @@
-import { forEachExecutorOptions } from '@nrwl/workspace/src/utilities/executor-options-utils';
-import { JestExecutorOptions } from '@nrwl/jest/src/executors/jest/schema';
 import {
   formatFiles,
   logger,
@@ -9,7 +7,9 @@ import {
   updateJson,
   visitNotIgnoredFiles,
 } from '@nrwl/devkit';
+import { forEachExecutorOptions } from '@nrwl/devkit/src/generators/executor-options-utils';
 import { basename } from 'path';
+import { JestExecutorOptions } from '../../executors/jest/schema';
 
 function updateTsConfigsForTests(tree: Tree) {
   forEachExecutorOptions<JestExecutorOptions>(

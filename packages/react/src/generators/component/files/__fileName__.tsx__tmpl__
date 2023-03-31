@@ -14,7 +14,7 @@ import { Route, Link } from 'react-router-dom';
   import styled from '<%= styledModule %>';
   <% } else {
     var wrapper = 'div';
-    var extras = globalCss ? '' : " className={styles['container']}";
+    var extras = globalCss || styledModule === 'styled-jsx' ? '' : " className={styles['container']}";
   %>
   <%- style !== 'styled-jsx' ? globalCss ? `import './${fileName}.${style}';` : `import styles from './${fileName}.module.${style}';`: '' %>
   <% }
@@ -34,7 +34,7 @@ const Styled<%= className %> = styled.div`
 <% }%>
 <% if (classComponent) { %>
 export class <%= className %> extends Component<<%= className %>Props> {
-  render() {
+  override render() {
     return (
       <<%= wrapper %><%- extras %>>
         <%= styledModule === 'styled-jsx' ? `<style jsx>{\`div { color: pink; }\`}</style>` : `` %>
@@ -67,3 +67,5 @@ export function <%= className %>(props: <%= className %>Props) {
 <% } %>
 
 export default <%= className %>;
+
+<% if (inSourceTests === true) { %> <%- inSourceVitestTests %> <% } %>

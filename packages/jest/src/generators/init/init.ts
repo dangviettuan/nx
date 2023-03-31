@@ -2,13 +2,19 @@ import {
   addDependenciesToPackageJson,
   convertNxGenerator,
   GeneratorCallback,
-  readWorkspaceConfiguration,
+  getProjects,
+  readNxJson,
   removeDependenciesFromPackageJson,
+  runTasksInSerial,
   stripIndents,
   Tree,
   updateJson,
-  updateWorkspaceConfiguration,
+  updateNxJson,
+  updateProjectConfiguration,
 } from '@nrwl/devkit';
+import { initGenerator as jsInitGenerator } from '@nrwl/js';
+
+import { findRootJestConfig } from '../../utils/config/find-root-jest-files';
 import {
   babelJestVersion,
   jestTypesVersion,
@@ -18,6 +24,7 @@ import {
   tsJestVersion,
   tslibVersion,
   tsNodeVersion,
+  typesNodeVersion,
 } from '../../utils/versions';
 import { JestInitSchema } from './schema';
 
@@ -26,45 +33,88 @@ interface NormalizedSchema extends ReturnType<typeof normalizeOptions> {}
 const schemaDefaults = {
   compiler: 'tsc',
   js: false,
+  rootProject: false,
+  testEnvironment: 'jsdom',
 } as const;
 
-function createJestConfig(tree: Tree, js: boolean = false) {
-  // if the root ts config already exists then don't make a js one or vice versa
-  if (!tree.exists('jest.config.ts') && !tree.exists('jest.config.js')) {
-    const contents = js
-      ? stripIndents`
-      const { getJestProjects } = require('@nrwl/jest');
+function generateGlobalConfig(tree: Tree, isJS: boolean) {
+  const contents = isJS
+    ? stripIndents`
+    const { getJestProjects } = require('@nrwl/jest');
 
-      module.exports = {
-        projects: getJestProjects()
-      };`
-      : stripIndents`
-      import { getJestProjects } from '@nrwl/jest';
+    module.exports = {
+      projects: getJestProjects()
+    };`
+    : stripIndents`
+    import { getJestProjects } from '@nrwl/jest';
 
-      export default {
-       projects: getJestProjects()
-      };`;
-    tree.write(`jest.config.${js ? 'js' : 'ts'}`, contents);
-  }
+    export default {
+     projects: getJestProjects()
+    };`;
+  tree.write(`jest.config.${isJS ? 'js' : 'ts'}`, contents);
+}
 
+function createJestConfig(tree: Tree, options: NormalizedSchema) {
   if (!tree.exists('jest.preset.js')) {
     // preset is always js file.
     tree.write(
       `jest.preset.js`,
       `
       const nxPreset = require('@nrwl/jest/preset').default;
-     
+
       module.exports = { ...nxPreset }`
     );
 
     addTestInputs(tree);
   }
+  if (options.rootProject) {
+    // we don't want any config to be made because the `jestProjectGenerator`
+    // will copy the template config file
+    return;
+  }
+  const rootJestPath = findRootJestConfig(tree);
+  if (!rootJestPath) {
+    // if there's not root jest config, we will create one and return
+    // this can happen when:
+    // - root jest config was renamed => in which case there is migration needed
+    // - root project didn't have jest setup => again, no migration is needed
+    generateGlobalConfig(tree, options.js);
+    return;
+  }
+
+  if (tree.exists(rootJestPath)) {
+    // moving from root project config to monorepo-style config
+    const projects = getProjects(tree);
+    const projectNames = Array.from(projects.keys());
+    const rootProject = projectNames.find(
+      (projectName) => projects.get(projectName)?.root === '.'
+    );
+    // root project might have been removed,
+    // if it's missing there's nothing to migrate
+    if (rootProject) {
+      const rootProjectConfig = projects.get(rootProject);
+      const jestTarget = Object.values(rootProjectConfig.targets || {}).find(
+        (t) => t?.executor === '@nrwl/jest:jest'
+      );
+      const isProjectConfig = jestTarget?.options?.jestConfig === rootJestPath;
+      // if root project doesn't have jest target, there's nothing to migrate
+      if (isProjectConfig) {
+        const jestAppConfig = `jest.config.app.${options.js ? 'js' : 'ts'}`;
+
+        tree.rename(rootJestPath, jestAppConfig);
+        jestTarget.options.jestConfig = jestAppConfig;
+        updateProjectConfiguration(tree, rootProject, rootProjectConfig);
+      }
+      // generate new global config as it was move to project config or is missing
+      generateGlobalConfig(tree, options.js);
+    }
+  }
 }
 
 function addTestInputs(tree: Tree) {
-  const workspaceConfiguration = readWorkspaceConfiguration(tree);
+  const nxJson = readNxJson(tree);
 
-  const productionFileSet = workspaceConfiguration.namedInputs?.production;
+  const productionFileSet = nxJson.namedInputs?.production;
   if (productionFileSet) {
     // This is one of the patterns in the default jest patterns
     productionFileSet.push(
@@ -76,23 +126,19 @@ function addTestInputs(tree: Tree) {
       '!{projectRoot}/jest.config.[jt]s'
     );
     // Dedupe and set
-    workspaceConfiguration.namedInputs.production = Array.from(
-      new Set(productionFileSet)
-    );
+    nxJson.namedInputs.production = Array.from(new Set(productionFileSet));
   }
 
   // Test targets depend on all their project's sources + production sources of dependencies
-  workspaceConfiguration.targetDefaults ??= {};
-  workspaceConfiguration.targetDefaults.test ??= {};
-  workspaceConfiguration.targetDefaults.test.inputs ??= [
+  nxJson.targetDefaults ??= {};
+  nxJson.targetDefaults.test ??= {};
+  nxJson.targetDefaults.test.inputs ??= [
     'default',
     productionFileSet ? '^production' : '^default',
   ];
-  workspaceConfiguration.targetDefaults.test.inputs.push(
-    '{workspaceRoot}/jest.preset.js'
-  );
+  nxJson.targetDefaults.test.inputs.push('{workspaceRoot}/jest.preset.js');
 
-  updateWorkspaceConfiguration(tree, workspaceConfiguration);
+  updateNxJson(tree, nxJson);
 }
 
 function updateDependencies(tree: Tree, options: NormalizedSchema) {
@@ -102,7 +148,6 @@ function updateDependencies(tree: Tree, options: NormalizedSchema) {
   const devDeps = {
     '@nrwl/jest': nxVersion,
     jest: jestVersion,
-    'jest-environment-jsdom': jestVersion,
 
     // because the default jest-preset uses ts-jest,
     // jest will throw an error if it's not installed
@@ -110,16 +155,20 @@ function updateDependencies(tree: Tree, options: NormalizedSchema) {
     'ts-jest': tsJestVersion,
   };
 
+  if (options.testEnvironment !== 'none') {
+    devDeps[`jest-environment-${options.testEnvironment}`] = jestVersion;
+  }
+
   if (!options.js) {
     devDeps['ts-node'] = tsNodeVersion;
     devDeps['@types/jest'] = jestTypesVersion;
-    devDeps['@types/node'] = '16.11.7';
+    devDeps['@types/node'] = typesNodeVersion;
   }
 
   if (options.compiler === 'babel' || options.babelJest) {
     devDeps['babel-jest'] = babelJestVersion;
-    // in some cases @nrwl/web will not already be present i.e. node only projects
-    devDeps['@nrwl/web'] = nxVersion;
+    // in some cases @nrwl/js will not already be present i.e. node only projects
+    devDeps['@nrwl/js'] = nxVersion;
   } else if (options.compiler === 'swc') {
     devDeps['@swc/jest'] = swcJestVersion;
   }
@@ -142,18 +191,30 @@ function updateExtensions(host: Tree) {
   });
 }
 
-export function jestInitGenerator(tree: Tree, schema: JestInitSchema) {
+export async function jestInitGenerator(
+  tree: Tree,
+  schema: JestInitSchema
+): Promise<GeneratorCallback> {
   const options = normalizeOptions(schema);
-  createJestConfig(tree, options.js);
+  const tasks: GeneratorCallback[] = [];
 
-  let installTask: GeneratorCallback = () => {};
+  tasks.push(
+    await jsInitGenerator(tree, {
+      ...schema,
+      skipFormat: true,
+    })
+  );
+
+  createJestConfig(tree, options);
+
   if (!options.skipPackageJson) {
     removeDependenciesFromPackageJson(tree, ['@nrwl/jest'], []);
-    installTask = updateDependencies(tree, options);
+    const installTask = updateDependencies(tree, options);
+    tasks.push(installTask);
   }
 
   updateExtensions(tree);
-  return installTask;
+  return runTasksInSerial(...tasks);
 }
 
 function normalizeOptions(options: JestInitSchema) {

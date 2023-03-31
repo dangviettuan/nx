@@ -1,5 +1,10 @@
-import { join } from 'path';
+import { dirname, join } from 'path';
+import type { CompilerOptions, ModuleResolutionKind } from 'typescript';
 import { logger, NX_PREFIX, stripIndent } from './logger';
+
+const swcNodeInstalled = packageIsInstalled('@swc-node/register');
+const tsNodeInstalled = packageIsInstalled('ts-node/register');
+let ts: typeof import('typescript');
 
 /**
  * Optionally, if swc-node and tsconfig-paths are available in the current workspace, apply the require
@@ -15,58 +20,68 @@ export const registerTsProject = (
   path: string,
   configFilename = 'tsconfig.json'
 ): (() => void) => {
+  const tsConfigPath = join(path, configFilename);
+
+  const compilerOptions: CompilerOptions = readCompilerOptions(tsConfigPath);
+  const cleanupFunctions = [
+    registerTsConfigPaths(tsConfigPath),
+    registerTranspiler(compilerOptions),
+  ];
+
+  return () => {
+    for (const fn of cleanupFunctions) {
+      fn();
+    }
+  };
+};
+
+/**
+ * Register ts-node or swc-node given a set of compiler options.
+ *
+ * Note: Several options require enums from typescript. To avoid importing typescript,
+ * use import type + raw values
+ *
+ * @returns cleanup method
+ */
+export function registerTranspiler(
+  compilerOptions: CompilerOptions
+): () => void {
   // Function to register transpiler that returns cleanup function
   let registerTranspiler: () => () => void;
 
-  const tsConfigPath = join(path, configFilename);
-  const cleanupFunctions = [registerTsConfigPaths(tsConfigPath)];
-
-  const swcNodeInstalled = packageIsInstalled('@swc-node/register');
   if (swcNodeInstalled) {
     // These are requires to prevent it from registering when it shouldn't
     const { register } =
       require('@swc-node/register/register') as typeof import('@swc-node/register/register');
-    const {
-      readDefaultTsConfig,
-    } = require('@swc-node/register/read-default-tsconfig');
 
-    const tsConfig = readDefaultTsConfig(tsConfigPath);
-    registerTranspiler = () => register(tsConfig);
+    registerTranspiler = () => register(compilerOptions);
   } else {
     // We can fall back on ts-node if its available
-    const tsNodeInstalled = packageIsInstalled('ts-node/register');
-    if (tsNodeInstalled) {
-      warnTsNodeUsage();
-      const { register } = require('ts-node') as typeof import('ts-node');
 
+    if (tsNodeInstalled) {
+      const { register } = require('ts-node') as typeof import('ts-node');
       // ts-node doesn't provide a cleanup method
       registerTranspiler = () => {
-        register({
-          project: tsConfigPath,
+        const service = register({
           transpileOnly: true,
-          compilerOptions: {
-            module: 'commonjs',
-          },
+          compilerOptions: getTsNodeCompilerOptions(compilerOptions),
         });
+        // Don't warn if a faster transpiler is enabled
+        if (!service.options.transpiler && !service.options.swc) {
+          warnTsNodeUsage();
+        }
         return () => {};
       };
     }
   }
 
   if (registerTranspiler) {
-    cleanupFunctions.push(registerTranspiler());
+    return registerTranspiler();
   } else {
     warnNoTranspiler();
+    return () => {};
   }
-
-  // Overall cleanup method cleans up tsconfig path resolution
-  // as well as ts transpiler
-  return () => {
-    for (const f of cleanupFunctions) {
-      f();
-    }
-  };
-};
+}
 
 /**
  * @param tsConfigPath Adds the paths from a tsconfig file into node resolutions
@@ -93,6 +108,34 @@ export function registerTsConfigPaths(tsConfigPath): () => void {
     warnNoTsconfigPaths();
   }
   return () => {};
+}
+
+function readCompilerOptions(tsConfigPath): CompilerOptions {
+  if (swcNodeInstalled) {
+    const {
+      readDefaultTsConfig,
+    }: typeof import('@swc-node/register/read-default-tsconfig') = require('@swc-node/register/read-default-tsconfig');
+    return readDefaultTsConfig(tsConfigPath);
+  } else {
+    return readCompilerOptionsWithTypescript(tsConfigPath);
+  }
+}
+
+function readCompilerOptionsWithTypescript(tsConfigPath) {
+  if (!ts) {
+    ts = require('typescript');
+  }
+  const { readConfigFile, parseJsonConfigFileContent, sys } = ts;
+  const jsonContent = readConfigFile(tsConfigPath, sys.readFile);
+  const { options } = parseJsonConfigFileContent(
+    jsonContent,
+    sys,
+    dirname(tsConfigPath)
+  );
+  // This property is returned in compiler options for some reason, but not part of the typings.
+  // ts-node fails on unknown props, so we have to remove it.
+  delete options.configFilePath;
+  return options;
 }
 
 function warnTsNodeUsage() {
@@ -124,3 +167,55 @@ function packageIsInstalled(m: string) {
     return false;
   }
 }
+
+/**
+ * ts-node requires string values for enum based typescript options.
+ * `register`'s signature just types the field as `object`, so we
+ * unfortunately do not get any kind of type safety on this.
+ */
+export function getTsNodeCompilerOptions(compilerOptions: CompilerOptions) {
+  if (!ts) {
+    ts = require('typescript');
+  }
+
+  const flagMap: Partial<{
+    [key in keyof RemoveIndex<CompilerOptions>]: keyof typeof ts;
+  }> = {
+    module: 'ModuleKind',
+    target: 'ScriptTarget',
+    moduleDetection: 'ModuleDetectionKind',
+    newLine: 'NewLineKind',
+    moduleResolution: 'ModuleResolutionKind',
+    importsNotUsedAsValues: 'ImportsNotUsedAsValues',
+  };
+
+  const result: { [key in keyof CompilerOptions]: any } = {
+    ...compilerOptions,
+  };
+
+  for (const flag in flagMap) {
+    if (compilerOptions[flag]) {
+      result[flag] = ts[flagMap[flag]][compilerOptions[flag]];
+    }
+  }
+
+  delete result.pathsBasePath;
+  delete result.configFilePath;
+  if (result.moduleResolution) {
+    result.moduleResolution =
+      result.moduleResolution === 'NodeJs'
+        ? 'node'
+        : result.moduleResolution.toLowerCase();
+  }
+
+  return result;
+}
+
+/**
+ * Index keys allow empty objects, where as "real" keys
+ * require a value. Thus, this filters out index keys
+ * See: https://stackoverflow.com/a/68261113/3662471
+ */
+type RemoveIndex<T> = {
+  [K in keyof T as {} extends Record<K, 1> ? never : K]: T[K];
+};

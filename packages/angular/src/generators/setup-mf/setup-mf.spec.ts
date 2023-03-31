@@ -1,19 +1,23 @@
-import { readJson, readProjectConfiguration, Tree } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
-
+import {
+  readJson,
+  readProjectConfiguration,
+  Tree,
+  updateJson,
+} from '@nrwl/devkit';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
+import { generateTestApplication } from '../utils/testing';
 import { setupMf } from './setup-mf';
-import applicationGenerator from '../application/application';
 
 describe('Init MF', () => {
   let tree: Tree;
 
   beforeEach(async () => {
-    tree = createTreeWithEmptyV1Workspace();
-    await applicationGenerator(tree, {
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
+    await generateTestApplication(tree, {
       name: 'app1',
       routing: true,
     });
-    await applicationGenerator(tree, {
+    await generateTestApplication(tree, {
       name: 'remote1',
       routing: true,
     });
@@ -98,7 +102,7 @@ describe('Init MF', () => {
       const updatedMainContents = tree.read(`apps/${app}/src/main.ts`, 'utf-8');
 
       expect(updatedMainContents).toEqual(
-        `import('./bootstrap').catch(err => console.error(err))`
+        `import('./bootstrap').catch((err) => console.error(err));\n`
       );
       expect(updatedMainContents).not.toEqual(mainContents);
     }
@@ -122,7 +126,7 @@ describe('Init MF', () => {
       expect(serve.executor).toEqual(
         type === 'host'
           ? '@nrwl/angular:module-federation-dev-server'
-          : '@nrwl/angular:webpack-server'
+          : '@nrwl/angular:webpack-dev-server'
       );
       expect(build.executor).toEqual('@nrwl/angular:webpack-browser');
       expect(build.options.customWebpackConfig.path).toEqual(
@@ -199,7 +203,7 @@ describe('Init MF', () => {
 
   it('should add a remote application and add it to a specified host applications webpack config that contains a remote application already', async () => {
     // ARRANGE
-    await applicationGenerator(tree, {
+    await generateTestApplication(tree, {
       name: 'remote2',
     });
 
@@ -233,7 +237,7 @@ describe('Init MF', () => {
 
   it('should add a remote application and add it to a specified host applications router config', async () => {
     // ARRANGE
-    await applicationGenerator(tree, {
+    await generateTestApplication(tree, {
       name: 'remote2',
       routing: true,
     });
@@ -262,13 +266,13 @@ describe('Init MF', () => {
     });
 
     // ASSERT
-    const hostAppModule = tree.read('apps/app1/src/app/app.module.ts', 'utf-8');
-    expect(hostAppModule).toMatchSnapshot();
+    const hostAppRoutes = tree.read('apps/app1/src/app/app.routes.ts', 'utf-8');
+    expect(hostAppRoutes).toMatchSnapshot();
   });
 
   it('should modify the associated cypress project to add the workaround correctly', async () => {
     // ARRANGE
-    await applicationGenerator(tree, {
+    await generateTestApplication(tree, {
       name: 'testApp',
       routing: true,
     });
@@ -283,7 +287,7 @@ describe('Init MF', () => {
 
     // ASSERT
     const cypressCommands = tree.read(
-      'apps/test-app-e2e/src/support/index.ts',
+      'apps/test-app-e2e/src/support/e2e.ts',
       'utf-8'
     );
     expect(cypressCommands).toContain(
@@ -310,6 +314,55 @@ describe('Init MF', () => {
       ).toBeTruthy();
       expect(tree.read('apps/app1/src/main.ts', 'utf-8')).toMatchSnapshot();
     });
+  });
+
+  it('should generate bootstrap with environments for ng14', async () => {
+    // ARRANGE
+    updateJson(tree, 'package.json', (json) => ({
+      ...json,
+      dependencies: {
+        ...json.dependencies,
+        '@angular/core': '14.1.0',
+      },
+    }));
+
+    await generateTestApplication(tree, {
+      name: 'ng14',
+      routing: true,
+      standalone: true,
+    });
+
+    // ACT
+    await setupMf(tree, {
+      appName: 'ng14',
+      mfType: 'host',
+      routing: true,
+      standalone: true,
+    });
+
+    // ASSERT
+    expect(tree.read('apps/ng14/src/bootstrap.ts', 'utf-8'))
+      .toMatchInlineSnapshot(`
+      "import { importProvidersFrom } from '@angular/core';
+      import { bootstrapApplication } from '@angular/platform-browser';
+      import { RouterModule } from '@angular/router';
+      import { RemoteEntryComponent } from './app/remote-entry/entry.component';
+      import { appRoutes } from './app/app.routes';
+      import { enableProdMode } from '@angular/core';
+      import { environment } from './environments/environment';
+      if (environment.production) {
+        enableProdMode();
+      }
+
+      bootstrapApplication(RemoteEntryComponent, {
+        providers: [
+          importProvidersFrom(
+            RouterModule.forRoot(appRoutes, { initialNavigation: 'enabledBlocking' })
+          ),
+        ],
+      });
+      "
+    `);
   });
 
   it('should add a remote to dynamic host correctly', async () => {
@@ -340,7 +393,29 @@ describe('Init MF', () => {
       remote1: 'http://localhost:4201',
     });
     expect(
-      tree.read('apps/app1/src/app/app.module.ts', 'utf-8')
+      tree.read('apps/app1/src/app/app.routes.ts', 'utf-8')
     ).toMatchSnapshot();
+  });
+
+  it('should throw an error when installed version of angular < 14.1.0 and --standalone is used', async () => {
+    // ARRANGE
+    updateJson(tree, 'package.json', (json) => ({
+      ...json,
+      dependencies: {
+        ...json.dependencies,
+        '@angular/core': '14.0.0',
+      },
+    }));
+
+    // ACT & ASSERT
+    await expect(
+      setupMf(tree, {
+        appName: 'app1',
+        mfType: 'host',
+        standalone: true,
+      })
+    ).rejects.toThrow(
+      'The --standalone flag is not supported in your current version of Angular (14.0.0). Please update to a version of Angular that supports Standalone Components (>= 14.1.0).'
+    );
   });
 });

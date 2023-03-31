@@ -1,135 +1,23 @@
 import type { Schema } from './schema';
 import {
-  ProjectConfiguration,
   readCachedProjectGraph,
   workspaceRoot,
   Workspaces,
 } from '@nrwl/devkit';
 import { scheduleTarget } from 'nx/src/adapter/ngcli-adapter';
-import { BuilderContext, createBuilder } from '@angular-devkit/architect';
-import { JsonObject } from '@angular-devkit/core';
-import { join } from 'path';
-import { executeWebpackServerBuilder } from '../webpack-server/webpack-server.impl';
-import { existsSync, readFileSync } from 'fs';
+import { executeWebpackDevServerBuilder } from '../webpack-dev-server/webpack-dev-server.impl';
 import { readProjectsConfigurationFromProjectGraph } from 'nx/src/project-graph/project-graph';
-
-function getDynamicRemotes(
-  project: ProjectConfiguration,
-  context: BuilderContext,
-  workspaceProjects: Record<string, ProjectConfiguration>
-): string[] {
-  // check for dynamic remotes
-  // we should only check for dynamic based on what we generate
-  // and fallback to empty array
-
-  const standardPathToGeneratedMFManifestJson = join(
-    context.workspaceRoot,
-    project.sourceRoot,
-    'assets/module-federation.manifest.json'
-  );
-  if (!existsSync(standardPathToGeneratedMFManifestJson)) {
-    return [];
-  }
-
-  const moduleFederationManifestJson = readFileSync(
-    standardPathToGeneratedMFManifestJson,
-    'utf-8'
-  );
-
-  if (!moduleFederationManifestJson) {
-    return [];
-  }
-
-  // This should have shape of
-  // {
-  //   "remoteName": "remoteLocation",
-  // }
-  const parsedManifest = JSON.parse(moduleFederationManifestJson);
-  if (
-    !Object.keys(parsedManifest).every(
-      (key) =>
-        typeof key === 'string' && typeof parsedManifest[key] === 'string'
-    )
-  ) {
-    return [];
-  }
-
-  const dynamicRemotes = Object.entries(parsedManifest).map(
-    ([remoteName]) => remoteName
-  );
-  const invalidDynamicRemotes = dynamicRemotes.filter(
-    (remote) => !workspaceProjects[remote]
-  );
-  if (invalidDynamicRemotes.length) {
-    throw new Error(
-      invalidDynamicRemotes.length === 1
-        ? `Invalid dynamic remote configured in "${standardPathToGeneratedMFManifestJson}": ${invalidDynamicRemotes[0]}.`
-        : `Invalid dynamic remotes configured in "${standardPathToGeneratedMFManifestJson}": ${invalidDynamicRemotes.join(
-            ', '
-          )}.`
-    );
-  }
-
-  return dynamicRemotes;
-}
-
-function getStaticRemotes(
-  project: ProjectConfiguration,
-  context: BuilderContext,
-  workspaceProjects: Record<string, ProjectConfiguration>
-): string[] {
-  const mfConfigPath = join(
-    context.workspaceRoot,
-    project.root,
-    'module-federation.config.js'
-  );
-
-  let mfeConfig: { remotes: string[] };
-  try {
-    mfeConfig = require(mfConfigPath);
-  } catch {
-    throw new Error(
-      `Could not load ${mfConfigPath}. Was this project generated with "@nrwl/angular:host"?`
-    );
-  }
-
-  const staticRemotes = mfeConfig.remotes.length > 0 ? mfeConfig.remotes : [];
-  const invalidStaticRemotes = staticRemotes.filter(
-    (remote) => !workspaceProjects[remote]
-  );
-  if (invalidStaticRemotes.length) {
-    throw new Error(
-      invalidStaticRemotes.length === 1
-        ? `Invalid static remote configured in "${mfConfigPath}": ${invalidStaticRemotes[0]}.`
-        : `Invalid static remotes configured in "${mfConfigPath}": ${invalidStaticRemotes.join(
-            ', '
-          )}.`
-    );
-  }
-
-  return staticRemotes;
-}
-
-function validateDevRemotes(
-  options: Schema,
-  workspaceProjects: Record<string, ProjectConfiguration>
-): void {
-  const invalidDevRemotes = options.devRemotes?.filter(
-    (remote) => !workspaceProjects[remote]
-  );
-
-  if (invalidDevRemotes.length) {
-    throw new Error(
-      invalidDevRemotes.length === 1
-        ? `Invalid dev remote provided: ${invalidDevRemotes[0]}.`
-        : `Invalid dev remotes provided: ${invalidDevRemotes.join(', ')}.`
-    );
-  }
-}
+import {
+  getDynamicRemotes,
+  getStaticRemotes,
+  validateDevRemotes,
+} from '../utilities/module-federation';
+import { existsSync } from 'fs';
+import { extname, join } from 'path';
 
 export function executeModuleFederationDevServerBuilder(
   schema: Schema,
-  context: BuilderContext
+  context: import('@angular-devkit/architect').BuilderContext
 ) {
   const { ...options } = schema;
   const projectGraph = readCachedProjectGraph();
@@ -138,10 +26,45 @@ export function executeModuleFederationDevServerBuilder(
   const ws = new Workspaces(workspaceRoot);
   const project = workspaceProjects[context.target.project];
 
+  let pathToManifestFile = join(
+    context.workspaceRoot,
+    project.sourceRoot,
+    'assets/module-federation.manifest.json'
+  );
+  if (options.pathToManifestFile) {
+    const userPathToManifestFile = join(
+      context.workspaceRoot,
+      options.pathToManifestFile
+    );
+    if (!existsSync(userPathToManifestFile)) {
+      throw new Error(
+        `The provided Module Federation manifest file path does not exist. Please check the file exists at "${userPathToManifestFile}".`
+      );
+    } else if (extname(options.pathToManifestFile) !== '.json') {
+      throw new Error(
+        `The Module Federation manifest file must be a JSON. Please ensure the file at ${userPathToManifestFile} is a JSON.`
+      );
+    }
+
+    pathToManifestFile = userPathToManifestFile;
+  }
+
   validateDevRemotes(options, workspaceProjects);
 
-  const staticRemotes = getStaticRemotes(project, context, workspaceProjects);
-  const dynamicRemotes = getDynamicRemotes(project, context, workspaceProjects);
+  const remotesToSkip = new Set(options.skipRemotes ?? []);
+  const staticRemotes = getStaticRemotes(
+    project,
+    context,
+    workspaceProjects,
+    remotesToSkip
+  );
+  const dynamicRemotes = getDynamicRemotes(
+    project,
+    context,
+    workspaceProjects,
+    remotesToSkip,
+    pathToManifestFile
+  );
   const remotes = [...staticRemotes, ...dynamicRemotes];
 
   const devServeRemotes = !options.devRemotes
@@ -182,7 +105,6 @@ export function executeModuleFederationDevServerBuilder(
         target,
         configuration: context.target.configuration,
         runOptions,
-        executor: context.builder.builderName,
       },
       options.verbose
     ).then((obs) => {
@@ -194,9 +116,9 @@ export function executeModuleFederationDevServerBuilder(
     });
   }
 
-  return executeWebpackServerBuilder(options, context);
+  return executeWebpackDevServerBuilder(options, context);
 }
 
-export default createBuilder<JsonObject & Schema>(
+export default require('@angular-devkit/architect').createBuilder(
   executeModuleFederationDevServerBuilder
 );

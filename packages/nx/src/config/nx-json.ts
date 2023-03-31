@@ -1,6 +1,7 @@
 import { PackageManager } from '../utils/package-manager';
 import {
   InputDefinition,
+  TargetConfiguration,
   TargetDependencyConfig,
 } from './workspace-json-project-json';
 
@@ -19,19 +20,29 @@ export interface NxAffectedConfig {
   defaultBase?: string;
 }
 
-export type TargetDefaults = Record<
-  string,
-  {
-    outputs?: string[];
-    dependsOn?: (TargetDependencyConfig | string)[];
-    inputs?: (InputDefinition | string)[];
-  }
->;
+export type TargetDefaults = Record<string, Partial<TargetConfiguration>>;
 
 export type TargetDependencies = Record<
   string,
   (TargetDependencyConfig | string)[]
 >;
+
+export interface NrwlJsPluginConfig {
+  analyzeSourceFiles?: boolean;
+  analyzePackageJson?: boolean;
+}
+
+interface NxInstallationConfiguration {
+  /**
+   * Version used for Nx
+   */
+  version: string;
+  /**
+   * Record<pluginPackageName, pluginVersion>. e.g.
+   * plugins: { '@nrwl/angular': '1.0.0' }
+   */
+  plugins?: Record<string, string>;
+}
 
 /**
  * Nx.json configuration
@@ -136,4 +147,11 @@ export interface NxJsonConfiguration<T = '*' | string[]> {
    * will be used. Convenient for small workspaces with one main application.
    */
   defaultProject?: string;
+
+  /**
+   * Configures the Nx installation for a repo. Useful for maintaining  a separate
+   * set of dependencies for Nx + Plugins compared to the base package.json, but also
+   * useful for workspaces that don't have a root package.json + node_modules.
+   */
+  installation?: NxInstallationConfiguration;
 }

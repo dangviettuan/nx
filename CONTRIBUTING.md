@@ -37,6 +37,8 @@ Source code and documentation are included in the top-level folders listed below
 
 ## Building the Project
 
+> Nx uses Rust to build native bindings for Node. Please make sure that you have Rust installed via [rustup.rs](https://rustup.rs)
+
 After cloning the project to your machine, to install the dependencies, run:
 
 ```bash
@@ -56,29 +58,19 @@ it can be useful to publish to a local registry.
 
 Check out [this video for a live walkthrough](https://youtu.be/Tx257WpNsxc) or follow the instructions below:
 
-```bash
-# Starts the local registry. Keep this running in a separate terminal.
-yarn local-registry start
-
-# Set npm and yarn to use the local registry.
-# Note: This reroutes your installs to your local registry
-yarn local-registry enable
-
-# Revert npm and yarn to use their default registries
-yarn local-registry disable
-```
-
-To publish packages to a local registry, do the following:
-
 - Run `yarn local-registry start` in Terminal 1 (keep it running)
 - Run `npm adduser --registry http://localhost:4873` in Terminal 2 (real credentials are not required, you just need to
   be logged in. You can use test/test/test@test.io.)
 - Run `yarn local-registry enable` in Terminal 2
-- Run `yarn nx-release 999.9.9 --local` in Terminal 2
+- Run `yarn nx-release 16.0.0 --local` in Terminal 2 - you can choose any nonexistent version number here, but it's recommended to use the next major
 - Run `cd ./tmp` in Terminal 2
-- Run `npx create-nx-workspace@999.9.9` in Terminal 2
+- Run `npx create-nx-workspace@16.0.0` in Terminal 2
 
-If you have problems publishing, make sure you use Node 16 and NPM 6 or 8.
+If you have problems publishing, make sure you use Node 18 and NPM 8.
+
+**NOTE:** After you finish with local testing don't forget to stop the local registry (e.g. closing the Terminal 1) and disabling the local registy using `yarn local-registry disable`. Keeping local registry enabled will change your lock file resolutions to `localhost:4873` on the next `yarn install`. You can also run `yarn local-registry clear` to clean all packages in that local registry.
+
+**NOTE:** To use this newly published local version, you need to make a new workspace or change all of your target packages to this new version, eg: `"@nrwl/cli": "^16.0.0",` and re-run `yarn install` in your testing project.
 
 ### Publishing for Yarn 2+ (Berry)
 
@@ -129,7 +121,7 @@ nx test jest
 
 ### Running E2E Tests
 
-**Use Node 14 and NPM 6. E2E tests won't work on Node 15 and NPM 7.**
+**Use Node 18 and NPM 8. E2E tests won't work on Node 15 and NPM 7.**
 
 To make sure your changes do not break any E2E tests, run:
 
@@ -142,6 +134,14 @@ Running E2E tests can take some time, so it is often useful to run a single test
 ```bash
 nx e2e e2e-cli -t versions # I often add qqqq to my test name so I can use -t qqqq
 ```
+
+Sometimes tests pass locally but they fail on the CI. To reproduce the CI environment and be able to debug the issue, run:
+
+```bash
+NX_VERBOSE_LOGGING=true CI=true SELECTED_PM=pnpm yarn nx e2e e2e-cli --t="should do something is this test"
+```
+
+The above command sets verbose logging (this exposes stack traces and underlying errors), sets the defaults to be CI-like and sets Pnpm as the selected package manager.
 
 ### Developing on Windows
 
@@ -258,10 +258,9 @@ Please follow the following guidelines:
     with `npx jest angular/src/utils/ast-utils` or `npx jest packages/angular/src/utils/ast-utils`
   - For more options on running tests - check `npx jest --help` or visit [jestjs.io](https://jestjs.io/)
   - Debug with `node --inspect-brk ./node_modules/jest/bin/jest.js build/packages/angular/src/utils/ast-utils.spec.js`
-- Make sure e2e tests pass (this can take a while, so you can always let CI check those) (`yarn e2e`)
-  - Target a specific e2e test (i.e. `/build/e2e/cypress.test.js`) with `yarn e2e cypress`
-  - Debug with `node --inspect-brk ./node_modules/jest/bin/jest.js build/e2e/cypress.test.js`
-- Make sure you run `yarn format`
+- Make sure e2e tests pass (this can take a while, so you can always let CI check those) (`nx affected --target=e2e`)
+  - Target a specific e2e test with `nx e2e e2e-cypress`
+- Make sure you run `nx format`
 - Update documentation with `yarn documentation`. For documentation, check for spelling and grammatical errors.
 - Update your commit message to follow the guidelines below (use `yarn commit` to automate compliance)
   - `yarn check-commit` will check to make sure your commit messages are formatted correctly
@@ -294,24 +293,29 @@ The type must be one of the following:
 The scope must be one of the following:
 
 - angular - anything Angular specific
+- bundling - anything bundling specific (e.g. rollup, webpack, etc.)
 - core - anything Nx core specific
-- graph - anything graph app specific
 - detox - anything Detox specific
 - devkit - devkit-related changes
+- graph - anything graph app specific
+- expo - anything Expo specific
 - express - anything Express specific
 - js - anything related to @nrwl/js package or general js/ts support
 - linter - anything Linter specific
 - nest - anything Nest specific
 - nextjs - anything Next specific
-- nxdev - anything related to docs infrastructure
-- nx-plugin - anything Nx Plugin specific
 - node - anything Node specific
+- nx-cloud - anything NxCloud specific
+- nx-plugin - anything Nx Plugin specific
+- nx-dev - anything related to docs infrastructure
 - react - anything React specific
 - react-native - anything React Native specific
 - repo - anything related to managing the Nx repo itself
 - storybook - anything Storybook specific
 - testing - anything testing specific (e.g., Jest or Cypress)
+- vite - anything Vite specific
 - web - anything Web specific
+- webpack - anything Webpack specific
 - misc - misc stuff
 
 ##### Subject and Body

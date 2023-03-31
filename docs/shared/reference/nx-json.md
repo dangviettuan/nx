@@ -4,8 +4,9 @@ The `nx.json` file configures the Nx CLI and project defaults.
 
 The following is an expanded version showing all options. Your `nx.json` will likely be much shorter.
 
-```json
+```json {% fileName="nx.json" %}
 {
+  "extends": "nx/presets/npm.json",
   "npmScope": "happyorg",
   "affected": {
     "defaultBase": "main"
@@ -15,7 +16,6 @@ The following is an expanded version showing all options. Your `nx.json` will li
     "libsDir": "packages"
   },
   "implicitDependencies": {
-    "workspace.json": "*",
     "package.json": {
       "dependencies": "*",
       "devDependencies": "*"
@@ -33,9 +33,6 @@ The following is an expanded version showing all options. Your `nx.json` will li
       "dependsOn": ["^build"]
     }
   },
-  "cli": {
-    "defaultCollection": "@nrwl/js"
-  },
   "generators": {
     "@nrwl/js:library": {
       "buildable": true
@@ -51,6 +48,10 @@ The following is an expanded version showing all options. Your `nx.json` will li
   }
 }
 ```
+
+### Extends
+
+Some presets use the `extends` property to hide some default options in a separate json file. The json file specified in the `extends` property is located in your `node_modules` folder. The Nx preset files are specified in [the `nx` package](https://github.com/nrwl/nx/tree/master/packages/nx/presets).
 
 ### NPM Scope
 
@@ -78,40 +79,6 @@ You can add a `workspaceLayout` property to modify where libraries and apps are 
 These settings would store apps in `/demos/` and libraries in `/packages/`. The paths specified are relative to the
 workspace root.
 
-### Files & Implicit Dependencies
-
-Nx performs advanced source-code analysis to figure out the project graph of the workspace. So when you make a change,
-Nx can deduce what can be broken by this change. Some dependencies between projects and shared files cannot be inferred
-statically. You can configure those using `implicitDependencies`.
-
-```json
-{
-  "implicitDependencies": {
-    "workspace.json": "*",
-    "package.json": {
-      "dependencies": "*",
-      "devDependencies": {
-        "mypackage": ["mylib"]
-      },
-      "scripts": {
-        "check:*": "*"
-      }
-    },
-    "globalFile": ["myapp"],
-    "styles/**/*.css": ["myapp"]
-  }
-}
-```
-
-In the example above:
-
-- Changing `workspace.json` affects every project.
-- Changing the `dependencies` property in `package.json` affects every project.
-- Changing the `mypackage` property in `package.json` only affects `mylib`.
-- Changing any of the custom check `scripts` in `package.json` affects every project.
-- Changing `globalFile` only affects `myapp`.
-- Changing any CSS file inside the `styles` directory only affects `myapp`.
-
 ### inputs & namedInputs
 
 Named inputs defined in `nx.json` are merged with the named inputs defined in each project's project.json.
@@ -132,22 +99,31 @@ like this (which applies to every project):
 }
 ```
 
-And projects can define their prod fileset, without having to redefine the inputs for the `test` target.
+And projects can define their `production` fileset, without having to redefine the inputs for the `test` target.
 
-```json title="project.json"
+```json {% fileName="project.json" %}
 {
   "namedInputs": {
-    "production": [
-      "!{projectRoot}/**/*.test.js",
-      "{workspacRoot}/jest.config.js"
-    ]
+    "production": ["default", "!{projectRoot}/**/*.test.js"]
   }
 }
 ```
 
-In this case Nx will use the right `prod` input for each project.
+In this case Nx will use the right `production` input for each project.
+
+{% cards %}
+{% card title="Project Configuration reference" type="documentation" description="inputs and namedInputs are also described in the project configuration reference" url="/reference/project-configuration#inputs-&-namedinputs" /%}
+{% card title="Customizing inputs and namedInputs" type="documentation" description="This guide walks through a few examples of how to customize inputs and namedInputs" url="/more-concepts/customizing-inputs" /%}
+{% /cards %}
 
 ### Target Defaults
+
+Target defaults provide ways to set common options for a particular target in your workspace. When building your project's configuration, we merge it with up to 1 default from this map. For a given target, we look at its name and its executor. We then check target defaults for any of the following combinations:
+
+- `` `${executor}` ``
+- `` `${targetName}` ``
+
+Whichever of these we find first, we use as the base for that target's configuration. Some common scenarios for this follow.
 
 Targets can depend on other targets. A common scenario is having to build dependencies of a project first before
 building the project. The `dependsOn` property in `project.json` can be used to define the list of dependencies of an
@@ -156,7 +132,7 @@ individual target.
 Often the same `dependsOn` configuration has to be defined for every project in the repo, and that's when
 defining `targetDefaults` in `nx.json` is helpful.
 
-```json
+```json {% fileName="nx.json" %}
 {
   "targetDefaults": {
     "build": {
@@ -168,37 +144,58 @@ defining `targetDefaults` in `nx.json` is helpful.
 
 The configuration above is identical to adding `{"dependsOn": ["^build"]}` to every build target of every project.
 
+For full documentation of the `dependsOn` property, see the [project configuration reference](/reference/project-configuration#dependson).
+{% cards %}
+{% card title="Project Configuration reference" type="documentation" description="For full documentation of the `dependsOn` property, see the project configuration reference" url="/reference/project-configuration#dependson" /%}
+{% /cards %}
+
 Another target default you can configure is `outputs`:
 
-```json
+```json {% fileName="nx.json" %}
 {
   "targetDefaults": {
     "build": {
-      "outputs": ["./custom-dist"]
+      "outputs": ["{projectRoot}/custom-dist"]
     }
   }
 }
 ```
 
-### CLI Options
+When defining any options or configurations inside of a target default, you may use the `{workspaceRoot}` and `{projectRoot}` tokens. This is useful for defining things like the outputPath or tsconfig for many build targets.
 
-The following command generates a new library: `nx g @nrwl/js:lib mylib`. After setting the `defaultCollection`property,
-the lib is generated without mentioning the collection name: `nx g lib mylib`.
-
-```json
+```json {% fileName="nx.json" %}
 {
-  "cli": {
-    "defaultCollection": "@nrwl/js"
+  "targetDefaults": {
+    "@nrwl/js:tsc": {
+      "options": {
+        "main": "{projectRoot}/src/index.ts"
+      },
+      "configurations": {
+        "prod": {
+          "tsconfig": "{projectRoot}/tsconfig.prod.json"
+        }
+      },
+      "inputs": ["prod"],
+      "outputs": ["{workspaceRoot}/{projectRoot}"]
+    },
+    "build": {
+      "inputs": ["prod"],
+      "outputs": ["{workspaceRoot}/{projectRoot}"]
+    }
   }
 }
 ```
+
+{% callout type="note" title="Target Default Priority" %}
+Note that the inputs and outputs are respecified on the @nrwl/js:tsc default configuration. This is **required**, as when reading target defaults Nx will only ever look at one key. If there is a default configuration based on the executor used, it will be read first. If not, Nx will fall back to looking at the configuration based on target name. For instance, running `nx build project` will read the options from `targetDefaults[@nrwl/js:tsc]` if the target configuration for build uses the @nrwl/js:tsc executor. It **would not** read any of the configuration from the `build` target default configuration unless the executor does not match.
+{% /callout %}
 
 ### Generators
 
 Default generator options are configured in `nx.json` as well. For instance, the following tells Nx to always
 pass `--buildable=true` when creating new libraries.
 
-```json
+```json {% fileName="nx.json" %}
 {
   "generators": {
     "@nrwl/js:library": {
@@ -218,7 +215,7 @@ named "default" is used by default. Specify a different one like this `nx run-ma
 Tasks runners can accept different options. The following are the options supported
 by `"nx/tasks-runners/default"` and `"@nrwl/nx-cloud"`.
 
-| Property                | Descrtipion                                                                                                                                                                                                                                                                                                                                   |
+| Property                | Description                                                                                                                                                                                                                                                                                                                                   |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | cacheableOperations     | defines the list of targets/operations that are cached by Nx                                                                                                                                                                                                                                                                                  |
 | parallel                | defines the max number of targets ran in parallel (in older versions of Nx you had to pass `--parallel --maxParallel=3` instead of `--parallel=3`)                                                                                                                                                                                            |
@@ -226,24 +223,7 @@ by `"nx/tasks-runners/default"` and `"@nrwl/nx-cloud"`.
 | skipNxCache             | defines whether the Nx Cache should be skipped (defaults to `false`)                                                                                                                                                                                                                                                                          |
 | cacheDirectory          | defines where the local cache is stored (defaults to `node_modules/.cache/nx`)                                                                                                                                                                                                                                                                |
 | encryptionKey           | (when using `"@nrwl/nx-cloud"` only) defines an encryption key to support end-to-end encryption of your cloud cache. You may also provide an environment variable with the key `NX_CLOUD_ENCRYPTION_KEY` that contains an encryption key as its value. The Nx Cloud task runner normalizes the key length, so any length of key is acceptable |
-| runtimeCacheInputs      | defines the list of commands that are run by the runner to include into the computation hash value                                                                                                                                                                                                                                            |
 | selectivelyHashTsConfig | only hash the path mapping of the active project in the `tsconfig.base.json` (e.g., adding/removing projects doesn't affect the hash of existing projects) (defaults to `false`)                                                                                                                                                              |
-
-`runtimeCacheInputs` are set as follows:
-
-```json
-{
-  "tasksRunnerOptions": {
-    "default": {
-      "runner": "nx/tasks-runners/default",
-      "options": {
-        "cacheableOperations": ["build", "lint", "test", "e2e"],
-        "runtimeCacheInputs": ["node -v"]
-      }
-    }
-  }
-}
-```
 
 You can configure `parallel` in `nx.json`, but you can also pass them in the
 terminal `nx run-many --target=test --parallel=5`.

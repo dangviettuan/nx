@@ -12,12 +12,7 @@ import {
   writeCache,
 } from './nx-deps-cache';
 import { buildImplicitProjectDependencies } from './build-dependencies';
-import {
-  buildNpmPackageNodes,
-  buildWorkspaceProjectNodes,
-} from './build-nodes';
-import * as os from 'os';
-import { buildExplicitTypescriptAndPackageJsonDependencies } from './build-dependencies/build-explicit-typescript-and-package-json-dependencies';
+import { buildWorkspaceProjectNodes } from './build-nodes';
 import { loadNxPlugins } from '../utils/nx-plugin';
 import { defaultFileHasher } from '../hasher/file-hasher';
 import { createProjectFileMap } from './file-map-utils';
@@ -35,13 +30,15 @@ import {
   ProjectConfiguration,
   ProjectsConfigurations,
 } from '../config/workspace-json-project-json';
-import {
-  readAllWorkspaceConfiguration,
-  readNxJson,
-} from '../config/configuration';
+import { readNxJson } from '../config/configuration';
+import { Workspaces } from '../config/workspaces';
+import { existsSync } from 'fs';
+import { PackageJson } from '../utils/package-json';
 
 export async function buildProjectGraph() {
-  const projectConfigurations = readAllWorkspaceConfiguration();
+  const projectConfigurations = new Workspaces(
+    workspaceRoot
+  ).readProjectsConfigurations();
   const { projectFileMap, allWorkspaceFiles } = createProjectFileMap(
     projectConfigurations,
     defaultFileHasher.allFileData()
@@ -71,7 +68,7 @@ export async function buildProjectGraphUsingProjectFileMap(
   projectGraphCache: ProjectGraphCache;
 }> {
   const nxJson = readNxJson();
-  const projectGraphVersion = '5.0';
+  const projectGraphVersion = '5.1';
   assertWorkspaceValidity(projectsConfigurations, nxJson);
   const packageJsonDeps = readCombinedDeps();
   const rootTsConfig = readRootTsConfig();
@@ -95,6 +92,7 @@ export async function buildProjectGraphUsingProjectFileMap(
     filesToProcess = projectFileMap;
     cachedFileData = {};
   }
+
   const context = createContext(
     projectsConfigurations,
     nxJson,
@@ -106,7 +104,7 @@ export async function buildProjectGraphUsingProjectFileMap(
     context,
     cachedFileData,
     projectGraphVersion,
-    packageJsonDeps
+    cache
   );
   const projectGraphCache = createCache(
     nxJson,
@@ -125,8 +123,27 @@ export async function buildProjectGraphUsingProjectFileMap(
 }
 
 function readCombinedDeps() {
-  const json = readJsonFile(join(workspaceRoot, 'package.json'));
-  return { ...json.dependencies, ...json.devDependencies };
+  const installationPackageJsonPath = join(
+    workspaceRoot,
+    '.nx',
+    'installation',
+    'package.json'
+  );
+  const installationPackageJson: Partial<PackageJson> = existsSync(
+    installationPackageJsonPath
+  )
+    ? readJsonFile(installationPackageJsonPath)
+    : {};
+  const rootPackageJsonPath = join(workspaceRoot, 'package.json');
+  const rootPackageJson: Partial<PackageJson> = existsSync(rootPackageJsonPath)
+    ? readJsonFile(rootPackageJsonPath)
+    : {};
+  return {
+    ...rootPackageJson.dependencies,
+    ...rootPackageJson.devDependencies,
+    ...installationPackageJson.dependencies,
+    ...installationPackageJson.devDependencies,
+  };
 }
 
 async function buildProjectGraphUsingContext(
@@ -134,34 +151,39 @@ async function buildProjectGraphUsingContext(
   ctx: ProjectGraphProcessorContext,
   cachedFileData: { [project: string]: { [file: string]: FileData } },
   projectGraphVersion: string,
-  packageJsonDeps: { [packageName: string]: string }
+  cache: ProjectGraphCache | null
 ) {
   performance.mark('build project graph:start');
 
-  const builder = new ProjectGraphBuilder();
+  const builder = new ProjectGraphBuilder(
+    cache
+      ? {
+          nodes: cache.nodes,
+          externalNodes: cache.externalNodes,
+          dependencies: cache.dependencies,
+        }
+      : null
+  );
+  builder.setVersion(projectGraphVersion);
 
-  buildWorkspaceProjectNodes(ctx, builder, nxJson);
-  buildNpmPackageNodes(builder);
+  await buildWorkspaceProjectNodes(ctx, builder, nxJson);
+  const initProjectGraph = builder.getUpdatedProjectGraph();
+
+  const r = await updateProjectGraphWithPlugins(ctx, initProjectGraph);
+
+  const updatedBuilder = new ProjectGraphBuilder(r);
   for (const proj of Object.keys(cachedFileData)) {
-    for (const f of builder.graph.nodes[proj].data.files) {
+    for (const f of updatedBuilder.graph.nodes[proj].data.files) {
       const cached = cachedFileData[proj][f.file];
-      if (cached && cached.deps) {
-        f.deps = [...cached.deps];
+      if (cached && cached.dependencies) {
+        f.dependencies = [...cached.dependencies];
       }
     }
   }
 
-  await buildExplicitDependencies(
-    jsPluginConfig(nxJson, packageJsonDeps),
-    ctx,
-    builder
-  );
+  buildImplicitProjectDependencies(ctx, updatedBuilder);
 
-  buildImplicitProjectDependencies(ctx, builder);
-  builder.setVersion(projectGraphVersion);
-  const initProjectGraph = builder.getUpdatedProjectGraph();
-
-  const r = await updateProjectGraphWithPlugins(ctx, initProjectGraph);
+  const finalGraph = updatedBuilder.getUpdatedProjectGraph();
 
   performance.mark('build project graph:end');
   performance.measure(
@@ -170,204 +192,7 @@ async function buildProjectGraphUsingContext(
     'build project graph:end'
   );
 
-  return r;
-}
-
-interface NrwlJsPluginConfig {
-  analyzeSourceFiles?: boolean;
-  analyzePackageJson?: boolean;
-}
-
-function jsPluginConfig(
-  nxJson: NxJsonConfiguration,
-  packageJsonDeps: { [packageName: string]: string }
-): NrwlJsPluginConfig {
-  if (nxJson?.pluginsConfig?.['@nrwl/js']) {
-    return nxJson?.pluginsConfig?.['@nrwl/js'];
-  }
-  if (
-    packageJsonDeps['@nrwl/workspace'] ||
-    packageJsonDeps['@nrwl/js'] ||
-    packageJsonDeps['@nrwl/node'] ||
-    packageJsonDeps['@nrwl/next'] ||
-    packageJsonDeps['@nrwl/react'] ||
-    packageJsonDeps['@nrwl/angular'] ||
-    packageJsonDeps['@nrwl/web']
-  ) {
-    return { analyzePackageJson: true, analyzeSourceFiles: true };
-  } else {
-    return { analyzePackageJson: true, analyzeSourceFiles: false };
-  }
-}
-
-function buildExplicitDependencies(
-  jsPluginConfig: {
-    analyzeSourceFiles?: boolean;
-    analyzePackageJson?: boolean;
-  },
-  ctx: ProjectGraphProcessorContext,
-  builder: ProjectGraphBuilder
-) {
-  let totalNumOfFilesToProcess = totalNumberOfFilesToProcess(ctx);
-  // using workers has an overhead, so we only do it when the number of
-  // files we need to process is >= 100 and there are more than 2 CPUs
-  // to be able to use at least 2 workers (1 worker per CPU and
-  // 1 CPU for the main thread)
-  if (totalNumOfFilesToProcess < 100 || getNumberOfWorkers() <= 2) {
-    return buildExplicitDependenciesWithoutWorkers(
-      jsPluginConfig,
-      ctx,
-      builder
-    );
-  } else {
-    return buildExplicitDependenciesUsingWorkers(
-      jsPluginConfig,
-      ctx,
-      totalNumOfFilesToProcess,
-      builder
-    );
-  }
-}
-
-function totalNumberOfFilesToProcess(ctx: ProjectGraphProcessorContext) {
-  let totalNumOfFilesToProcess = 0;
-  Object.values(ctx.filesToProcess).forEach(
-    (t) => (totalNumOfFilesToProcess += t.length)
-  );
-  return totalNumOfFilesToProcess;
-}
-
-function splitFilesIntoBins(
-  ctx: ProjectGraphProcessorContext,
-  totalNumOfFilesToProcess: number,
-  numberOfWorkers: number
-) {
-  // we want to have numberOfWorkers * 5 bins
-  const filesPerBin =
-    Math.round(totalNumOfFilesToProcess / numberOfWorkers / 5) + 1;
-  const bins: ProjectFileMap[] = [];
-  let currentProjectFileMap = {};
-  let currentNumberOfFiles = 0;
-  for (const source of Object.keys(ctx.filesToProcess)) {
-    for (const f of Object.values(ctx.filesToProcess[source])) {
-      if (!currentProjectFileMap[source]) currentProjectFileMap[source] = [];
-      currentProjectFileMap[source].push(f);
-      currentNumberOfFiles++;
-
-      if (currentNumberOfFiles >= filesPerBin) {
-        bins.push(currentProjectFileMap);
-        currentProjectFileMap = {};
-        currentNumberOfFiles = 0;
-      }
-    }
-  }
-  bins.push(currentProjectFileMap);
-  return bins;
-}
-
-function createWorkerPool(numberOfWorkers: number) {
-  const res = [];
-  for (let i = 0; i < numberOfWorkers; ++i) {
-    res.push(
-      new (require('worker_threads').Worker)(
-        join(__dirname, './project-graph-worker.js'),
-        {
-          env: process.env,
-        }
-      )
-    );
-  }
-  return res;
-}
-
-function buildExplicitDependenciesWithoutWorkers(
-  jsPluginConfig: {
-    analyzeSourceFiles?: boolean;
-    analyzePackageJson?: boolean;
-  },
-  ctx: ProjectGraphProcessorContext,
-  builder: ProjectGraphBuilder
-) {
-  buildExplicitTypescriptAndPackageJsonDependencies(
-    jsPluginConfig,
-    ctx.workspace,
-    builder.graph,
-    ctx.filesToProcess
-  ).forEach((r) => {
-    builder.addExplicitDependency(
-      r.sourceProjectName,
-      r.sourceProjectFile,
-      r.targetProjectName
-    );
-  });
-}
-
-function buildExplicitDependenciesUsingWorkers(
-  jsPluginConfig: {
-    analyzeSourceFiles?: boolean;
-    analyzePackageJson?: boolean;
-  },
-  ctx: ProjectGraphProcessorContext,
-  totalNumOfFilesToProcess: number,
-  builder: ProjectGraphBuilder
-) {
-  const numberOfWorkers = Math.min(
-    totalNumOfFilesToProcess,
-    getNumberOfWorkers()
-  );
-  const bins = splitFilesIntoBins(
-    ctx,
-    totalNumOfFilesToProcess,
-    numberOfWorkers
-  );
-  const workers = createWorkerPool(numberOfWorkers);
-  let numberOfExpectedResponses = bins.length;
-
-  return new Promise((res, reject) => {
-    for (let w of workers) {
-      w.on('message', (explicitDependencies) => {
-        explicitDependencies.forEach((r) => {
-          builder.addExplicitDependency(
-            r.sourceProjectName,
-            r.sourceProjectFile,
-            r.targetProjectName
-          );
-        });
-        if (bins.length > 0) {
-          w.postMessage({ filesToProcess: bins.shift() });
-        }
-        // we processed all the bins
-        if (--numberOfExpectedResponses === 0) {
-          for (let w of workers) {
-            w.terminate();
-          }
-          res(null);
-        }
-      });
-      w.on('error', reject);
-      w.on('exit', (code) => {
-        if (code !== 0) {
-          reject(
-            new Error(
-              `Unable to complete project graph creation. Worker stopped with exit code: ${code}`
-            )
-          );
-        }
-      });
-      w.postMessage({
-        workspace: ctx.workspace,
-        projectGraph: builder.graph,
-        jsPluginConfig,
-      });
-      w.postMessage({ filesToProcess: bins.shift() });
-    }
-  });
-}
-
-function getNumberOfWorkers(): number {
-  return process.env.NX_PROJECT_GRAPH_MAX_WORKERS
-    ? +process.env.NX_PROJECT_GRAPH_MAX_WORKERS
-    : os.cpus().length - 1;
+  return finalGraph;
 }
 
 function createContext(
@@ -376,15 +201,18 @@ function createContext(
   fileMap: ProjectFileMap,
   filesToProcess: ProjectFileMap
 ): ProjectGraphProcessorContext {
-  const projects: Record<string, ProjectConfiguration> = Object.keys(
-    projectsConfigurations.projects
-  ).reduce((map, projectName) => {
-    map[projectName] = {
-      ...projectsConfigurations.projects[projectName],
-    };
-    return map;
-  }, {});
+  const projects = Object.keys(projectsConfigurations.projects).reduce(
+    (map, projectName) => {
+      map[projectName] = {
+        ...projectsConfigurations.projects[projectName],
+      };
+      return map;
+    },
+    {} as Record<string, ProjectConfiguration>
+  );
   return {
+    nxJsonConfiguration: nxJson,
+    projectsConfigurations,
     workspace: {
       ...projectsConfigurations,
       ...nxJson,
@@ -399,9 +227,9 @@ async function updateProjectGraphWithPlugins(
   context: ProjectGraphProcessorContext,
   initProjectGraph: ProjectGraph
 ) {
-  const plugins = loadNxPlugins(context.workspace.plugins).filter(
-    (x) => !!x.processProjectGraph
-  );
+  const plugins = (
+    await loadNxPlugins(context.nxJsonConfiguration.plugins)
+  ).filter((x) => !!x.processProjectGraph);
   let graph = initProjectGraph;
   for (const plugin of plugins) {
     try {
@@ -422,8 +250,12 @@ async function updateProjectGraphWithPlugins(
 }
 
 function readRootTsConfig() {
-  const tsConfigPath = getRootTsConfigPath();
-  if (tsConfigPath) {
-    return readJsonFile(tsConfigPath);
+  try {
+    const tsConfigPath = getRootTsConfigPath();
+    if (tsConfigPath) {
+      return readJsonFile(tsConfigPath, { expectComments: true });
+    }
+  } catch (e) {
+    return {};
   }
 }

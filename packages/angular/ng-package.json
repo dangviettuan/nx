@@ -7,12 +7,13 @@
     "@nrwl/",
     "@angular-devkit",
     "@angular-eslint/",
+    "@nguniversal/builders",
     "@schematics",
     "@phenomnomnominal/tsquery",
+    "@typescript-eslint/",
     "chalk",
     "chokidar",
     "ignore",
-    "jasmine-marbles",
     "minimatch",
     "rxjs-for-await",
     "webpack-merge",
@@ -21,7 +22,8 @@
     "semver",
     "webpack",
     "http-server",
-    "magic-string"
+    "magic-string",
+    "enquirer"
   ],
   "keepLifecycleScripts": true
 }

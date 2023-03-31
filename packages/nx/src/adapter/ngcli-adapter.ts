@@ -1,4 +1,5 @@
 /* eslint-disable no-restricted-imports */
+import type { Architect } from '@angular-devkit/architect';
 import {
   fragment,
   logging,
@@ -10,36 +11,31 @@ import {
   virtualFs,
   workspaces,
 } from '@angular-devkit/core';
-import * as chalk from 'chalk';
 import { createConsoleLogger, NodeJsSyncHost } from '@angular-devkit/core/node';
-import { Stats } from 'fs';
-import { detectPackageManager } from '../utils/package-manager';
-import { GenerateOptions } from '../command-line/generate';
-import { FileChange, Tree } from '../generators/tree';
-import {
-  buildWorkspaceConfigurationFromGlobs,
-  globForProjectFiles,
-  toNewFormat,
-  toNewFormatOrNull,
-  toOldFormatOrNull,
-  workspaceConfigName,
-} from '../config/workspaces';
-import { dirname, extname, resolve, join, basename } from 'path';
 import { FileBuffer } from '@angular-devkit/core/src/virtual-fs/host/interface';
-import type { Architect } from '@angular-devkit/architect';
-import { Observable, of, merge, forkJoin, NEVER } from 'rxjs';
-import { catchError, map, switchMap, toArray, tap } from 'rxjs/operators';
-import { NX_ERROR, NX_PREFIX } from '../utils/logger';
-import { readJsonFile } from '../utils/fileutils';
-import { parseJson, serializeJson } from '../utils/json';
+import * as chalk from 'chalk';
+import { Stats } from 'fs';
+import { dirname, extname, join, resolve } from 'path';
+import { concat, from, Observable, of, zip } from 'rxjs';
+import { catchError, concatMap, map, tap } from 'rxjs/operators';
+import { GenerateOptions } from '../command-line/generate';
 import { NxJsonConfiguration } from '../config/nx-json';
+import { ProjectConfiguration } from '../config/workspace-json-project-json';
+import { FsTree, Tree } from '../generators/tree';
+import { readJson } from '../generators/utils/json';
 import {
-  ProjectConfiguration,
-  RawProjectsConfigurations,
-  ProjectsConfigurations,
-} from '../config/workspace-json-project-json';
-import { readNxJson } from '../generators/utils/project-configuration';
-import { PackageJson, readModulePackageJson } from '../utils/package-json';
+  addProjectConfiguration,
+  getProjects,
+  updateProjectConfiguration,
+} from '../generators/utils/project-configuration';
+import { createProjectGraphAsync } from '../project-graph/project-graph';
+import { readJsonFile } from '../utils/fileutils';
+import { getNxRequirePaths } from '../utils/installation-directory';
+import { parseJson } from '../utils/json';
+import { NX_ERROR, NX_PREFIX } from '../utils/logger';
+import { readModulePackageJson } from '../utils/package-json';
+import { detectPackageManager } from '../utils/package-manager';
+import { toNewFormat, toOldFormat } from './angular-json';
 
 export async function scheduleTarget(
   root: string,
@@ -48,7 +44,6 @@ export async function scheduleTarget(
     target: string;
     configuration: string;
     runOptions: any;
-    executor: string;
   },
   verbose: boolean
 ): Promise<Observable<import('@angular-devkit/architect').BuilderOutput>> {
@@ -57,10 +52,10 @@ export async function scheduleTarget(
     WorkspaceNodeModulesArchitectHost,
   } = require('@angular-devkit/architect/node');
 
-  const logger = getTargetLogger(opts.executor, verbose);
+  const logger = getLogger(verbose);
   const fsHost = new NxScopedHost(root);
   const { workspace } = await workspaces.readWorkspace(
-    workspaceConfigName(root),
+    'angular.json',
     workspaces.createWorkspaceHost(fsHost)
   );
 
@@ -137,15 +132,10 @@ async function createRecorder(
   },
   logger: logging.Logger
 ) {
-  const actualConfigName = await host.workspaceConfigName();
   return (event: import('@angular-devkit/schematics').DryRunEvent) => {
     let eventPath = event.path.startsWith('/')
       ? event.path.slice(1)
       : event.path;
-
-    if (eventPath === 'workspace.json' || eventPath === 'angular.json') {
-      eventPath = actualConfigName;
-    }
 
     if (event.kind === 'error') {
       record.error = true;
@@ -215,383 +205,220 @@ async function runSchematic(
   return { status: 0, loggingQueue: record.loggingQueue };
 }
 
-type AngularJsonConfiguration = ProjectsConfigurations &
-  Pick<NxJsonConfiguration, 'cli' | 'defaultProject' | 'generators'> & {
-    schematics?: NxJsonConfiguration['generators'];
-    cli?: NxJsonConfiguration['cli'] & {
-      schematicCollections?: string[];
-    };
-  };
-export class NxScopedHost extends virtualFs.ScopedHost<any> {
-  protected __nxInMemoryWorkspace: ProjectsConfigurations | null;
+type AngularProjectConfiguration = ProjectConfiguration & { prefix?: string };
 
+export class NxScopedHost extends virtualFs.ScopedHost<any> {
   constructor(private root: string) {
     super(new NodeJsSyncHost(), normalize(root));
   }
 
-  protected __readWorkspaceConfiguration = (
-    configFileName: ChangeContext['actualConfigFileName'],
-    overrides?: {
-      workspace?: Observable<RawProjectsConfigurations>;
-      nx?: Observable<NxJsonConfiguration>;
-    }
-  ): Observable<FileBuffer> => {
-    const readJsonFile = (path: string) =>
-      super
-        .read(path as Path)
-        .pipe(map((data) => JSON.parse(Buffer.from(data).toString())));
-
-    const readWorkspaceJsonFile = (
-      nxJson: NxJsonConfiguration
-    ): Observable<RawProjectsConfigurations> => {
-      if (overrides?.workspace) {
-        return overrides.workspace;
-      } else if (this.__nxInMemoryWorkspace) {
-        return of(this.__nxInMemoryWorkspace);
-      } else {
-        if (configFileName) {
-          return super
-            .read(configFileName)
-            .pipe(map((data) => parseJson(Buffer.from(data).toString())));
-        } else {
-          const staticProjects = globForProjectFiles(this.root);
-          this.__nxInMemoryWorkspace = buildWorkspaceConfigurationFromGlobs(
-            nxJson,
-            staticProjects.filter((x) => basename(x) !== 'package.json')
-          );
-          Object.entries(this.__nxInMemoryWorkspace.projects).forEach(
-            ([project, config]) => {
-              this.__nxInMemoryWorkspace.projects[project] = config.root as any;
-            }
-          );
-          return of(this.__nxInMemoryWorkspace);
-        }
-      }
-    };
-
-    const readNxJsonFile = () => {
-      let nxJson = overrides?.nx ? overrides.nx : readJsonFile('nx.json');
-
-      return nxJson.pipe(
-        map((json) => {
-          if (json.extends) {
-            return { ...require(json.extends), ...json };
-          } else {
-            return json;
-          }
-        })
-      );
-    };
-
-    return super.exists('nx.json' as Path).pipe(
-      switchMap((nxJsonExists) => {
-        let nxJsonObservable: Observable<NxJsonConfiguration> = NEVER;
-        if (nxJsonExists) {
-          nxJsonObservable = readNxJsonFile();
-        } else {
-          nxJsonObservable = of({} as NxJsonConfiguration);
-        }
-        const workspaceJsonObservable: Observable<RawProjectsConfigurations> =
-          nxJsonObservable.pipe(switchMap((x) => readWorkspaceJsonFile(x)));
-        return forkJoin([nxJsonObservable, workspaceJsonObservable]);
-      }),
-      switchMap(([nxJson, workspaceJson]) => {
-        try {
-          // resolve inline configurations and downlevel format
-          return this.resolveInlineProjectConfigurations(workspaceJson).pipe(
-            map((x) => {
-              const angularJson: AngularJsonConfiguration = x;
-              // assign props ng cli expects from nx json, if it exists
-              angularJson.cli ??= nxJson?.cli;
-              angularJson.generators ??= nxJson?.generators;
-              angularJson.defaultProject ??= nxJson?.defaultProject;
-
-              if (workspaceJson.version === 2) {
-                const formatted = toOldFormatOrNull(workspaceJson);
-                return formatted
-                  ? Buffer.from(serializeJson(formatted))
-                  : Buffer.from(serializeJson(x));
-              }
-              return Buffer.from(serializeJson(x));
-            })
-          );
-        } catch {
-          return of(Buffer.from(serializeJson(workspaceJson)));
-        }
-      })
-    );
-  };
-
   read(path: Path): Observable<FileBuffer> {
-    return this.context(path).pipe(
-      switchMap((r) => {
-        if (r.isWorkspaceConfig) {
-          return this.__readWorkspaceConfiguration(r.actualConfigFileName);
-        } else {
-          return super.read(path);
+    if (path === 'angular.json' || path === '/angular.json') {
+      return this.readMergedWorkspaceConfiguration().pipe(
+        map((r) => Buffer.from(JSON.stringify(toOldFormat(r))))
+      );
+    } else {
+      return super.read(path);
+    }
+  }
+
+  private readMergedWorkspaceConfiguration() {
+    return zip(
+      from(createProjectGraphAsync()),
+      this.readExistingAngularJson(),
+      this.readJson<NxJsonConfiguration>('nx.json')
+    ).pipe(
+      concatMap(([graph, angularJson, nxJson]) => {
+        const workspaceConfig = (angularJson || { projects: {} }) as any;
+        workspaceConfig.cli ??= nxJson.cli;
+        workspaceConfig.schematics ??= nxJson.generators;
+        const projectJsonReads: Observable<[string, ProjectConfiguration]>[] =
+          [];
+        for (let projectName of Object.keys(graph.nodes)) {
+          if (!workspaceConfig.projects[projectName]) {
+            projectJsonReads.push(
+              zip(
+                of(projectName),
+                this.readJson<ProjectConfiguration>(
+                  join(graph.nodes[projectName].data.root, 'project.json')
+                )
+              )
+            );
+          }
         }
+        return zip(...projectJsonReads).pipe(
+          map((reads) => {
+            reads
+              .filter(([, p]) => p !== null)
+              .forEach(([projectName, project]) => {
+                workspaceConfig.projects[projectName] = {
+                  ...project,
+                  root: graph.nodes[projectName].data.root,
+                };
+              });
+
+            return workspaceConfig;
+          })
+        );
+      }),
+      catchError((err) => {
+        console.log('Unable to read angular.json');
+        console.log(err);
+        process.exit(1);
       })
     );
   }
 
   write(path: Path, content: FileBuffer): Observable<void> {
-    return this.context(path).pipe(
-      switchMap((r) => {
-        if (r.isWorkspaceConfig) {
-          return this.writeWorkspaceConfiguration(r, content);
-        } else {
-          return super.write(path, content);
-        }
-      })
-    );
+    if (path === 'angular.json' || path === '/angular.json') {
+      const configV2 = toNewFormat(parseJson(content.toString()));
+      const root = this.root;
+
+      return zip(
+        this.readMergedWorkspaceConfiguration(),
+        this.readExistingAngularJson()
+      ).pipe(
+        concatMap((arg) => {
+          const existingConfig = arg[0] as any;
+          const existingAngularJson = arg[1] as any;
+
+          const projectsInAngularJson = existingAngularJson
+            ? Object.keys(existingAngularJson.projects)
+            : [];
+          const projects = configV2.projects;
+          const allObservables = [];
+          Object.keys(projects).forEach((projectName) => {
+            if (projectsInAngularJson.includes(projectName)) {
+              // ignore updates to angular.json
+            } else {
+              updateProjectConfiguration(
+                {
+                  root,
+                  exists: () => true,
+                  write: (path: string, content) => {
+                    if (existingConfig.projects[projectName]) {
+                      const updatedContent = this.mergeProjectConfiguration(
+                        existingConfig.projects[projectName],
+                        projects[projectName],
+                        projectName
+                      );
+                      if (updatedContent) {
+                        delete updatedContent.root;
+                        allObservables.push(
+                          super.write(
+                            path as any,
+                            Buffer.from(JSON.stringify(updatedContent, null, 2))
+                          )
+                        );
+                      }
+                    } else {
+                      allObservables.push(
+                        super.write(path as any, Buffer.from(content))
+                      );
+                    }
+                  },
+                } as any,
+                projectName,
+                projects[projectName]
+              );
+            }
+          });
+          return concat(...allObservables);
+        })
+      ) as any;
+    } else {
+      return super.write(path, content);
+    }
   }
 
   isFile(path: Path): Observable<boolean> {
-    return this.context(path).pipe(
-      switchMap((r) => {
-        if (r.isWorkspaceConfig) {
-          return of(true); // isWorkspaceConfig means its a file
-        } else {
-          return super.isFile(path);
-        }
-      })
-    );
+    if (path === 'angular.json' || path === '/angular.json') {
+      return of(true);
+    } else {
+      return super.isFile(path);
+    }
   }
 
   exists(path: Path): Observable<boolean> {
-    return this.context(path).pipe(
-      switchMap((r) => {
-        if (r.isWorkspaceConfig) {
-          return of(true);
-        } else {
-          return super.exists(path);
-        }
-      })
-    );
-  }
-
-  workspaceConfigName(): Promise<string> {
-    return super
-      .exists('/angular.json' as any)
-      .pipe(
-        map((hasAngularJson) =>
-          hasAngularJson ? 'angular.json' : 'workspace.json'
-        )
-      )
-      .toPromise();
-  }
-
-  protected context(path: string): Observable<ChangeContext> {
-    if (isWorkspaceConfigPath(path)) {
-      return forkJoin([
-        super.exists('/angular.json' as Path),
-        super.exists('/workspace.json' as Path),
-      ]).pipe(
-        switchMap(([isAngularJson, isWorkspaceJson]) => {
-          if (!isAngularJson && !isWorkspaceJson) {
-            return of({
-              isWorkspaceConfig: true,
-              actualConfigFileName: null,
-              // AngularJson / WorkspaceJson v2 is always used for standalone project config
-              isNewFormat: true,
-            });
-          }
-          const actualConfigFileName = isAngularJson
-            ? ('/angular.json' as Path)
-            : ('/workspace.json' as Path);
-          return super.read(actualConfigFileName as any).pipe(
-            map((r) => {
-              try {
-                const w = parseJson(Buffer.from(r).toString());
-                return {
-                  isWorkspaceConfig: true,
-                  actualConfigFileName,
-                  isNewFormat: w.version === 2,
-                };
-              } catch {
-                return {
-                  isWorkspaceConfig: true,
-                  actualConfigFileName,
-                  isNewFormat: false,
-                };
-              }
-            })
-          );
-        })
-      );
+    if (path === 'angular.json' || path === '/angular.json') {
+      return of(true);
     } else {
-      return of({
-        isWorkspaceConfig: false,
-        actualConfigFileName: null,
-        isNewFormat: false,
-      });
+      return super.exists(path);
     }
   }
 
-  private writeWorkspaceConfiguration(
-    context: ChangeContext,
-    content
-  ): Observable<void> {
-    const config = parseJson(Buffer.from(content).toString());
-    if (context.isNewFormat) {
-      try {
-        const w = parseJson(Buffer.from(content).toString());
-        const formatted: AngularJsonConfiguration = toNewFormatOrNull(w);
-        if (formatted) {
-          const { cli, generators, defaultProject, ...workspaceJson } =
-            formatted;
-          delete cli?.schematicCollections;
-          return merge(
-            this.writeWorkspaceConfigFiles(context, workspaceJson),
-            cli || generators || defaultProject
-              ? this.__saveNxJsonProps({ cli, generators, defaultProject })
-              : of(null)
-          );
-        } else {
-          const {
-            cli,
-            schematics,
-            generators,
-            defaultProject,
-            ...angularJson
-          } = w;
-          delete cli?.schematicCollections;
-          return merge(
-            this.writeWorkspaceConfigFiles(context, angularJson),
-            cli || schematics
-              ? this.__saveNxJsonProps({
-                  cli,
-                  defaultProject,
-                  generators: schematics || generators,
-                })
-              : of(null)
-          );
-        }
-      } catch (e) {}
-    }
-    const { cli, schematics, generators, defaultProject, ...angularJson } =
-      config;
-    delete cli?.schematicCollections;
-
-    return merge(
-      this.writeWorkspaceConfigFiles(context, angularJson),
-      this.__saveNxJsonProps({
-        cli,
-        defaultProject,
-        generators: schematics || generators,
-      })
-    );
-  }
-
-  private __saveNxJsonProps(
-    props: Partial<NxJsonConfiguration>
-  ): Observable<void> {
-    const nxJsonPath = 'nx.json' as Path;
-    return super.read(nxJsonPath).pipe(
-      switchMap((buf) => {
-        const nxJson = parseJson(Buffer.from(buf).toString());
-        Object.assign(nxJson, props);
-        return super.write(nxJsonPath, Buffer.from(serializeJson(nxJson)));
-      })
-    );
-  }
-
-  private writeWorkspaceConfigFiles(
-    { actualConfigFileName: workspaceFileName, isNewFormat }: ChangeContext,
-    config
+  mergeProjectConfiguration(
+    existing: AngularProjectConfiguration,
+    updated: AngularProjectConfiguration,
+    projectName: string
   ) {
-    // copy to avoid removing inlined config files.
-    const writeObservables: Observable<void>[] = [];
-    const configToWrite = {
-      ...config,
-      projects: { ...config.projects },
-    };
-    const projects: [string, any][] = Object.entries(configToWrite.projects);
-    for (const [project, projectConfig] of projects) {
-      if (projectConfig.configFilePath) {
-        if (workspaceFileName && !isNewFormat) {
-          throw new Error(
-            'Attempted to write standalone project configuration into a v1 workspace'
-          );
+    const res: AngularProjectConfiguration = { ...existing };
+    let modified = false;
+
+    function updatePropertyIfDifferent<
+      T extends Exclude<keyof AngularProjectConfiguration, 'namedInputs'>
+    >(property: T): void {
+      if (typeof res[property] === 'string') {
+        if (res[property] !== updated[property]) {
+          res[property] = updated[property];
+          modified = true;
         }
-        // project was read from a project.json file
-        const configPath = projectConfig.configFilePath;
-        const fileConfigObject = { ...projectConfig };
-        delete fileConfigObject.root; // remove the root before writing
-        delete fileConfigObject.configFilePath; // remove the configFilePath before writing
-        const projectJsonWrite = super.write(
-          configPath,
-          Buffer.from(serializeJson(fileConfigObject))
-        ); // write back to the project.json file
-        writeObservables.push(projectJsonWrite);
-        configToWrite.projects[project] = normalize(dirname(configPath)); // update the config object to point to the written file.
+      } else if (
+        JSON.stringify(res[property]) !== JSON.stringify(updated[property])
+      ) {
+        res[property] = updated[property];
+        modified = true;
       }
     }
 
-    if (workspaceFileName) {
-      const workspaceJsonWrite = super.write(
-        workspaceFileName,
-        Buffer.from(serializeJson(configToWrite))
-      );
-      writeObservables.push(workspaceJsonWrite);
+    if (!res.name || (updated.name && res.name !== updated.name)) {
+      res.name ??= updated.name || projectName;
+      modified = true;
     }
-    return merge(...writeObservables);
+    updatePropertyIfDifferent('projectType');
+    updatePropertyIfDifferent('sourceRoot');
+    updatePropertyIfDifferent('prefix');
+    updatePropertyIfDifferent('targets');
+    updatePropertyIfDifferent('generators');
+    updatePropertyIfDifferent('implicitDependencies');
+    updatePropertyIfDifferent('tags');
+
+    return modified ? res : null;
   }
 
-  protected resolveInlineProjectConfigurations(
-    config: RawProjectsConfigurations
-  ): Observable<ProjectsConfigurations> {
-    // Creates an observable where each emission is a project configuration
-    // that is not listed inside workspace.json. Each time it encounters a
-    // standalone config, observable is updated by concatenating the new
-    // config read operation.
-    const observables: Observable<{
-      project: string;
-      projectConfig: ProjectConfiguration;
-    }>[] = [];
-    Object.entries((config.projects as Record<string, any>) ?? {}).forEach(
-      ([project, projectConfig]) => {
-        if (typeof projectConfig === 'string') {
-          // configFilePath is not written to files, but is stored on the config object
-          // so that we know where to save the project's configuration if it was updated
-          // by another angular schematic.
-          const configFilePath = join(projectConfig, 'project.json');
-          const next = this.read(configFilePath as Path).pipe(
-            map((x) => ({
-              project,
-              projectConfig: {
-                root: dirname(configFilePath),
-                ...parseJson(Buffer.from(x).toString()),
-                configFilePath,
-              },
-            }))
-          );
-          observables.push(next);
-        }
-      }
-    );
+  readExistingAngularJson() {
+    return this.readJson('angular.json');
+  }
 
-    return merge(...observables).pipe(
-      toArray(),
-      map((configs) => {
-        configs.forEach(({ project, projectConfig }) => {
-          config.projects[project] = projectConfig;
-        });
-        return config as ProjectsConfigurations;
-      })
-    );
+  private readJson<T = any>(path: string): Observable<T> {
+    return super
+      .exists(path as any)
+      .pipe(
+        concatMap((r) =>
+          r
+            ? super
+                .read(path as any)
+                .pipe(map((r) => parseJson(arrayBufferToString(r))))
+            : of(null)
+        )
+      );
   }
 }
 
-type ConfigFilePath = ('/angular.json' | '/workspace.json') & {
-  __PRIVATE_DEVKIT_PATH: void;
-};
-
-type ChangeContext = {
-  isWorkspaceConfig: boolean;
-  actualConfigFileName: ConfigFilePath | null;
-  isNewFormat: boolean;
-};
+export function arrayBufferToString(buffer: any) {
+  const array = new Uint8Array(buffer);
+  let result = '';
+  const chunkSize = 8 * 1024;
+  let i = 0;
+  for (i = 0; i < array.length / chunkSize; i++) {
+    result += String.fromCharCode.apply(
+      null,
+      array.subarray(i * chunkSize, (i + 1) * chunkSize)
+    );
+  }
+  result += String.fromCharCode.apply(null, array.subarray(i * chunkSize));
+  return result;
+}
 
 export class NxScopeHostUsedForWrappedSchematics extends NxScopedHost {
   constructor(root: string, private readonly host: Tree) {
@@ -599,137 +426,64 @@ export class NxScopeHostUsedForWrappedSchematics extends NxScopedHost {
   }
 
   read(path: Path): Observable<FileBuffer> {
-    if (isWorkspaceConfigPath(path)) {
-      const nxJsonChange = findMatchingFileChange(this.host, 'nx.json' as Path);
-      const match = findWorkspaceConfigFileChange(this.host);
-
-      let workspaceJsonOverride: Observable<RawProjectsConfigurations>;
-      let actualConfigFileName: ConfigFilePath = [
-        '/workspace.json',
-        '/angular.json',
-      ].filter((f) => this.host.exists(f))[0] as ConfigFilePath;
-      if (actualConfigFileName) {
-        if (match) {
-          workspaceJsonOverride = of(parseJson(match.content.toString()));
-        }
-      } else if (!this.__nxInMemoryWorkspace) {
-        // if we've already dealt with this, let NxScopedHost read the cache...
-        // projects created inside a generator will not be visible
-        // to glob when it runs in nx/shared/workspace, so
-        // we have to add them into the file.
-        const createdProjectFiles = findCreatedProjects(this.host);
-        const deletedProjectFiles = findDeletedProjects(this.host);
-        const nxJsonInTree = readNxJson(this.host);
-        const readJsonWithHost = (file) => ({
-          root: dirname(file),
-          ...parseJson(this.host.read(file).toString()),
-        });
-        const staticProjects = buildWorkspaceConfigurationFromGlobs(
-          nxJsonInTree,
-          globForProjectFiles(this.host.root).filter(
-            (x) => basename(x) !== 'package.json'
-          ),
-          readJsonWithHost
-        );
-        const createdProjects = buildWorkspaceConfigurationFromGlobs(
-          nxJsonInTree,
-          createdProjectFiles.map((x) => x.path),
-          readJsonWithHost
-        ).projects;
-        deletedProjectFiles.forEach((file) => {
-          const matchingStaticProject = Object.entries(
-            staticProjects.projects
-          ).find(([, config]) => config.root === dirname(file.path));
-
-          if (matchingStaticProject) {
-            delete staticProjects.projects[matchingStaticProject[0]];
+    if (path == 'angular.json' || path == '/angular.json') {
+      const projectJsonConfig = toOldFormat({
+        projects: Object.fromEntries(getProjects(this.host)),
+      });
+      return super.readExistingAngularJson().pipe(
+        map((angularJson) => {
+          if (angularJson) {
+            return Buffer.from(
+              JSON.stringify({
+                version: 1,
+                projects: {
+                  ...projectJsonConfig.projects,
+                  ...angularJson.projects,
+                },
+              })
+            );
+          } else {
+            return Buffer.from(JSON.stringify(projectJsonConfig));
           }
-        });
-
-        const workspace = {
-          ...staticProjects,
-          projects: { ...staticProjects.projects, ...createdProjects },
-        };
-        workspaceJsonOverride = of({
-          ...workspace,
-          // all projects **must** be standalone if workspace.json doesn't exist
-          // since the NxScopedHost already handles the standalone config case,
-          // lets pass them as standalone.
-          projects: Object.fromEntries(
-            Object.entries(workspace.projects).map(([project, config]) => [
-              project,
-              config.root,
-            ])
-          ),
-        });
-      }
-      // no match, default to existing behavior
-      if (!workspaceJsonOverride && !nxJsonChange) {
-        return super.read(path);
-      }
-
-      // we try to format it, if it changes, return it, otherwise return the original change
-      try {
-        return this.__readWorkspaceConfiguration(actualConfigFileName, {
-          // we are overriding workspaceJson + nxJson,
-          workspace: workspaceJsonOverride,
-          nx: nxJsonChange
-            ? of(parseJson(nxJsonChange.content.toString()))
-            : null,
-        });
-      } catch (e) {
-        return super.read(path);
-      }
+        })
+      );
     } else {
       const match = findMatchingFileChange(this.host, path);
       if (match) {
-        // found a matching change in the host
         return of(Buffer.from(match.content));
-      } else if (
-        // found a change to workspace config, and reading a project config file
-        basename(path) === 'project.json' &&
-        findWorkspaceConfigFileChange(this.host)
-      ) {
-        return of(this.host.read(path));
       } else {
-        // found neither, use default read method
         return super.read(path);
       }
     }
   }
 
   exists(path: Path): Observable<boolean> {
-    if (isWorkspaceConfigPath(path)) {
-      return findWorkspaceConfigFileChange(this.host)
-        ? of(true)
-        : super.exists(path);
+    if (this.host.exists(path)) {
+      return of(true);
+    } else if (path === 'angular.json' || path === '/angular.json') {
+      return of(true);
     } else {
-      return findMatchingFileChange(this.host, path)
-        ? of(true)
-        : super.exists(path);
+      return super.exists(path);
     }
   }
 
   isDirectory(path: Path): Observable<boolean> {
-    return super.isDirectory(path).pipe(
-      catchError(() => of(false)),
-      switchMap((isDirectory) =>
-        isDirectory
-          ? of(true)
-          : of(this.host.exists(path) && !this.host.isFile(path))
-      )
-    );
+    if (this.host.exists(path) && !this.host.isFile(path)) {
+      return of(true);
+    } else if (path === 'angular.json' || path === '/angular.json') {
+      return of(false);
+    } else {
+      return super.isDirectory(path);
+    }
   }
 
   isFile(path: Path): Observable<boolean> {
-    if (isWorkspaceConfigPath(path)) {
-      return findWorkspaceConfigFileChange(this.host)
-        ? of(true)
-        : super.isFile(path);
+    if (this.host.isFile(path)) {
+      return of(true);
+    } else if (path === 'angular.json' || path === '/angular.json') {
+      return of(true);
     } else {
-      return findMatchingFileChange(this.host, path)
-        ? of(true)
-        : super.isFile(path);
+      return super.isFile(path);
     }
   }
 
@@ -737,34 +491,6 @@ export class NxScopeHostUsedForWrappedSchematics extends NxScopedHost {
     const fragments = this.host.children(path).map((child) => fragment(child));
     return of(fragments);
   }
-}
-
-type WorkspaceConfigFileChange = FileChange & {
-  path: ConfigFilePath;
-};
-function findWorkspaceConfigFileChange(host: Tree): WorkspaceConfigFileChange {
-  return host
-    .listChanges()
-    .find(
-      (f) => f.path == 'workspace.json' || f.path == 'angular.json'
-    ) as WorkspaceConfigFileChange;
-}
-
-function findCreatedProjects(host: Tree): FileChange[] {
-  return host
-    .listChanges()
-    .filter(
-      (f) =>
-        f.type === 'CREATE' &&
-        (basename(f.path) === 'project.json' ||
-          basename(f.path) === 'package.json')
-    );
-}
-
-function findDeletedProjects(host: Tree): FileChange[] {
-  return host
-    .listChanges()
-    .filter((f) => f.type === 'DELETE' && basename(f.path) === 'project.json');
 }
 
 function findMatchingFileChange(host: Tree, path: Path) {
@@ -776,22 +502,16 @@ function findMatchingFileChange(host: Tree, path: Path) {
     .find((f) => f.type !== 'DELETE' && normalize(f.path) === targetPath);
 }
 
-function isWorkspaceConfigPath(p: Path | string) {
-  return (
-    p === 'angular.json' ||
-    p === '/angular.json' ||
-    p === 'workspace.json' ||
-    p === '/workspace.json'
-  );
-}
-
 export async function generate(
   root: string,
   opts: GenerateOptions,
   verbose: boolean
 ) {
   const logger = getLogger(verbose);
-  const fsHost = new NxScopedHost(root);
+  const fsHost = new NxScopeHostUsedForWrappedSchematics(
+    root,
+    new FsTree(root, verbose)
+  );
   const workflow = createWorkflow(fsHost, root, opts);
   const collection = getCollection(workflow, opts.collectionName);
   const schematic = collection.createSchematic(opts.generatorName, true);
@@ -877,7 +597,10 @@ export async function runMigration(
   isVerbose: boolean
 ) {
   const logger = getLogger(isVerbose);
-  const fsHost = new NxScopedHost(root);
+  const fsHost = new NxScopeHostUsedForWrappedSchematics(
+    root,
+    new FsTree(root, isVerbose)
+  );
   const workflow = createWorkflow(fsHost, root, {});
   const collection = resolveMigrationsCollection(packageName);
 
@@ -910,9 +633,10 @@ function resolveMigrationsCollection(name: string): string {
   if (extname(name)) {
     collectionPath = require.resolve(name);
   } else {
-    const { path: packageJsonPath, packageJson } = readModulePackageJson(name, [
-      process.cwd(),
-    ]);
+    const { path: packageJsonPath, packageJson } = readModulePackageJson(
+      name,
+      getNxRequirePaths(process.cwd())
+    );
 
     let pkgJsonSchematics =
       packageJson['nx-migrations'] ?? packageJson['ng-update'];
@@ -936,41 +660,6 @@ function resolveMigrationsCollection(name: string): string {
     throw new Error(`Invalid migration file in package: "${name}"`);
   }
   throw new Error(`Collection cannot be resolved: "${name}"`);
-}
-
-function convertEventTypeToHandleMultipleConfigNames(
-  host: Tree,
-  eventPath: string,
-  content: Buffer | never
-) {
-  const actualConfigName = host.exists('/angular.json')
-    ? 'angular.json'
-    : 'workspace.json';
-  const isWorkspaceConfig =
-    eventPath === 'angular.json' || eventPath === 'workspace.json';
-  if (isWorkspaceConfig) {
-    let isNewFormat = true;
-    try {
-      isNewFormat =
-        parseJson(host.read(actualConfigName, 'utf-8')).version === 2;
-    } catch (e) {}
-
-    if (content && isNewFormat) {
-      const formatted = toNewFormat(parseJson(content.toString()));
-      if (formatted) {
-        return {
-          eventPath: actualConfigName,
-          content: Buffer.from(serializeJson(formatted)),
-        };
-      } else {
-        return { eventPath: actualConfigName, content };
-      }
-    } else {
-      return { eventPath: actualConfigName, content };
-    }
-  } else {
-    return { eventPath, content };
-  }
 }
 
 let collectionResolutionOverrides = null;
@@ -1014,7 +703,7 @@ export function overrideCollectionResolutionForTesting(collections: {
  * ```typescript
  *   mockSchematicsForTesting({
  *     'mycollection:myschematic': (tree, params) => {
- *        tree.write('README.md');
+ *        tree.write("README.md");
  *     }
  *   });
  *
@@ -1072,28 +761,22 @@ export function wrapAngularDevkitSchematic(
         ? event.path.slice(1)
         : event.path;
 
-      const r = convertEventTypeToHandleMultipleConfigNames(
-        host,
-        eventPath,
-        (event as any).content
-      );
-
       if (event.kind === 'error') {
       } else if (event.kind === 'update') {
-        if (
-          r.eventPath === 'angular.json' ||
-          r.eventPath === 'workspace.json'
-        ) {
-          saveWorkspaceConfigurationInWrappedSchematic(host, r);
+        if (eventPath === 'angular.json') {
+          saveProjectsConfigurationsInWrappedSchematic(
+            host,
+            event.content.toString()
+          );
         } else {
-          host.write(r.eventPath, r.content);
+          host.write(eventPath, event.content);
         }
       } else if (event.kind === 'create') {
-        host.write(r.eventPath, r.content);
+        host.write(eventPath, event.content);
       } else if (event.kind === 'delete') {
-        host.delete(r.eventPath);
+        host.delete(eventPath);
       } else if (event.kind === 'rename') {
-        host.rename(r.eventPath, event.to);
+        host.rename(eventPath, event.to);
       }
     };
 
@@ -1109,6 +792,7 @@ export function wrapAngularDevkitSchematic(
       generatorName,
       force: false,
       defaults: false,
+      quiet: false,
     };
     const workflow = createWorkflow(fsHost, host.root, options);
 
@@ -1143,126 +827,67 @@ export function wrapAngularDevkitSchematic(
   };
 }
 
-export async function invokeNew(
-  root: string,
-  opts: GenerateOptions,
-  verbose: boolean
-) {
-  const logger = getLogger(verbose);
-  const fsHost = new NxScopedHost(root);
-  const workflow = createWorkflow(fsHost, root, opts);
-  const collection = getCollection(workflow, opts.collectionName);
-  const schematic = collection.createSchematic('new', true);
-  return (
-    await runSchematic(
-      fsHost,
-      root,
-      workflow,
-      logger as any,
-      { ...opts, generatorName: schematic.description.name },
-      schematic
-    )
-  ).status;
-}
-
 let logger: logging.Logger;
-
-const loggerColors: Partial<Record<logging.LogLevel, (s: string) => string>> = {
-  warn: (s) => chalk.bold(chalk.yellow(s)),
-  error: (s) => {
-    if (s.startsWith('NX ')) {
-      return `\n${NX_ERROR} ${chalk.bold(chalk.red(s.slice(3)))}\n`;
-    }
-
-    return chalk.bold(chalk.red(s));
-  },
-  info: (s) => {
-    if (s.startsWith('NX ')) {
-      return `\n${NX_PREFIX} ${chalk.bold(s.slice(3))}\n`;
-    }
-
-    return chalk.white(s);
-  },
-};
 
 export const getLogger = (isVerbose = false): logging.Logger => {
   if (!logger) {
-    logger = createConsoleLogger(
-      isVerbose,
-      process.stdout,
-      process.stderr,
-      loggerColors
-    );
+    logger = createConsoleLogger(isVerbose, process.stdout, process.stderr, {
+      warn: (s) => chalk.bold(chalk.yellow(s)),
+      error: (s) => {
+        if (s.startsWith('NX ')) {
+          return `\n${NX_ERROR} ${chalk.bold(chalk.red(s.slice(3)))}\n`;
+        }
+
+        return chalk.bold(chalk.red(s));
+      },
+      info: (s) => {
+        if (s.startsWith('NX ')) {
+          return `\n${NX_PREFIX} ${chalk.bold(s.slice(3))}\n`;
+        }
+
+        return chalk.white(s);
+      },
+    });
   }
   return logger;
 };
 
-const getTargetLogger = (
-  executor: string,
-  isVerbose = false
-): logging.Logger => {
-  if (executor !== '@angular-devkit/build-angular:tslint') {
-    return getLogger(isVerbose);
-  }
-
-  const tslintExecutorLogger = createConsoleLogger(
-    isVerbose,
-    process.stdout,
-    process.stderr,
-    {
-      ...loggerColors,
-      warn: (s) => {
-        if (
-          s.startsWith(
-            `TSLint's support is discontinued and we're deprecating its support in Angular CLI.`
-          )
-        ) {
-          s =
-            `TSLint's support is discontinued and the @angular-devkit/build-angular:tslint executor is deprecated.\n` +
-            'To start using a modern linter tool, please consider replacing TSLint with ESLint. ' +
-            'You can use the "@nrwl/angular:convert-tslint-to-eslint" generator to automatically convert your projects.\n' +
-            'For more info, visit https://nx.dev/packages/angular/generators/convert-tslint-to-eslint.';
-        }
-        return chalk.bold(chalk.yellow(s));
-      },
-    }
-  );
-  return tslintExecutorLogger;
-};
-
-function saveWorkspaceConfigurationInWrappedSchematic(
+function saveProjectsConfigurationsInWrappedSchematic(
   host: Tree,
-  r: { eventPath: string; content: Buffer }
+  content: string
 ) {
-  const workspaceJsonExists = host.exists(r.eventPath);
-  const workspace: Omit<AngularJsonConfiguration, 'projects'> & {
-    projects: {
-      [key: string]: string | { configFilePath?: string; root: string };
-    };
-  } = parseJson(r.content.toString());
-  for (const [project, config] of Object.entries(workspace.projects)) {
-    if (
-      typeof config === 'object' &&
-      (!workspaceJsonExists || config.configFilePath)
-    ) {
-      const path = config.configFilePath || join(config.root, 'project.json');
-      workspace.projects[project] = normalize(dirname(path));
-      delete config.root; // remove the root before writing
-      delete config.configFilePath;
-      host.write(path, serializeJson(config));
+  const projects = toNewFormat(parseJson(content)).projects;
+  const existingProjects = getProjects(host);
+
+  const existingAngularJson = host.exists('angular.json')
+    ? readJson(host, 'angular.json')
+    : null;
+  const projectsInAngularJson = existingAngularJson
+    ? Object.keys(existingAngularJson.projects)
+    : [];
+
+  const newAngularJson = { projects: {} };
+
+  Object.keys(projects).forEach((projectName) => {
+    if (projectsInAngularJson.includes(projectName)) {
+      newAngularJson.projects[projectName] = projects[projectName];
+    } else {
+      if (existingProjects.has(projectName)) {
+        if (
+          JSON.stringify(existingProjects.get(projectName)) !==
+          JSON.stringify(projects[projectName])
+        ) {
+          updateProjectConfiguration(host, projectName, projects[projectName]);
+        }
+      } else {
+        addProjectConfiguration(host, projectName, projects[projectName]);
+      }
     }
-  }
-  const nxJson: NxJsonConfiguration = parseJson(
-    host.read('nx.json').toString()
-  );
-  nxJson.generators = workspace.generators || workspace.schematics;
-  nxJson.cli = workspace.cli || nxJson.cli;
-  nxJson.defaultProject = workspace.defaultProject;
-  delete workspace.cli;
-  delete workspace.generators;
-  delete workspace.schematics;
-  if (workspaceJsonExists) {
-    r.content = Buffer.from(serializeJson(workspace));
-    host.write(r.eventPath, r.content);
+  });
+  if (Object.keys(newAngularJson.projects).length > 0) {
+    host.write(
+      'angular.json',
+      JSON.stringify(toOldFormat(newAngularJson), null, 2)
+    );
   }
 }

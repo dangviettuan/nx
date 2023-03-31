@@ -12,13 +12,13 @@ import {
 import { NormalizedSchema } from './normalize-options';
 
 export function addProject(host: Tree, options: NormalizedSchema) {
-  addProjectConfiguration(host, options.projectName, {
-    root: options.projectRoot,
-    sourceRoot: `${options.projectRoot}/src`,
+  addProjectConfiguration(host, options.e2eProjectName, {
+    root: options.e2eProjectRoot,
+    sourceRoot: `${options.e2eProjectRoot}/src`,
     projectType: 'application',
     targets: { ...getTargets(options) },
     tags: [],
-    implicitDependencies: options.project ? [options.project] : undefined,
+    implicitDependencies: [options.appProject],
   });
 }
 
@@ -28,29 +28,29 @@ function getTargets(options: NormalizedSchema) {
   targets['build-ios'] = {
     executor: '@nrwl/detox:build',
     ...(options.framework === 'react-native'
-      ? reactNativeBuildTarget('ios')
-      : expoBuildTarget('ios')),
+      ? reactNativeBuildTarget('ios.sim')
+      : expoBuildTarget('ios.sim')),
   };
 
   targets['test-ios'] = {
     executor: '@nrwl/detox:test',
     ...(options.framework === 'react-native'
-      ? reactNativeTestTarget('ios', options.name)
-      : expoTestTarget('ios', options.name)),
+      ? reactNativeTestTarget('ios.sim', options.e2eName)
+      : expoTestTarget('ios.sim', options.e2eName)),
   };
 
   targets['build-android'] = {
     executor: '@nrwl/detox:build',
     ...(options.framework === 'react-native'
-      ? reactNativeBuildTarget('android')
-      : expoBuildTarget('android')),
+      ? reactNativeBuildTarget('android.emu')
+      : expoBuildTarget('android.emu')),
   };
 
   targets['test-android'] = {
     executor: '@nrwl/detox:test',
     ...(options.framework === 'react-native'
-      ? reactNativeTestTarget('android', options.name)
-      : expoTestTarget('android', options.name)),
+      ? reactNativeTestTarget('android.emu', options.e2eName)
+      : expoTestTarget('android.emu', options.e2eName)),
   };
 
   return targets;

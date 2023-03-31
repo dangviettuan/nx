@@ -7,72 +7,54 @@
  */
 import { workspaceRoot } from '../../utils/workspace-root';
 import type { AsyncSubscription, Event } from '@parcel/watcher';
-import { readFileSync } from 'fs';
-import { join, relative } from 'path';
+import { dirname, relative } from 'path';
 import { FULL_OS_SOCKET_PATH } from '../socket-utils';
 import { handleServerProcessTermination } from './shutdown-utils';
 import { Server } from 'net';
-import ignore from 'ignore';
 import { normalizePath } from '../../utils/path';
+import {
+  getAlwaysIgnore,
+  getIgnoredGlobs,
+  getIgnoreObject,
+} from '../../utils/ignore';
+import { platform } from 'os';
+import { serverProcessJsonPath } from '../cache';
 
-/**
- * This configures the files and directories which we always want to ignore as part of file watching
- * and which we know the location of statically (meaning irrespective of user configuration files).
- * This has the advantage of being ignored directly within the C++ layer of `@parcel/watcher` so there
- * is less pressure on the main JavaScript thread.
- *
- * Other ignored entries will need to be determined dynamically by reading and evaluating the user's
- * .gitignore and .nxignore files below.
- *
- * It's possible that glob support will be added in the C++ layer in the future as well:
- * https://github.com/parcel-bundler/watcher/issues/64
- */
-const ALWAYS_IGNORE = [
-  join(workspaceRoot, 'node_modules'),
-  join(workspaceRoot, '.git'),
-  FULL_OS_SOCKET_PATH,
-];
+const ALWAYS_IGNORE = [...getAlwaysIgnore(workspaceRoot), FULL_OS_SOCKET_PATH];
 
-function getIgnoredGlobs() {
-  return [
-    ...ALWAYS_IGNORE,
-    ...getIgnoredGlobsFromFile(join(workspaceRoot, '.nxignore')),
-    ...getIgnoredGlobsFromFile(join(workspaceRoot, '.gitignore')),
-  ];
-}
-
-function getIgnoredGlobsFromFile(file: string): string[] {
-  try {
-    return readFileSync(file, 'utf-8')
-      .split('\n')
-      .map((i) => i.trim())
-      .filter((i) => !!i && !i.startsWith('#'))
-      .map((i) => (i.startsWith('/') ? join(workspaceRoot, i) : i));
-  } catch (e) {
-    return [];
-  }
-}
-
-export type WatcherSubscription = AsyncSubscription;
-export type SubscribeToWorkspaceChangesCallback = (
+export type FileWatcherCallback = (
   err: Error | null,
   changeEvents: Event[] | null
 ) => Promise<void>;
 
-function configureIgnoreObject() {
-  const ig = ignore();
-  try {
-    ig.add(readFileSync(`${workspaceRoot}/.gitignore`, 'utf-8'));
-  } catch {}
-  try {
-    ig.add(readFileSync(`${workspaceRoot}/.nxignore`, 'utf-8'));
-  } catch {}
-  return ig;
+export async function subscribeToOutputsChanges(
+  cb: FileWatcherCallback
+): Promise<AsyncSubscription> {
+  const watcher = await import('@parcel/watcher');
+  return await watcher.subscribe(
+    workspaceRoot,
+    (err, events) => {
+      if (err) {
+        return cb(err, null);
+      } else {
+        const workspaceRelativeEvents: Event[] = [];
+        for (const event of events) {
+          const workspaceRelativeEvent: Event = {
+            type: event.type,
+            path: normalizePath(relative(workspaceRoot, event.path)),
+          };
+          workspaceRelativeEvents.push(workspaceRelativeEvent);
+        }
+        cb(null, workspaceRelativeEvents);
+      }
+    },
+    watcherOptions([...ALWAYS_IGNORE])
+  );
 }
 
 export async function subscribeToWorkspaceChanges(
   server: Server,
-  cb: SubscribeToWorkspaceChangesCallback
+  cb: FileWatcherCallback
 ): Promise<AsyncSubscription> {
   /**
    * The imports and exports of @nrwl/workspace are somewhat messy and far reaching across the repo (and beyond),
@@ -80,12 +62,11 @@ export async function subscribeToWorkspaceChanges(
    * executed by packages which do not have its necessary native binaries available.
    */
   const watcher = await import('@parcel/watcher');
-  const ignoreObj = configureIgnoreObject();
+  const ignoreObj = getIgnoreObject();
 
-  const subscription = await watcher.subscribe(
+  return await watcher.subscribe(
     workspaceRoot,
     (err, events) => {
-      // Let the consumer handle any errors
       if (err) {
         return cb(err, null);
       }
@@ -113,7 +94,6 @@ export async function subscribeToWorkspaceChanges(
         handleServerProcessTermination({
           server,
           reason: 'Stopping the daemon the set of ignored files changed.',
-          watcherSubscription: subscription,
         });
       }
 
@@ -125,12 +105,26 @@ export async function subscribeToWorkspaceChanges(
         cb(null, nonIgnoredEvents);
       }
     },
-    {
-      ignore: getIgnoredGlobs(),
+    watcherOptions(getIgnoredGlobs(workspaceRoot))
+  );
+}
+
+// TODO: When we update @parcel/watcher to a version that handles negation globs, then this can be folded into the workspace watcher
+export async function subscribeToServerProcessJsonChanges(
+  cb: () => void
+): Promise<AsyncSubscription> {
+  const watcher = await import('@parcel/watcher');
+
+  return await watcher.subscribe(
+    dirname(serverProcessJsonPath),
+    (err, events) => {
+      for (const event of events) {
+        if (event.path === serverProcessJsonPath) {
+          cb();
+        }
+      }
     }
   );
-
-  return subscription;
 }
 
 /**
@@ -175,4 +169,16 @@ export function convertChangeEventsToLogMessage(changeEvents: Event[]): string {
   }
 
   return `${numCreatedOrRestoredFiles} file(s) created or restored, ${numModifiedFiles} file(s) modified, ${numDeletedFiles} file(s) deleted`;
+}
+
+function watcherOptions(ignore: string[]) {
+  const options: import('@parcel/watcher').Options = {
+    ignore,
+  };
+
+  if (platform() === 'win32') {
+    options.backend = 'windows';
+  }
+
+  return options;
 }

@@ -40,6 +40,17 @@ export async function workspaceGenerators(args: string[]) {
   }
 }
 
+export function workspaceGeneratorSchema(name: string) {
+  const schemaFile = path.join(generatorsDir, name, 'schema.json');
+
+  if (fileExists(schemaFile)) {
+    return readJsonFile(schemaFile);
+  } else {
+    logger.error(`Cannot find schema for ${name}. Does the generator exist?`);
+    process.exit(1);
+  }
+}
+
 // compile tools
 function compileTools() {
   const toolsOutDir = getToolsOutDir();
@@ -87,21 +98,29 @@ function compileToolsDir(outDir: string) {
 
 function constructCollection() {
   const generators = {};
+  const schematics = {};
   readdirSync(generatorsDir).forEach((c) => {
     const childDir = path.join(generatorsDir, c);
     if (existsSync(path.join(childDir, 'schema.json'))) {
-      generators[c] = {
+      const generatorOrSchematic = {
         factory: `./${c}`,
         schema: `./${normalizePath(path.join(c, 'schema.json'))}`,
         description: `Schematic ${c}`,
       };
+
+      const { isSchematic } = readJsonFile(path.join(childDir, 'schema.json'));
+      if (isSchematic) {
+        schematics[c] = generatorOrSchematic;
+      } else {
+        generators[c] = generatorOrSchematic;
+      }
     }
   });
   return {
     name: 'workspace-generators',
     version: '1.0',
     generators,
-    schematics: generators,
+    schematics,
   };
 }
 

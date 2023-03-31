@@ -9,9 +9,9 @@ import {
   Tree,
   updateProjectConfiguration,
 } from '@nrwl/devkit';
-import { libraryGenerator } from '@nrwl/js';
-import { Linter } from '@nrwl/linter';
+import { libraryGenerator as jsLibraryGenerator } from '@nrwl/js';
 import { addSwcDependencies } from '@nrwl/js/src/utils/swc/add-swc-dependencies';
+import { Linter } from '@nrwl/linter';
 import { swcNodeVersion } from 'nx/src/utils/versions';
 import * as path from 'path';
 
@@ -90,10 +90,10 @@ function updateWorkspaceJson(host: Tree, options: NormalizedSchema) {
 export async function pluginGenerator(host: Tree, schema: Schema) {
   const options = normalizeOptions(host, schema);
 
-  await libraryGenerator(host, {
+  await jsLibraryGenerator(host, {
     ...schema,
-    config: options.standaloneConfig !== false ? 'project' : 'workspace',
-    buildable: true,
+    config: 'project',
+    bundler: options.bundler,
     importPath: options.npmPackageName,
   });
 
@@ -115,14 +115,17 @@ export async function pluginGenerator(host: Tree, schema: Schema) {
 
   await addFiles(host, options);
   updateWorkspaceJson(host, options);
-  await e2eProjectGenerator(host, {
-    pluginName: options.name,
-    projectDirectory: options.projectDirectory,
-    pluginOutputPath: `dist/${options.libsDir}/${options.projectDirectory}`,
-    npmPackageName: options.npmPackageName,
-    standaloneConfig: options.standaloneConfig ?? true,
-    minimal: options.minimal ?? false,
-  });
+
+  if (options.e2eTestRunner !== 'none') {
+    await e2eProjectGenerator(host, {
+      pluginName: options.name,
+      projectDirectory: options.projectDirectory,
+      pluginOutputPath: `dist/${options.libsDir}/${options.projectDirectory}`,
+      npmPackageName: options.npmPackageName,
+      minimal: options.minimal ?? false,
+    });
+  }
+
   if (options.linter === Linter.EsLint && !options.skipLintChecks) {
     await pluginLintCheckGenerator(host, { projectName: options.name });
   }

@@ -23,7 +23,9 @@ describe('Web Components Applications', () => {
 
   it('should be able to generate a web app', async () => {
     const appName = uniq('app');
-    runCLI(`generate @nrwl/web:app ${appName} --no-interactive`);
+    runCLI(
+      `generate @nrwl/web:app ${appName} --bundler=webpack --no-interactive`
+    );
 
     const lintResults = runCLI(`lint ${appName}`);
     expect(lintResults).toContain('All files pass linting.');
@@ -31,9 +33,8 @@ describe('Web Components Applications', () => {
     runCLI(`build ${appName} --outputHashing none --compiler babel`);
     checkFilesExist(
       `dist/apps/${appName}/index.html`,
-      `dist/apps/${appName}/runtime.esm.js`,
-      `dist/apps/${appName}/polyfills.esm.js`,
-      `dist/apps/${appName}/main.esm.js`,
+      `dist/apps/${appName}/runtime.js`,
+      `dist/apps/${appName}/main.js`,
       `dist/apps/${appName}/styles.css`
     );
 
@@ -58,25 +59,15 @@ describe('Web Components Applications', () => {
     }
   }, 500000);
 
-  it('should be able to generate a web app with standaloneConfig', async () => {
-    const appName = uniq('app');
-    runCLI(
-      `generate @nrwl/web:app ${appName} --no-interactive --standalone-config`
-    );
-
-    checkFilesExist(`apps/${appName}/project.json`);
-
-    const lintResults = runCLI(`lint ${appName}`);
-    expect(lintResults).toContain('All files pass linting.');
-  }, 120000);
-
   it('should remove previous output before building', async () => {
     const appName = uniq('app');
     const libName = uniq('lib');
 
-    runCLI(`generate @nrwl/web:app ${appName} --no-interactive --compiler swc`);
     runCLI(
-      `generate @nrwl/react:lib ${libName} --buildable --no-interactive --compiler swc`
+      `generate @nrwl/web:app ${appName} --bundler=webpack --no-interactive --compiler swc`
+    );
+    runCLI(
+      `generate @nrwl/react:lib ${libName} --bundler=rollup --no-interactive --compiler swc --unitTestRunner=jest`
     );
 
     createFile(`dist/apps/${appName}/_should_remove.txt`);
@@ -109,24 +100,11 @@ describe('Web Components Applications', () => {
     checkFilesExist(`dist/libs/${libName}/_should_keep.txt`);
   }, 120000);
 
-  it('should do another build if differential loading is needed', async () => {
-    const appName = uniq('app');
-
-    runCLI(`generate @nrwl/web:app ${appName} --no-interactive`);
-
-    updateFile(`apps/${appName}/browserslist`, `IE 9-11`);
-
-    runCLI(`build ${appName} --outputHashing=none`);
-
-    checkFilesExist(
-      `dist/apps/${appName}/main.esm.js`,
-      `dist/apps/${appName}/main.es5.js`
-    );
-  }, 120000);
-
   it('should emit decorator metadata when it is enabled in tsconfig', async () => {
     const appName = uniq('app');
-    runCLI(`generate @nrwl/web:app ${appName} --no-interactive`);
+    runCLI(
+      `generate @nrwl/web:app ${appName} --bundler=webpack --no-interactive`
+    );
 
     updateFile(`apps/${appName}/src/app/app.element.ts`, (content) => {
       const newContent = `${content}
@@ -159,7 +137,7 @@ describe('Web Components Applications', () => {
     });
     runCLI(`build ${appName} --outputHashing none`);
 
-    expect(readFile(`dist/apps/${appName}/main.esm.js`)).toMatch(
+    expect(readFile(`dist/apps/${appName}/main.js`)).toMatch(
       /Reflect\.metadata/
     );
 
@@ -172,25 +150,16 @@ describe('Web Components Applications', () => {
 
     runCLI(`build ${appName} --outputHashing none`);
 
-    expect(readFile(`dist/apps/${appName}/main.esm.js`)).not.toMatch(
+    expect(readFile(`dist/apps/${appName}/main.js`)).not.toMatch(
       /Reflect\.metadata/
     );
   }, 120000);
 
-  it('should support workspaces w/o workspace config file', async () => {
-    removeFile('workspace.json');
-    const myapp = uniq('myapp');
-    runCLI(`generate @nrwl/web:app ${myapp} --directory=myDir`);
-
-    runCLI(`build my-dir-${myapp}`);
-    expect(() =>
-      checkFilesDoNotExist('workspace.json', 'angular.json')
-    ).not.toThrow();
-  }, 1000000);
-
   it('should support custom webpackConfig option', async () => {
     const appName = uniq('app');
-    runCLI(`generate @nrwl/web:app ${appName} --no-interactive`);
+    runCLI(
+      `generate @nrwl/web:app ${appName} --bundler=webpack --no-interactive`
+    );
 
     updateProjectConfig(appName, (config) => {
       config.targets.build.options.webpackConfig = `apps/${appName}/webpack.config.js`;
@@ -201,13 +170,14 @@ describe('Web Components Applications', () => {
     updateFile(
       `apps/${appName}/webpack.config.js`,
       `
-      module.exports = (config, context) => {
+      const { composePlugins, withNx, withWeb } = require('@nrwl/webpack');
+      module.exports = composePlugins(withNx(), withWeb(), (config, context) => {
         return config;
-      };
+      });
     `
     );
     runCLI(`build ${appName} --outputHashing none`);
-    checkFilesExist(`dist/apps/${appName}/main.esm.js`);
+    checkFilesExist(`dist/apps/${appName}/main.js`);
 
     rmDist();
 
@@ -215,13 +185,14 @@ describe('Web Components Applications', () => {
     updateFile(
       `apps/${appName}/webpack.config.js`,
       `
-      module.exports = async (config, context) => {
+      const { composePlugins, withNx, withWeb } = require('@nrwl/webpack');
+      module.exports = composePlugins(withNx(), withWeb(), async (config, context) => {
         return config;
-      };
+      });
     `
     );
     runCLI(`build ${appName} --outputHashing none`);
-    checkFilesExist(`dist/apps/${appName}/main.esm.js`);
+    checkFilesExist(`dist/apps/${appName}/main.js`);
 
     rmDist();
 
@@ -229,13 +200,14 @@ describe('Web Components Applications', () => {
     updateFile(
       `apps/${appName}/webpack.config.js`,
       `
-      module.exports = Promise.resolve((config, context) => {
+      const { composePlugins, withNx, withWeb } = require('@nrwl/webpack');
+      module.exports = composePlugins(withNx(), withWeb(), Promise.resolve((config, context) => {
         return config;
-      });
+      }));
     `
     );
     runCLI(`build ${appName} --outputHashing none`);
-    checkFilesExist(`dist/apps/${appName}/main.esm.js`);
+    checkFilesExist(`dist/apps/${appName}/main.js`);
   }, 100000);
 });
 
@@ -284,7 +256,9 @@ describe('CLI - Environment Variables', () => {
       const nxSharedEnv = process.env.NX_SHARED_ENV;
       `;
 
-    runCLI(`generate @nrwl/web:app ${appName} --no-interactive`);
+    runCLI(
+      `generate @nrwl/web:app ${appName} --bundler=webpack --no-interactive`
+    );
 
     const content = readFile(main);
 
@@ -307,20 +281,25 @@ describe('CLI - Environment Variables', () => {
     const main2 = `apps/${appName2}/src/main.ts`;
     const newCode2 = `const envVars = [process.env.NODE_ENV, process.env.NX_BUILD, process.env.NX_API, process.env.NX_WS_BASE, process.env.NX_WS_ENV_LOCAL, process.env.NX_WS_LOCAL_ENV, process.env.NX_APP_BASE, process.env.NX_APP_ENV_LOCAL, process.env.NX_APP_LOCAL_ENV, process.env.NX_SHARED_ENV];`;
 
-    runCLI(`generate @nrwl/web:app ${appName2} --no-interactive`);
+    runCLI(
+      `generate @nrwl/web:app ${appName2} --bundler=webpack --no-interactive`
+    );
 
     const content2 = readFile(main2);
 
     updateFile(main2, `${newCode2}\n${content2}`);
 
-    runCLI(`run-many --target build --all --no-optimization`, {
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        NX_BUILD: '52',
-        NX_API: 'QA',
-      },
-    });
+    runCLI(
+      `run-many --target build --all --outputHashing=none --optimization=false`,
+      {
+        env: {
+          ...process.env,
+          NODE_ENV: 'test',
+          NX_BUILD: '52',
+          NX_API: 'QA',
+        },
+      }
+    );
     expect(readFile(`dist/apps/${appName}/main.js`)).toContain(
       'const envVars = ["test", "52", "QA", "ws-base", "ws-env-local", "ws-local-env", "app-base", "app-env-local", "app-local-env", "shared-in-app-env-local"];'
     );
@@ -336,7 +315,9 @@ describe('Build Options', () => {
 
     const appName = uniq('app');
 
-    runCLI(`generate @nrwl/web:app ${appName} --no-interactive`);
+    runCLI(
+      `generate @nrwl/web:app ${appName} --bundler=webpack --no-interactive`
+    );
 
     const srcPath = `apps/${appName}/src`;
     const fooCss = `${srcPath}/foo.css`;
@@ -413,7 +394,9 @@ describe('index.html interpolation', () => {
   test('should interpolate environment variables', () => {
     const appName = uniq('app');
 
-    runCLI(`generate @nrwl/web:app ${appName} --no-interactive`);
+    runCLI(
+      `generate @nrwl/web:app ${appName} --bundler=webpack --no-interactive`
+    );
 
     const srcPath = `apps/${appName}/src`;
     const indexPath = `${srcPath}/index.html`;

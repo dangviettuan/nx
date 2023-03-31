@@ -1,23 +1,26 @@
 import {
   addDependenciesToPackageJson,
   formatFiles,
+  GeneratorCallback,
   installPackagesTask,
-  moveFilesToNewDirectory,
   removeDependenciesFromPackageJson,
   Tree,
 } from '@nrwl/devkit';
-import { wrapAngularDevkitSchematic } from '@nrwl/devkit/ngcli-adapter';
 import { jestProjectGenerator } from '@nrwl/jest';
 import { Linter } from '@nrwl/linter';
-import { convertToNxProjectGenerator } from '@nrwl/workspace/generators';
+import { updateRootTsConfig } from '@nrwl/js';
+import { lt } from 'semver';
 import init from '../../generators/init/init';
 import { E2eTestRunner } from '../../utils/test-runners';
-import { ngPackagrVersion } from '../../utils/versions';
 import addLintingGenerator from '../add-linting/add-linting';
-import karmaProjectGenerator from '../karma-project/karma-project';
 import setupTailwindGenerator from '../setup-tailwind/setup-tailwind';
+import {
+  getInstalledAngularVersionInfo,
+  versions,
+} from '../utils/version-utils';
 import { addBuildableLibrariesPostCssDependencies } from '../utils/dependencies';
 import { addModule } from './lib/add-module';
+import { addStandaloneComponent } from './lib/add-standalone-component';
 import {
   enableStrictTypeChecking,
   setLibraryStrictDefault,
@@ -25,12 +28,15 @@ import {
 import { normalizeOptions } from './lib/normalize-options';
 import { NormalizedSchema } from './lib/normalized-schema';
 import { updateLibPackageNpmScope } from './lib/update-lib-package-npm-scope';
-import { updateProject } from './lib/update-project';
 import { updateTsConfig } from './lib/update-tsconfig';
-import { addStandaloneComponent } from './lib/add-standalone-component';
 import { Schema } from './schema';
+import { createFiles } from './lib/create-files';
+import { addProject } from './lib/add-project';
 
-export async function libraryGenerator(tree: Tree, schema: Partial<Schema>) {
+export async function libraryGenerator(
+  tree: Tree,
+  schema: Schema
+): Promise<GeneratorCallback> {
   // Do some validation checks
   if (!schema.routing && schema.lazy) {
     throw new Error(`To use "--lazy" option, "--routing" must also be set.`);
@@ -48,8 +54,17 @@ export async function libraryGenerator(tree: Tree, schema: Partial<Schema>) {
     );
   }
 
+  const userInstalledAngularVersion = getInstalledAngularVersionInfo(tree);
+  if (lt(userInstalledAngularVersion.version, '14.1.0') && schema.standalone) {
+    throw new Error(
+      `The "--standalone" option is not supported in Angular versions < 14.1.0.`
+    );
+  }
+
   const options = normalizeOptions(tree, schema);
-  const { libraryOptions, componentOptions } = options;
+  const { libraryOptions } = options;
+
+  const pkgVersions = versions(tree);
 
   await init(tree, {
     ...libraryOptions,
@@ -57,28 +72,9 @@ export async function libraryGenerator(tree: Tree, schema: Partial<Schema>) {
     e2eTestRunner: E2eTestRunner.None,
   });
 
-  const runAngularLibrarySchematic = wrapAngularDevkitSchematic(
-    '@schematics/angular',
-    'library'
-  );
-  await runAngularLibrarySchematic(tree, {
-    name: libraryOptions.name,
-    prefix: libraryOptions.prefix,
-    entryFile: 'index',
-    skipPackageJson:
-      libraryOptions.skipPackageJson ||
-      !(libraryOptions.publishable || libraryOptions.buildable),
-    skipTsConfig: true,
-  });
+  const project = addProject(tree, libraryOptions);
 
-  if (libraryOptions.ngCliSchematicLibRoot !== libraryOptions.projectRoot) {
-    moveFilesToNewDirectory(
-      tree,
-      libraryOptions.ngCliSchematicLibRoot,
-      libraryOptions.projectRoot
-    );
-  }
-  await updateProject(tree, libraryOptions);
+  createFiles(tree, options, project);
   updateTsConfig(tree, libraryOptions);
   await addUnitTestRunner(tree, libraryOptions);
   updateNpmScopeIfBuildableOrPublishable(tree, libraryOptions);
@@ -105,19 +101,13 @@ export async function libraryGenerator(tree: Tree, schema: Partial<Schema>) {
       tree,
       {},
       {
-        'ng-packagr': ngPackagrVersion,
+        'ng-packagr': pkgVersions.ngPackagrVersion,
       }
     );
     addBuildableLibrariesPostCssDependencies(tree);
   }
 
-  if (libraryOptions.standaloneConfig) {
-    await convertToNxProjectGenerator(tree, {
-      project: libraryOptions.name,
-      all: false,
-      skipFormat: true,
-    });
-  }
+  updateRootTsConfig(tree, { ...libraryOptions, js: false });
 
   if (!libraryOptions.skipFormat) {
     await formatFiles(tree);
@@ -139,11 +129,7 @@ async function addUnitTestRunner(
       supportTsx: false,
       skipSerializers: false,
       skipFormat: true,
-    });
-  } else if (options.unitTestRunner === 'karma') {
-    await karmaProjectGenerator(host, {
-      project: options.name,
-      skipFormat: true,
+      skipPackageJson: options.skipPackageJson,
     });
   }
 }
@@ -182,6 +168,7 @@ async function addLinting(
     unitTestRunner: options.unitTestRunner,
     setParserOptionsProject: options.setParserOptionsProject,
     skipFormat: true,
+    skipPackageJson: options.skipPackageJson,
   });
 }
 

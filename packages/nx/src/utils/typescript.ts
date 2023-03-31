@@ -2,10 +2,11 @@ import { workspaceRoot } from './workspace-root';
 import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import type * as ts from 'typescript';
+import type { Node, SyntaxKind } from 'typescript';
 
 const normalizedAppRoot = workspaceRoot.replace(/\\/g, '/');
 
-let tsModule: any;
+let tsModule: typeof import('typescript');
 
 export function readTsConfig(tsConfigPath: string) {
   if (!tsModule) {
@@ -26,18 +27,22 @@ function readTsConfigOptions(tsConfigPath: string) {
   if (!tsModule) {
     tsModule = require('typescript');
   }
+
   const readResult = tsModule.readConfigFile(
     tsConfigPath,
     tsModule.sys.readFile
   );
+
   // we don't need to scan the files, we only care about options
-  const host = {
+  const host: Partial<ts.ParseConfigHost> = {
     readDirectory: () => [],
+    readFile: () => '',
     fileExists: tsModule.sys.fileExists,
   };
+
   return tsModule.parseJsonConfigFileContent(
     readResult.config,
-    host,
+    host as ts.ParseConfigHost,
     dirname(tsConfigPath)
   ).options;
 }
@@ -49,7 +54,7 @@ let compilerHost: {
 };
 
 /**
- * Find a module based on it's import
+ * Find a module based on its import
  *
  * @param importExpr Import used to resolve to a module
  * @param filePath
@@ -103,4 +108,39 @@ export function getRootTsConfigPath(): string | null {
   const tsConfigFileName = getRootTsConfigFileName();
 
   return tsConfigFileName ? join(workspaceRoot, tsConfigFileName) : null;
+}
+
+export function findNodes(
+  node: Node,
+  kind: SyntaxKind | SyntaxKind[],
+  max = Infinity
+): Node[] {
+  if (!node || max == 0) {
+    return [];
+  }
+
+  const arr: Node[] = [];
+  const hasMatch = Array.isArray(kind)
+    ? kind.includes(node.kind)
+    : node.kind === kind;
+  if (hasMatch) {
+    arr.push(node);
+    max--;
+  }
+  if (max > 0) {
+    for (const child of node.getChildren()) {
+      findNodes(child, kind, max).forEach((node) => {
+        if (max > 0) {
+          arr.push(node);
+        }
+        max--;
+      });
+
+      if (max <= 0) {
+        break;
+      }
+    }
+  }
+
+  return arr;
 }

@@ -1,24 +1,38 @@
 import * as chalk from 'chalk';
 import { exec, execSync } from 'child_process';
+import { prompt } from 'enquirer';
 import { dirname, join } from 'path';
-import { gt, lt, lte, major, valid } from 'semver';
+import {
+  clean,
+  coerce,
+  gt,
+  gte,
+  lt,
+  lte,
+  major,
+  satisfies,
+  valid,
+} from 'semver';
 import { promisify } from 'util';
 import {
   MigrationsJson,
-  PackageJsonUpdateForPackage,
+  MigrationsJsonEntry,
+  PackageJsonUpdateForPackage as PackageUpdate,
+  PackageJsonUpdates,
 } from '../config/misc-interfaces';
 import { NxJsonConfiguration } from '../config/nx-json';
 import { flushChanges, FsTree, printChanges } from '../generators/tree';
 import {
   extractFileFromTarball,
+  fileExists,
   JsonReadOptions,
   readJsonFile,
   writeJsonFile,
 } from '../utils/fileutils';
 import { logger } from '../utils/logger';
 import {
+  ArrayPackageGroup,
   NxMigrationsConfiguration,
-  PackageGroup,
   PackageJson,
   readModulePackageJson,
   readNxMigrateConfig,
@@ -32,17 +46,29 @@ import {
   resolvePackageVersionUsingRegistry,
 } from '../utils/package-manager';
 import { handleErrors } from '../utils/params';
-import { connectToNxCloudCommand } from './connect-to-nx-cloud';
+import { connectToNxCloudCommand } from './connect';
 import { output } from '../utils/output';
+import { messages, recordStat } from '../utils/ab-testing';
+import { nxVersion } from '../utils/versions';
+import { existsSync } from 'fs';
+import { workspaceRoot } from '../utils/workspace-root';
+import { isCI } from '../utils/is-ci';
+import { getNxRequirePaths } from '../utils/installation-directory';
+import { readNxJson } from '../config/configuration';
+import { runNxSync } from '../utils/child-process';
+import { daemonClient } from '../daemon/client/client';
 
 export interface ResolvedMigrationConfiguration extends MigrationsJson {
-  packageGroup?: NxMigrationsConfiguration['packageGroup'];
+  packageGroup?: ArrayPackageGroup;
 }
 
 const execAsync = promisify(exec);
 
 export function normalizeVersion(version: string) {
-  const [semver, prereleaseTag] = version.split('-');
+  const [semver, ...prereleaseTagParts] = version.split('-');
+  // Handle versions like 1.0.0-beta-next.2
+  const prereleaseTag = prereleaseTagParts.join('-');
+
   const [major, minor, patch] = semver.split('.');
 
   const newSemver = `${major || 0}.${minor || 0}.${patch || 0}`;
@@ -72,52 +98,72 @@ export function normalizeVersion(version: string) {
   return '0.0.0';
 }
 
+function cleanSemver(version: string) {
+  return clean(version) ?? coerce(version);
+}
+
 function normalizeSlashes(packageName: string): string {
   return packageName.replace(/\\/g, '/');
 }
 
 export interface MigratorOptions {
-  packageJson: PackageJson;
-  versions: (pkg: string) => string;
+  packageJson?: PackageJson;
+  nxInstallation?: NxJsonConfiguration['installation'];
+  getInstalledPackageVersion: (
+    pkg: string,
+    overrides?: Record<string, string>
+  ) => string;
   fetch: (
     pkg: string,
     version: string
   ) => Promise<ResolvedMigrationConfiguration>;
+  from: { [pkg: string]: string };
   to: { [pkg: string]: string };
+  interactive?: boolean;
+  excludeAppliedMigrations?: boolean;
 }
 
 export class Migrator {
-  private readonly packageJson: MigratorOptions['packageJson'];
-  private readonly versions: MigratorOptions['versions'];
+  private readonly packageJson?: MigratorOptions['packageJson'];
+  private readonly getInstalledPackageVersion: MigratorOptions['getInstalledPackageVersion'];
   private readonly fetch: MigratorOptions['fetch'];
+  private readonly installedPkgVersionOverrides: MigratorOptions['from'];
   private readonly to: MigratorOptions['to'];
+  private readonly interactive: MigratorOptions['interactive'];
+  private readonly excludeAppliedMigrations: MigratorOptions['excludeAppliedMigrations'];
+  private readonly packageUpdates: Record<string, PackageUpdate> = {};
+  private readonly collectedVersions: Record<string, string> = {};
+  private readonly promptAnswers: Record<string, boolean> = {};
+  private readonly nxInstallation: NxJsonConfiguration['installation'] | null;
 
   constructor(opts: MigratorOptions) {
     this.packageJson = opts.packageJson;
-    this.versions = opts.versions;
+    this.nxInstallation = opts.nxInstallation;
+    this.getInstalledPackageVersion = opts.getInstalledPackageVersion;
     this.fetch = opts.fetch;
+    this.installedPkgVersionOverrides = opts.from;
     this.to = opts.to;
+    this.interactive = opts.interactive;
+    this.excludeAppliedMigrations = opts.excludeAppliedMigrations;
   }
 
-  async updatePackageJson(targetPackage: string, targetVersion: string) {
-    const packageJson = await this._updatePackageJson(targetPackage, {
+  async migrate(targetPackage: string, targetVersion: string) {
+    await this.buildPackageJsonUpdates(targetPackage, {
       version: targetVersion,
       addToPackageJson: false,
     });
 
-    const migrations = await this._createMigrateJson(packageJson);
-    return { packageJson, migrations };
+    const migrations = await this.createMigrateJson();
+    return { packageUpdates: this.packageUpdates, migrations };
   }
 
-  private async _createMigrateJson(
-    versions: Record<string, PackageJsonUpdateForPackage>
-  ) {
+  private async createMigrateJson() {
     const migrations = await Promise.all(
-      Object.keys(versions).map(async (packageName) => {
-        const currentVersion = this.versions(packageName);
+      Object.keys(this.packageUpdates).map(async (packageName) => {
+        const currentVersion = this.getPkgVersion(packageName);
         if (currentVersion === null) return [];
 
-        const { version } = versions[packageName];
+        const { version } = this.packageUpdates[packageName];
         const { generators } = await this.fetch(packageName, version);
 
         if (!generators) return [];
@@ -127,7 +173,8 @@ export class Migrator {
             ([, migration]) =>
               migration.version &&
               this.gt(migration.version, currentVersion) &&
-              this.lte(migration.version, version)
+              this.lte(migration.version, version) &&
+              this.areMigrationRequirementsMet(packageName, migration)
           )
           .map(([migrationName, migration]) => ({
             ...migration,
@@ -140,31 +187,63 @@ export class Migrator {
     return migrations.flat();
   }
 
-  private collectedVersions: Record<string, string> = {};
-
-  private async _updatePackageJson(
+  private async buildPackageJsonUpdates(
     targetPackage: string,
-    target: PackageJsonUpdateForPackage
-  ): Promise<Record<string, PackageJsonUpdateForPackage>> {
+    target: PackageUpdate
+  ): Promise<void> {
+    const packagesToCheck =
+      await this.populatePackageJsonUpdatesAndGetPackagesToCheck(
+        targetPackage,
+        target
+      );
+    for (const packageToCheck of packagesToCheck) {
+      const filteredUpdates: Record<string, PackageUpdate> = {};
+      for (const packageUpdate of packageToCheck.updates) {
+        if (
+          this.areRequirementsMet(packageUpdate.requires) &&
+          (!this.interactive ||
+            (await this.runPackageJsonUpdatesConfirmationPrompt(packageUpdate)))
+        ) {
+          Object.entries(packageUpdate.packages).forEach(([name, update]) => {
+            filteredUpdates[name] = update;
+            this.packageUpdates[name] = update;
+          });
+        }
+      }
+
+      await Promise.all(
+        Object.entries(filteredUpdates).map(([name, update]) =>
+          this.buildPackageJsonUpdates(name, update)
+        )
+      );
+    }
+  }
+
+  private async populatePackageJsonUpdatesAndGetPackagesToCheck(
+    targetPackage: string,
+    target: PackageUpdate
+  ): Promise<
+    {
+      package: string;
+      updates: PackageJsonUpdates[string][];
+    }[]
+  > {
     let targetVersion = target.version;
     if (this.to[targetPackage]) {
       targetVersion = this.to[targetPackage];
     }
 
-    if (!this.versions(targetPackage)) {
-      return {
-        [targetPackage]: {
-          version: target.version,
-          addToPackageJson: target.addToPackageJson || false,
-        } as PackageJsonUpdateForPackage,
-      };
+    if (!this.getPkgVersion(targetPackage)) {
+      this.addPackageUpdate(targetPackage, {
+        version: target.version,
+        addToPackageJson: target.addToPackageJson || false,
+      });
+      return [];
     }
 
-    let migrationsJson: ResolvedMigrationConfiguration;
+    let migrationConfig: ResolvedMigrationConfiguration;
     try {
-      migrationsJson = await this.fetch(targetPackage, targetVersion);
-      targetVersion = migrationsJson.version;
-      this.collectedVersions[targetPackage] = targetVersion;
+      migrationConfig = await this.fetch(targetPackage, targetVersion);
     } catch (e) {
       if (e?.message?.includes('No matching version')) {
         throw new Error(
@@ -175,151 +254,334 @@ export class Migrator {
       }
     }
 
-    const packages = this.collapsePackages(
-      targetPackage,
-      targetVersion,
-      migrationsJson
+    targetVersion = migrationConfig.version;
+    if (
+      this.collectedVersions[targetPackage] &&
+      gte(this.collectedVersions[targetPackage], targetVersion)
+    ) {
+      return [];
+    }
+    this.collectedVersions[targetPackage] = targetVersion;
+
+    this.addPackageUpdate(targetPackage, {
+      version: migrationConfig.version,
+      addToPackageJson: target.addToPackageJson || false,
+    });
+
+    const { packageJsonUpdates, packageGroupOrder } =
+      this.getPackageJsonUpdatesFromMigrationConfig(
+        targetPackage,
+        targetVersion,
+        migrationConfig
+      );
+
+    if (!packageJsonUpdates.length) {
+      return [];
+    }
+
+    const shouldCheckUpdates = packageJsonUpdates.some(
+      (packageJsonUpdate) =>
+        (this.interactive && packageJsonUpdate['x-prompt']) ||
+        Object.keys(packageJsonUpdate.requires ?? {}).length
     );
 
-    const childPackageMigrations = await Promise.all(
-      Object.keys(packages)
-        .filter(
-          (packageName) =>
-            !this.collectedVersions[packageName] ||
-            this.gt(
-              packages[packageName].version,
-              this.collectedVersions[packageName]
+    if (shouldCheckUpdates) {
+      return [{ package: targetPackage, updates: packageJsonUpdates }];
+    }
+
+    const packageUpdatesToApply = packageJsonUpdates.reduce(
+      (m, c) => ({ ...m, ...c.packages }),
+      {} as Record<string, PackageUpdate>
+    );
+    return (
+      await Promise.all(
+        Object.entries(packageUpdatesToApply).map(
+          ([packageName, packageUpdate]) =>
+            this.populatePackageJsonUpdatesAndGetPackagesToCheck(
+              packageName,
+              packageUpdate
             )
         )
-        .map((packageName) =>
-          this._updatePackageJson(packageName, packages[packageName])
-        )
+      )
+    )
+      .filter((pkgs) => pkgs.length)
+      .flat()
+      .sort(
+        (pkgUpdate1, pkgUpdate2) =>
+          packageGroupOrder.indexOf(pkgUpdate1.package) -
+          packageGroupOrder.indexOf(pkgUpdate2.package)
+      );
+  }
+
+  private getPackageJsonUpdatesFromMigrationConfig(
+    packageName: string,
+    targetVersion: string,
+    migrationConfig: ResolvedMigrationConfiguration
+  ): {
+    packageJsonUpdates: PackageJsonUpdates[string][];
+    packageGroupOrder: string[];
+  } {
+    const packageGroupOrder: string[] =
+      this.getPackageJsonUpdatesFromPackageGroup(
+        packageName,
+        targetVersion,
+        migrationConfig
+      );
+
+    if (
+      !migrationConfig.packageJsonUpdates ||
+      !this.getPkgVersion(packageName)
+    ) {
+      return { packageJsonUpdates: [], packageGroupOrder };
+    }
+
+    const packageJsonUpdates = this.filterPackageJsonUpdates(
+      migrationConfig.packageJsonUpdates,
+      packageName,
+      targetVersion
     );
 
-    return childPackageMigrations.reduce(
-      (migrations, childMigrations) => {
-        for (const migrationName of Object.keys(childMigrations)) {
-          if (
-            !migrations[migrationName] ||
-            this.gt(
-              childMigrations[migrationName].version,
-              migrations[migrationName].version
-            )
-          ) {
-            migrations[migrationName] = childMigrations[migrationName];
-          }
+    return { packageJsonUpdates, packageGroupOrder };
+  }
+
+  /**
+   * Mutates migrationConfig, adding package group updates into packageJsonUpdates section
+   *
+   * @param packageName Package which is being migrated
+   * @param targetVersion Version which is being migrated to
+   * @param migrationConfig Configuration which is mutated to contain package json updates
+   * @returns Order of package groups
+   */
+  private getPackageJsonUpdatesFromPackageGroup(
+    packageName: string,
+    targetVersion: string,
+    migrationConfig: ResolvedMigrationConfiguration
+  ) {
+    const packageGroup: ArrayPackageGroup =
+      packageName === '@nrwl/workspace' && lt(targetVersion, '14.0.0-beta.0')
+        ? LEGACY_NRWL_PACKAGE_GROUP
+        : migrationConfig.packageGroup ?? [];
+
+    let packageGroupOrder: string[] = [];
+    if (packageGroup.length) {
+      packageGroupOrder = packageGroup.map(
+        (packageConfig) => packageConfig.package
+      );
+
+      migrationConfig.packageJsonUpdates ??= {};
+      const packages: Record<string, PackageUpdate> = {};
+      migrationConfig.packageJsonUpdates[targetVersion + '--PackageGroup'] = {
+        version: targetVersion,
+        packages,
+      };
+      for (const packageConfig of packageGroup) {
+        packages[packageConfig.package] = {
+          version:
+            packageConfig.version === '*'
+              ? targetVersion
+              : packageConfig.version,
+          alwaysAddToPackageJson: false,
+        };
+        if (
+          packageConfig.version === '*' &&
+          this.installedPkgVersionOverrides[packageName]
+        ) {
+          this.installedPkgVersionOverrides[packageConfig.package] ??=
+            this.installedPkgVersionOverrides[packageName];
         }
-        return migrations;
-      },
-      {
-        [targetPackage]: {
-          version: migrationsJson.version,
-          addToPackageJson: target.addToPackageJson || false,
-        },
-      } as Record<string, PackageJsonUpdateForPackage>
+      }
+    }
+    return packageGroupOrder;
+  }
+
+  private filterPackageJsonUpdates(
+    packageJsonUpdates: PackageJsonUpdates,
+    packageName: string,
+    targetVersion: string
+  ): PackageJsonUpdates[string][] {
+    const filteredPackageJsonUpdates: PackageJsonUpdates[string][] = [];
+
+    for (const packageJsonUpdate of Object.values(packageJsonUpdates)) {
+      if (
+        !packageJsonUpdate.packages ||
+        this.lte(packageJsonUpdate.version, this.getPkgVersion(packageName)) ||
+        this.gt(packageJsonUpdate.version, targetVersion)
+      ) {
+        continue;
+      }
+
+      const dependencies: Record<string, string> = {
+        ...this.packageJson?.dependencies,
+        ...this.packageJson?.devDependencies,
+        ...this.nxInstallation?.plugins,
+        ...(this.nxInstallation && { nx: this.nxInstallation.version }),
+      };
+
+      const filtered: Record<string, PackageUpdate> = {};
+      for (const [packageName, packageUpdate] of Object.entries(
+        packageJsonUpdate.packages
+      )) {
+        if (
+          this.shouldApplyPackageUpdate(
+            packageUpdate,
+            packageName,
+            dependencies
+          )
+        ) {
+          filtered[packageName] = {
+            version: packageUpdate.version,
+            addToPackageJson: packageUpdate.alwaysAddToPackageJson
+              ? 'dependencies'
+              : packageUpdate.addToPackageJson || false,
+          };
+        }
+      }
+      if (Object.keys(filtered).length) {
+        packageJsonUpdate.packages = filtered;
+        filteredPackageJsonUpdates.push(packageJsonUpdate);
+      }
+    }
+
+    return filteredPackageJsonUpdates;
+  }
+
+  private shouldApplyPackageUpdate(
+    packageUpdate: PackageUpdate,
+    packageName: string,
+    dependencies: Record<string, string>
+  ) {
+    return (
+      (!packageUpdate.ifPackageInstalled ||
+        this.getPkgVersion(packageUpdate.ifPackageInstalled)) &&
+      (packageUpdate.alwaysAddToPackageJson ||
+        packageUpdate.addToPackageJson ||
+        !!dependencies?.[packageName]) &&
+      (!this.collectedVersions[packageName] ||
+        this.gt(packageUpdate.version, this.collectedVersions[packageName]))
     );
   }
 
-  private collapsePackages(
-    packageName: string,
-    targetVersion: string,
-    migration: ResolvedMigrationConfiguration
-  ): Record<string, PackageJsonUpdateForPackage> {
-    // this should be used to know what version to include
-    // we should use from everywhere we use versions
-
-    // Support Migrating to older versions of Nx
-    // Use the packageGroup of the latest version of Nx instead of the one from the target version which could be older.
+  private addPackageUpdate(name: string, packageUpdate: PackageUpdate): void {
     if (
-      packageName === '@nrwl/workspace' &&
-      lt(targetVersion, '14.0.0-beta.0')
+      !this.packageUpdates[name] ||
+      this.gt(packageUpdate.version, this.packageUpdates[name].version)
     ) {
-      migration.packageGroup = {
-        '@nrwl/workspace': targetVersion,
-        '@nrwl/angular': targetVersion,
-        '@nrwl/cypress': targetVersion,
-        '@nrwl/devkit': targetVersion,
-        '@nrwl/eslint-plugin-nx': targetVersion,
-        '@nrwl/express': targetVersion,
-        '@nrwl/jest': targetVersion,
-        '@nrwl/linter': targetVersion,
-        '@nrwl/nest': targetVersion,
-        '@nrwl/next': targetVersion,
-        '@nrwl/node': targetVersion,
-        '@nrwl/nx-plugin': targetVersion,
-        '@nrwl/react': targetVersion,
-        '@nrwl/storybook': targetVersion,
-        '@nrwl/web': targetVersion,
-        '@nrwl/js': targetVersion,
-        '@nrwl/cli': targetVersion,
-        '@nrwl/nx-cloud': 'latest',
-        '@nrwl/react-native': targetVersion,
-        '@nrwl/detox': targetVersion,
-      };
+      this.packageUpdates[name] = packageUpdate;
+    }
+  }
+
+  private areRequirementsMet(
+    requirements: PackageJsonUpdates[string]['requires']
+  ): boolean {
+    if (!requirements || !Object.keys(requirements).length) {
+      return true;
     }
 
-    if (migration.packageGroup) {
-      migration.packageJsonUpdates ??= {};
-
-      const packageGroup = normalizePackageGroup(migration.packageGroup);
-
-      migration.packageJsonUpdates[targetVersion + '--PackageGroup'] = {
-        version: targetVersion,
-        packages: packageGroup.reduce((acc, packageConfig) => {
-          const { package: pkg, version } =
-            typeof packageConfig === 'string'
-              ? { package: packageConfig, version: targetVersion }
-              : packageConfig;
-
-          return {
-            ...acc,
-            [pkg]: {
-              version,
-              alwaysAddToPackageJson: false,
-            } as PackageJsonUpdateForPackage,
-          };
-        }, {}),
-      };
-    }
-
-    if (!migration.packageJsonUpdates || !this.versions(packageName)) return {};
-
-    return Object.values(migration.packageJsonUpdates)
-      .filter(({ version, packages }) => {
-        return (
-          packages &&
-          this.gt(version, this.versions(packageName)) &&
-          this.lte(version, targetVersion)
+    return Object.entries(requirements).every(([pkgName, versionRange]) => {
+      if (this.packageUpdates[pkgName]) {
+        return satisfies(
+          cleanSemver(this.packageUpdates[pkgName].version),
+          versionRange,
+          { includePrerelease: true }
         );
-      })
-      .map(({ packages }) => {
-        const { dependencies, devDependencies } = this.packageJson;
+      }
 
-        return Object.entries(packages)
-          .filter(([packageName, packageUpdate]) => {
-            return (
-              (!packageUpdate.ifPackageInstalled ||
-                this.versions(packageUpdate.ifPackageInstalled)) &&
-              (packageUpdate.alwaysAddToPackageJson ||
-                packageUpdate.addToPackageJson ||
-                !!dependencies?.[packageName] ||
-                !!devDependencies?.[packageName])
-            );
-          })
-          .reduce(
-            (acc, [packageName, packageUpdate]) => ({
-              ...acc,
-              [packageName]: {
-                version: packageUpdate.version,
-                addToPackageJson: packageUpdate.alwaysAddToPackageJson
-                  ? 'dependencies'
-                  : packageUpdate.addToPackageJson || false,
-              },
-            }),
-            {} as Record<string, PackageJsonUpdateForPackage>
-          );
-      })
-      .reduce((m, c) => ({ ...m, ...c }), {});
+      return (
+        this.getPkgVersion(pkgName) &&
+        satisfies(this.getPkgVersion(pkgName), versionRange, {
+          includePrerelease: true,
+        })
+      );
+    });
+  }
+
+  private areMigrationRequirementsMet(
+    packageName: string,
+    migration: MigrationsJsonEntry
+  ): boolean {
+    if (!this.excludeAppliedMigrations) {
+      return this.areRequirementsMet(migration.requires);
+    }
+
+    return (
+      (this.wasMigrationSkipped(migration.requires) ||
+        this.isMigrationForHigherVersionThanWhatIsInstalled(
+          packageName,
+          migration
+        )) &&
+      this.areRequirementsMet(migration.requires)
+    );
+  }
+
+  private isMigrationForHigherVersionThanWhatIsInstalled(
+    packageName: string,
+    migration: MigrationsJsonEntry
+  ): boolean {
+    const installedVersion = this.getInstalledPackageVersion(packageName);
+
+    return (
+      migration.version &&
+      (!installedVersion || this.gt(migration.version, installedVersion)) &&
+      this.lte(migration.version, this.packageUpdates[packageName].version)
+    );
+  }
+
+  private wasMigrationSkipped(
+    requirements: PackageJsonUpdates[string]['requires']
+  ): boolean {
+    // no requiremets, so it ran before
+    if (!requirements || !Object.keys(requirements).length) {
+      return false;
+    }
+
+    // at least a requirement was not met, it was skipped
+    return Object.entries(requirements).some(
+      ([pkgName, versionRange]) =>
+        !this.getInstalledPackageVersion(pkgName) ||
+        !satisfies(this.getInstalledPackageVersion(pkgName), versionRange, {
+          includePrerelease: true,
+        })
+    );
+  }
+
+  private async runPackageJsonUpdatesConfirmationPrompt(
+    packageUpdate: PackageJsonUpdates[string]
+  ): Promise<boolean> {
+    if (!packageUpdate['x-prompt']) {
+      return Promise.resolve(true);
+    }
+    const promptKey = this.getPackageUpdatePromptKey(packageUpdate);
+    if (this.promptAnswers[promptKey] !== undefined) {
+      // a same prompt was already answered, skip
+      return Promise.resolve(false);
+    }
+
+    return await prompt([
+      {
+        name: 'shouldApply',
+        type: 'confirm',
+        message: packageUpdate['x-prompt'],
+        initial: true,
+      },
+    ]).then(({ shouldApply }: { shouldApply: boolean }) => {
+      this.promptAnswers[promptKey] = shouldApply;
+      return shouldApply;
+    });
+  }
+
+  private getPackageUpdatePromptKey(
+    packageUpdate: PackageJsonUpdates[string]
+  ): string {
+    return Object.entries(packageUpdate.packages)
+      .map(([name, update]) => `${name}:${JSON.stringify(update)}`)
+      .join('|');
+  }
+
+  private getPkgVersion(pkg: string): string {
+    return this.getInstalledPackageVersion(
+      pkg,
+      this.installedPkgVersionOverrides
+    );
   }
 
   private gt(v1: string, v2: string) {
@@ -331,26 +593,49 @@ export class Migrator {
   }
 }
 
-function normalizePackageGroup(
-  packageGroup: PackageGroup
-): (string | { package: string; version: string })[] {
-  if (!Array.isArray(packageGroup)) {
-    return Object.entries(packageGroup).map(([pkg, version]) => ({
-      package: pkg,
-      version,
-    }));
-  }
-  return packageGroup;
-}
+const LEGACY_NRWL_PACKAGE_GROUP: ArrayPackageGroup = [
+  { package: '@nrwl/workspace', version: '*' },
+  { package: '@nrwl/angular', version: '*' },
+  { package: '@nrwl/cypress', version: '*' },
+  { package: '@nrwl/devkit', version: '*' },
+  { package: '@nrwl/eslint-plugin-nx', version: '*' },
+  { package: '@nrwl/express', version: '*' },
+  { package: '@nrwl/jest', version: '*' },
+  { package: '@nrwl/linter', version: '*' },
+  { package: '@nrwl/nest', version: '*' },
+  { package: '@nrwl/next', version: '*' },
+  { package: '@nrwl/node', version: '*' },
+  { package: '@nrwl/nx-plugin', version: '*' },
+  { package: '@nrwl/react', version: '*' },
+  { package: '@nrwl/storybook', version: '*' },
+  { package: '@nrwl/web', version: '*' },
+  { package: '@nrwl/js', version: '*' },
+  { package: '@nrwl/cli', version: '*' },
+  { package: '@nrwl/nx-cloud', version: 'latest' },
+  { package: '@nrwl/react-native', version: '*' },
+  { package: '@nrwl/detox', version: '*' },
+  { package: '@nrwl/expo', version: '*' },
+  { package: '@nrwl/tao', version: '*' },
+];
 
-function normalizeVersionWithTagCheck(version: string) {
-  if (version === 'latest' || version === 'next') return version;
+async function normalizeVersionWithTagCheck(
+  pkg: string,
+  version: string
+): Promise<string> {
+  // This doesn't seem like a valid version, lets check if its a tag on the registry.
+  if (version && !coerce(version)) {
+    try {
+      return packageRegistryView(pkg, version, 'version');
+    } catch {
+      // fall through to old logic
+    }
+  }
   return normalizeVersion(version);
 }
 
-function versionOverrides(overrides: string, param: string) {
-  const res = {};
-  overrides.split(',').forEach((p) => {
+async function versionOverrides(overrides: string, param: string) {
+  const res: Record<string, string> = {};
+  const promises = overrides.split(',').map((p) => {
     const split = p.lastIndexOf('@');
     if (split === -1 || split === 0) {
       throw new Error(
@@ -364,13 +649,19 @@ function versionOverrides(overrides: string, param: string) {
         `Incorrect '${param}' section. Use --${param}="package@version"`
       );
     }
-    res[normalizeSlashes(selectedPackage)] =
-      normalizeVersionWithTagCheck(selectedVersion);
+    return normalizeVersionWithTagCheck(selectedPackage, selectedVersion).then(
+      (version) => {
+        res[normalizeSlashes(selectedPackage)] = version;
+      }
+    );
   });
+  await Promise.all(promises);
   return res;
 }
 
-function parseTargetPackageAndVersion(args: string) {
+async function parseTargetPackageAndVersion(
+  args: string
+): Promise<{ targetPackage: string; targetVersion: string }> {
   if (!args) {
     throw new Error(
       `Provide the correct package name and version. E.g., my-package@9.0.0.`
@@ -391,7 +682,10 @@ function parseTargetPackageAndVersion(args: string) {
           `Provide the correct package name and version. E.g., my-package@9.0.0.`
         );
       }
-      const targetVersion = normalizeVersionWithTagCheck(maybeVersion);
+      const targetVersion = await normalizeVersionWithTagCheck(
+        targetPackage,
+        maybeVersion
+      );
       return { targetPackage, targetVersion };
     }
   } else {
@@ -401,7 +695,10 @@ function parseTargetPackageAndVersion(args: string) {
       valid(args) ||
       args.match(/^\d+(?:\.\d+)?(?:\.\d+)?$/)
     ) {
-      const targetVersion = normalizeVersionWithTagCheck(args);
+      // Passing `nx` here may seem wrong, but nx and @nrwl/workspace are synced in version.
+      // We could duplicate the ternary below, but its not necessary since they are equivalent
+      // on the registry
+      const targetVersion = await normalizeVersionWithTagCheck('nx', args);
       const targetPackage =
         !['latest', 'next'].includes(args) && lt(targetVersion, '14.0.0-beta.0')
           ? '@nrwl/workspace'
@@ -426,23 +723,33 @@ type GenerateMigrations = {
   targetVersion: string;
   from: { [k: string]: string };
   to: { [k: string]: string };
+  interactive?: boolean;
+  excludeAppliedMigrations?: boolean;
 };
 
-type RunMigrations = { type: 'runMigrations'; runMigrations: string };
+type RunMigrations = {
+  type: 'runMigrations';
+  runMigrations: string;
+  ifExists: boolean;
+};
 
-export function parseMigrationsOptions(options: {
+export async function parseMigrationsOptions(options: {
   [k: string]: any;
-}): GenerateMigrations | RunMigrations {
+}): Promise<GenerateMigrations | RunMigrations> {
   if (options.runMigrations === '') {
     options.runMigrations = 'migrations.json';
   }
 
   if (!options.runMigrations) {
-    const from = options.from
-      ? versionOverrides(options.from as string, 'from')
-      : {};
-    const to = options.to ? versionOverrides(options.to as string, 'to') : {};
-    const { targetPackage, targetVersion } = parseTargetPackageAndVersion(
+    const [from, to] = await Promise.all([
+      options.from
+        ? versionOverrides(options.from as string, 'from')
+        : Promise.resolve({} as Record<string, string>),
+      options.to
+        ? await versionOverrides(options.to as string, 'to')
+        : Promise.resolve({} as Record<string, string>),
+    ]);
+    const { targetPackage, targetVersion } = await parseTargetPackageAndVersion(
       options['packageAndVersion']
     );
     return {
@@ -451,26 +758,42 @@ export function parseMigrationsOptions(options: {
       targetVersion,
       from,
       to,
+      interactive: options.interactive,
+      excludeAppliedMigrations: options.excludeAppliedMigrations,
     };
   } else {
     return {
       type: 'runMigrations',
       runMigrations: options.runMigrations as string,
+      ifExists: options.ifExists as boolean,
     };
   }
 }
 
-function versions(root: string, from: Record<string, string>) {
+function createInstalledPackageVersionsResolver(
+  root: string
+): MigratorOptions['getInstalledPackageVersion'] {
   const cache: Record<string, string> = {};
 
-  function getFromVersion(packageName: string) {
+  function getInstalledPackageVersion(
+    packageName: string,
+    overrides?: Record<string, string>
+  ): string | null {
     try {
-      if (from[packageName]) {
-        return from[packageName];
+      if (overrides?.[packageName]) {
+        return overrides[packageName];
       }
 
       if (!cache[packageName]) {
-        const { packageJson } = readModulePackageJson(packageName, [root]);
+        const { packageJson, path } = readModulePackageJson(
+          packageName,
+          getNxRequirePaths()
+        );
+        // old workspaces would have the temp installation of nx in the cache,
+        // so the resolved package is not the one we need
+        if (!path.startsWith(workspaceRoot)) {
+          throw new Error('Resolved a package outside the workspace root.');
+        }
         cache[packageName] = packageJson.version;
       }
 
@@ -478,13 +801,17 @@ function versions(root: string, from: Record<string, string>) {
     } catch {
       // Support migrating old workspaces without nx package
       if (packageName === 'nx') {
-        return getFromVersion('@nrwl/workspace');
+        cache[packageName] = getInstalledPackageVersion(
+          '@nrwl/workspace',
+          overrides
+        );
+        return cache[packageName];
       }
       return null;
     }
   }
 
-  return getFromVersion;
+  return getInstalledPackageVersion;
 }
 
 // testing-fetch-start
@@ -601,7 +928,7 @@ async function getPackageMigrationsUsingRegistry(
 async function getPackageMigrationsConfigFromRegistry(
   packageName: string,
   packageVersion: string
-): Promise<NxMigrationsConfiguration> {
+) {
   const result = await packageRegistryView(
     packageName,
     packageVersion,
@@ -618,7 +945,10 @@ async function getPackageMigrationsConfigFromRegistry(
 async function downloadPackageMigrationsFromRegistry(
   packageName: string,
   packageVersion: string,
-  { migrations: migrationsFilePath, packageGroup }: NxMigrationsConfiguration
+  {
+    migrations: migrationsFilePath,
+    packageGroup,
+  }: NxMigrationsConfiguration & { packageGroup?: ArrayPackageGroup }
 ): Promise<ResolvedMigrationConfiguration> {
   const { dir, cleanup } = createTempNpmDirectory();
 
@@ -685,6 +1015,7 @@ async function getPackageMigrationsUsingInstall(
 
 interface PackageMigrationConfig extends NxMigrationsConfiguration {
   packageJson: PackageJson;
+  packageGroup: ArrayPackageGroup;
 }
 
 function readPackageMigrationConfig(
@@ -693,38 +1024,30 @@ function readPackageMigrationConfig(
 ): PackageMigrationConfig {
   const { path: packageJsonPath, packageJson: json } = readModulePackageJson(
     packageName,
-    [dir]
+    getNxRequirePaths(dir)
   );
 
-  const migrationConfigOrFile = json['nx-migrations'] || json['ng-update'];
+  const config = readNxMigrateConfig(json);
 
-  if (!migrationConfigOrFile) {
+  if (!config) {
     return { packageJson: json, migrations: null, packageGroup: [] };
   }
 
-  const migrationsConfig =
-    typeof migrationConfigOrFile === 'string'
-      ? {
-          migrations: migrationConfigOrFile,
-          packageGroup: [],
-        }
-      : migrationConfigOrFile;
-
   try {
-    const migrationFile = require.resolve(migrationsConfig.migrations, {
+    const migrationFile = require.resolve(config.migrations, {
       paths: [dirname(packageJsonPath)],
     });
 
     return {
       packageJson: json,
       migrations: migrationFile,
-      packageGroup: migrationsConfig.packageGroup,
+      packageGroup: config.packageGroup,
     };
   } catch {
     return {
       packageJson: json,
       migrations: null,
-      packageGroup: migrationsConfig.packageGroup,
+      packageGroup: config.packageGroup,
     };
   }
 }
@@ -741,9 +1064,13 @@ function createMigrationsFile(
 
 function updatePackageJson(
   root: string,
-  updatedPackages: Record<string, PackageJsonUpdateForPackage>
+  updatedPackages: Record<string, PackageUpdate>
 ) {
   const packageJsonPath = join(root, 'package.json');
+  if (!existsSync(packageJsonPath)) {
+    return;
+  }
+
   const parseOptions: JsonReadOptions = {};
   const json = readJsonFile(packageJsonPath, parseOptions);
 
@@ -766,6 +1093,39 @@ function updatePackageJson(
   });
 
   writeJsonFile(packageJsonPath, json, {
+    appendNewLine: parseOptions.endsWithNewline,
+  });
+}
+
+async function updateInstallationDetails(
+  root: string,
+  updatedPackages: Record<string, PackageUpdate>
+) {
+  const nxJsonPath = join(root, 'nx.json');
+  const parseOptions: JsonReadOptions = {};
+  const nxJson = readJsonFile<NxJsonConfiguration>(nxJsonPath, parseOptions);
+
+  if (!nxJson.installation) {
+    return;
+  }
+
+  const nxVersion = updatedPackages.nx?.version;
+  if (nxVersion) {
+    nxJson.installation.version = nxVersion;
+  }
+
+  if (nxJson.installation.plugins) {
+    for (const dep in nxJson.installation.plugins) {
+      const update = updatedPackages[dep];
+      if (update) {
+        nxJson.installation.plugins[dep] = valid(update.version)
+          ? update.version
+          : await resolvePackageVersionUsingRegistry(dep, update.version);
+      }
+    }
+  }
+
+  writeJsonFile(nxJsonPath, nxJson, {
     appendNewLine: parseOptions.endsWithNewline,
   });
 }
@@ -793,30 +1153,33 @@ function readNxVersion(packageJson: PackageJson) {
 
 async function generateMigrationsJsonAndUpdatePackageJson(
   root: string,
-  opts: {
-    targetPackage: string;
-    targetVersion: string;
-    from: { [p: string]: string };
-    to: { [p: string]: string };
-  }
+  opts: GenerateMigrations
 ) {
   const pmc = getPackageManagerCommand();
   try {
-    let originalPackageJson = readJsonFile<PackageJson>(
-      join(root, 'package.json')
-    );
+    const rootPkgJsonPath = join(root, 'package.json');
+    let originalPackageJson = existsSync(rootPkgJsonPath)
+      ? readJsonFile<PackageJson>(rootPkgJsonPath)
+      : null;
+    const originalNxInstallation = readNxJson().installation;
+    const from =
+      originalNxInstallation?.version ?? readNxVersion(originalPackageJson);
 
     try {
       if (
         ['nx', '@nrwl/workspace'].includes(opts.targetPackage) &&
-        (await isMigratingToNewMajor(
-          readNxVersion(originalPackageJson),
-          opts.targetVersion
-        ))
+        (await isMigratingToNewMajor(from, opts.targetVersion)) &&
+        !isCI()
       ) {
-        await connectToNxCloudCommand(
-          'We noticed you are migrating to a new major version, but are not taking advantage of Nx Cloud. Nx Cloud can make your CI up to 10 times faster. Learn more about it here: nx.app. Would you like to add it?'
+        const useCloud = await connectToNxCloudCommand(
+          messages.getPromptMessage('nxCloudMigration')
         );
+        await recordStat({
+          command: 'migrate',
+          nxVersion,
+          useCloud,
+          meta: messages.codeOfSelectedPromptMessage('nxCloudMigration'),
+        });
         originalPackageJson = readJsonFile<PackageJson>(
           join(root, 'package.json')
         );
@@ -831,28 +1194,36 @@ async function generateMigrationsJsonAndUpdatePackageJson(
 
     const migrator = new Migrator({
       packageJson: originalPackageJson,
-      versions: versions(root, opts.from),
+      nxInstallation: originalNxInstallation,
+      getInstalledPackageVersion: createInstalledPackageVersionsResolver(root),
       fetch: createFetcher(),
+      from: opts.from,
       to: opts.to,
+      interactive: opts.interactive && !isCI(),
+      excludeAppliedMigrations: opts.excludeAppliedMigrations,
     });
 
-    const { migrations, packageJson } = await migrator.updatePackageJson(
+    const { migrations, packageUpdates } = await migrator.migrate(
       opts.targetPackage,
       opts.targetVersion
     );
 
-    updatePackageJson(root, packageJson);
+    updatePackageJson(root, packageUpdates);
+    await updateInstallationDetails(root, packageUpdates);
 
     if (migrations.length > 0) {
-      createMigrationsFile(root, migrations);
+      createMigrationsFile(root, [
+        ...addSplitConfigurationMigrationIfAvailable(from, packageUpdates),
+        ...migrations,
+      ] as any);
     }
 
     output.success({
       title: `The migrate command has run successfully.`,
       bodyLines: [
-        `- Package.json has been updated.`,
+        `- package.json has been updated.`,
         migrations.length > 0
-          ? `- Migrations.json has been generated.`
+          ? `- migrations.json has been generated.`
           : `- There are no migrations to run, so migrations.json has not been created.`,
       ],
     });
@@ -864,7 +1235,7 @@ async function generateMigrationsJsonAndUpdatePackageJson(
         ...(migrations.length > 0
           ? [`- Run '${pmc.exec} nx migrate --run-migrations'`]
           : []),
-        `- To learn more go to https://nx.dev/using-nx/updating-nx`,
+        `- To learn more go to https://nx.dev/core-features/automate-updating-dependencies`,
         ...(showConnectToCloudMessage()
           ? [
               `- You may run '${pmc.run(
@@ -880,6 +1251,33 @@ async function generateMigrationsJsonAndUpdatePackageJson(
       title: `The migrate command failed.`,
     });
     throw e;
+  }
+}
+
+function addSplitConfigurationMigrationIfAvailable(
+  from: string,
+  packageJson: any
+) {
+  if (!packageJson['@nrwl/workspace']) return [];
+
+  if (
+    gte(packageJson['@nrwl/workspace'].version, '15.7.0-beta.0') &&
+    lt(from, '15.7.0-beta.0')
+  ) {
+    return [
+      {
+        version: '15.7.0-beta.0',
+        description:
+          'Split global configuration files into individual project.json files. This migration has been added automatically to the beginning of your migration set to retroactively make them work with the new version of Nx.',
+        cli: 'nx',
+        implementation:
+          './src/migrations/update-15-7-0/split-configuration-into-project-json-files',
+        package: '@nrwl/workspace',
+        name: '15-7-0-split-configuration-into-project-json-files',
+      },
+    ];
+  } else {
+    return [];
   }
 }
 
@@ -923,6 +1321,13 @@ export async function executeMigrations(
   const depsBeforeMigrations = getStringifiedPackageJsonDeps(root);
 
   const migrationsWithNoChanges: typeof migrations = [];
+
+  let ngCliAdapter: typeof import('../adapter/ngcli-adapter');
+  if (migrations.some((m) => m.cli !== 'nx')) {
+    ngCliAdapter = await import('../adapter/ngcli-adapter');
+    require('../adapter/compat');
+  }
+
   for (const m of migrations) {
     try {
       if (m.cli === 'nx') {
@@ -938,9 +1343,12 @@ export async function executeMigrations(
         logger.info(`  ${m.description}\n`);
         printChanges(changes, '  ');
       } else {
-        const { madeChanges, loggingQueue } = await (
-          await import('../adapter/ngcli-adapter')
-        ).runMigration(root, m.package, m.name, isVerbose);
+        const { madeChanges, loggingQueue } = await ngCliAdapter.runMigration(
+          root,
+          m.package,
+          m.name,
+          isVerbose
+        );
 
         if (!madeChanges) {
           migrationsWithNoChanges.push(m);
@@ -991,13 +1399,41 @@ export async function executeMigrations(
 
 async function runMigrations(
   root: string,
-  opts: { runMigrations: string },
+  opts: { runMigrations: string; ifExists: boolean },
+  args: string[],
   isVerbose: boolean,
   shouldCreateCommits = false,
   commitPrefix: string
 ) {
   if (!process.env.NX_MIGRATE_SKIP_INSTALL) {
     runInstall();
+  }
+
+  if (!__dirname.startsWith(workspaceRoot)) {
+    // we are running from a temp installation with nx latest, switch to running
+    // from local installation
+    runNxSync(`migrate ${args.join(' ')}`, {
+      stdio: ['inherit', 'inherit', 'inherit'],
+      env: {
+        ...process.env,
+        NX_MIGRATE_SKIP_INSTALL: 'true',
+        NX_MIGRATE_USE_LOCAL: 'true',
+      },
+    });
+    return;
+  }
+
+  const migrationsExists: boolean = fileExists(opts.runMigrations);
+
+  if (opts.ifExists && !migrationsExists) {
+    output.log({
+      title: `Migrations file '${opts.runMigrations}' doesn't exist`,
+    });
+    return;
+  } else if (!opts.ifExists && !migrationsExists) {
+    throw new Error(
+      `File '${opts.runMigrations}' doesn't exist, can't run migrations. Use flag --if-exists to run migrations only if the file exists`
+    );
   }
 
   output.log({
@@ -1033,11 +1469,17 @@ async function runMigrations(
 }
 
 function getStringifiedPackageJsonDeps(root: string): string {
-  const { dependencies, devDependencies } = readJsonFile<PackageJson>(
-    join(root, 'package.json')
-  );
+  try {
+    const { dependencies, devDependencies } = readJsonFile<PackageJson>(
+      join(root, 'package.json')
+    );
 
-  return JSON.stringify([dependencies, devDependencies]);
+    return JSON.stringify([dependencies, devDependencies]);
+  } catch {
+    // We don't really care if the .nx/installation property changes,
+    // whenever nxw is invoked it will handle the dep updates.
+    return '';
+  }
 }
 
 function commitChanges(commitMessage: string): string | null {
@@ -1098,24 +1540,32 @@ async function runNxMigration(root: string, packageName: string, name: string) {
   const fn = require(implPath).default;
   const host = new FsTree(root, false);
   await fn(host, {});
+  host.lock();
   const changes = host.listChanges();
   flushChanges(root, changes);
   return changes;
 }
 
-export async function migrate(root: string, args: { [k: string]: any }) {
+export async function migrate(
+  root: string,
+  args: { [k: string]: any },
+  rawArgs: string[]
+) {
   if (args['verbose']) {
     process.env.NX_VERBOSE_LOGGING = 'true';
   }
 
+  await daemonClient.stop();
+
   return handleErrors(process.env.NX_VERBOSE_LOGGING === 'true', async () => {
-    const opts = parseMigrationsOptions(args);
+    const opts = await parseMigrationsOptions(args);
     if (opts.type === 'generateMigrations') {
       await generateMigrationsJsonAndUpdatePackageJson(root, opts);
     } else {
       await runMigrations(
         root,
         opts,
+        rawArgs,
         args['verbose'],
         args['createCommits'],
         args['commitPrefix']

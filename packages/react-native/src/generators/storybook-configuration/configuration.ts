@@ -1,12 +1,13 @@
 import {
   convertNxGenerator,
+  ensurePackage,
   formatFiles,
   GeneratorCallback,
   readProjectConfiguration,
   Tree,
   updateProjectConfiguration,
 } from '@nrwl/devkit';
-import { configurationGenerator } from '@nrwl/storybook';
+import { nxVersion } from '../../utils/versions';
 
 import storiesGenerator from '../stories/stories';
 import { addResolverMainFieldsToMetroConfig } from './lib/add-resolver-main-fields-to-metro-config';
@@ -26,6 +27,11 @@ export async function storybookConfigurationGenerator(
   host: Tree,
   schema: StorybookConfigureSchema
 ): Promise<GeneratorCallback> {
+  const { configurationGenerator } = ensurePackage(
+    '@nrwl/storybook',
+    nxVersion
+  );
+
   const installTask = await configurationGenerator(host, {
     name: schema.name,
     uiFramework: '@storybook/react-native',

@@ -1,9 +1,8 @@
 import { getProjects, Tree, updateProjectConfiguration } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import libraryGenerator from '../library/library';
 import componentStoryGenerator from './component-story';
 import { Linter } from '@nrwl/linter';
-import { formatFile } from '../../utils/format-file';
 
 describe('react:component-story', () => {
   let appTree: Tree;
@@ -12,7 +11,7 @@ describe('react:component-story', () => {
 
   describe('default setup', () => {
     beforeEach(async () => {
-      appTree = await createTestUILib('test-ui-lib', true);
+      appTree = await createTestUILib('test-ui-lib');
     });
 
     describe('when file does not contain a component', () => {
@@ -50,21 +49,7 @@ describe('react:component-story', () => {
       });
 
       it('should properly set up the story', () => {
-        expect(formatFile`${appTree.read(storyFilePath, 'utf-8')}`)
-          .toContain(formatFile`
-          import { ComponentStory, ComponentMeta } from '@storybook/react';
-          import { TestUiLib } from './test-ui-lib';
-          
-          export default {
-            component: TestUiLib,
-            title: 'TestUiLib',
-          } as ComponentMeta<typeof TestUiLib>;
-          
-          const Template: ComponentStory<typeof TestUiLib> = (args) => <TestUiLib {...args} />;
-          
-          export const Primary = Template.bind({});
-          Primary.args = {};
-          `);
+        expect(appTree.read(storyFilePath, 'utf-8')).toMatchSnapshot();
       });
     });
 
@@ -102,20 +87,7 @@ describe('react:component-story', () => {
       });
 
       it('should properly set up the story', () => {
-        expect(formatFile`${appTree.read(storyFilePathPlain, 'utf-8')}`)
-          .toContain(formatFile`
-          import Test from './test-ui-libplain';
-          
-          export default {
-            component: Test,
-            title: 'Test',
-          };
-          
-          const Template = (args) => <Test {...args} />;
-          
-          export const Primary = Template.bind({});
-          Primary.args = {};
-          `);
+        expect(appTree.read(storyFilePathPlain, 'utf-8')).toMatchSnapshot();
       });
     });
 
@@ -146,21 +118,7 @@ describe('react:component-story', () => {
       });
 
       it('should create a story without controls', () => {
-        expect(formatFile`${appTree.read(storyFilePath, 'utf-8')}`)
-          .toContain(formatFile`
-          import { ComponentStory, ComponentMeta } from '@storybook/react';
-          import { Test } from './test-ui-lib';
-          
-          export default {
-            component: Test,
-            title: 'Test',
-          } as ComponentMeta<typeof Test>;
-          
-          const Template: ComponentStory<typeof Test> = (args) => <Test {...args} />;
-          
-          export const Primary = Template.bind({});
-          Primary.args = {};
-          `);
+        expect(appTree.read(storyFilePath, 'utf-8')).toMatchSnapshot();
       });
     });
 
@@ -196,24 +154,7 @@ describe('react:component-story', () => {
       });
 
       it('should setup controls based on the component props', () => {
-        expect(formatFile`${appTree.read(storyFilePath, 'utf-8')}`)
-          .toContain(formatFile`
-            import { ComponentStory, ComponentMeta } from '@storybook/react';
-            import { Test } from './test-ui-lib';
-
-            export default {
-              component: Test,
-              title: 'Test',
-            } as ComponentMeta<typeof Test>;
-
-            const Template: ComponentStory<typeof Test> = (args) => <Test {...args} />;
-
-            export const Primary = Template.bind({});
-            Primary.args = {
-              name: '',
-              displayAge: false,
-            };
-          `);
+        expect(appTree.read(storyFilePath, 'utf-8')).toMatchSnapshot();
       });
     });
 
@@ -254,27 +195,7 @@ describe('react:component-story', () => {
       });
 
       it('should setup controls based on the component props', () => {
-        expect(formatFile`${appTree.read(storyFilePath, 'utf-8')}`)
-          .toContain(formatFile`
-            import { ComponentStory, ComponentMeta } from '@storybook/react';
-            import { Test } from './test-ui-lib';
-
-            export default {
-              component: Test,
-              title: 'Test',
-              argTypes: {
-                someAction: { action: 'someAction executed!' },
-              },
-            } as ComponentMeta<typeof Test>;
-
-            const Template: ComponentStory<typeof Test> = (args) => <Test {...args} />;
-
-            export const Primary = Template.bind({});
-            Primary.args = {
-              name: '',
-              displayAge: false,
-            };
-          `);
+        expect(appTree.read(storyFilePath, 'utf-8')).toMatchSnapshot();
       });
     });
 
@@ -417,24 +338,7 @@ describe('react:component-story', () => {
             });
 
             it('should properly setup the controls based on the component props', () => {
-              expect(formatFile`${appTree.read(storyFilePath, 'utf-8')}`)
-                .toContain(formatFile`
-            import { ComponentStory, ComponentMeta } from '@storybook/react';
-            import { Test } from './test-ui-lib';
-
-            export default {
-              component: Test,
-              title: 'Test',
-            } as ComponentMeta<typeof Test>;
-
-            const Template: ComponentStory<typeof Test> = (args) => <Test {...args} />;
-
-            export const Primary = Template.bind({});
-            Primary.args = {
-              name: '',
-              displayAge: false,
-            };
-          `);
+              expect(appTree.read(storyFilePath, 'utf-8')).toMatchSnapshot();
             });
           }
         );
@@ -549,24 +453,7 @@ describe('react:component-story', () => {
             });
 
             it('should properly setup the controls based on the component props', () => {
-              expect(formatFile`${appTree.read(storyFilePath, 'utf-8')}`)
-                .toContain(formatFile`
-              import { ComponentStory, ComponentMeta } from '@storybook/react';
-              import { Test } from './test-ui-lib';
-  
-              export default {
-                component: Test,
-                title: 'Test',
-              } as ComponentMeta<typeof Test>;
-  
-              const Template: ComponentStory<typeof Test> = (args) => <Test {...args} />;
-  
-              export const Primary = Template.bind({});
-              Primary.args = {
-                name: '',
-                displayAge: false,
-              };
-            `);
+              expect(appTree.read(storyFilePath, 'utf-8')).toMatchSnapshot();
             });
           }
         );
@@ -611,56 +498,9 @@ describe('react:component-story', () => {
             'libs/test-ui-lib/src/lib/test-ui-lib--Two.stories.tsx';
           const storyFilePathThree =
             'libs/test-ui-lib/src/lib/test-ui-lib--Three.stories.tsx';
-
-          expect(formatFile`${appTree.read(storyFilePathOne, 'utf-8')}`)
-            .toContain(formatFile`
-            import { ComponentStory, ComponentMeta } from '@storybook/react';
-            import { One } from './test-ui-lib';
-            
-            export default {
-              component: One,
-              title: 'One',
-            } as ComponentMeta<typeof One>;
-            
-            const Template: ComponentStory<typeof One> = (args) => <One {...args} />;
-            
-            export const Primary = Template.bind({});
-            Primary.args = {};
-            `);
-
-          expect(formatFile`${appTree.read(storyFilePathTwo, 'utf-8')}`)
-            .toContain(formatFile`
-            import { ComponentStory, ComponentMeta } from '@storybook/react';
-            import { Two } from './test-ui-lib';
-            
-            export default {
-              component: Two,
-              title: 'Two',
-            } as ComponentMeta<typeof Two>;
-            
-            const Template: ComponentStory<typeof Two> = (args) => <Two {...args} />;
-            
-            export const Primary = Template.bind({});
-            Primary.args = {};
-            `);
-
-          expect(formatFile`${appTree.read(storyFilePathThree, 'utf-8')}`)
-            .toContain(formatFile`
-            import { ComponentStory, ComponentMeta } from '@storybook/react';
-            import { Three } from './test-ui-lib';
-            
-            export default {
-              component: Three,
-              title: 'Three',
-            } as ComponentMeta<typeof Three>;
-            
-            const Template: ComponentStory<typeof Three> = (args) => <Three {...args} />;
-            
-            export const Primary = Template.bind({});
-            Primary.args = {
-              name: '',
-            };        
-            `);
+          expect(appTree.read(storyFilePathOne, 'utf-8')).toMatchSnapshot();
+          expect(appTree.read(storyFilePathTwo, 'utf-8')).toMatchSnapshot();
+          expect(appTree.read(storyFilePathThree, 'utf-8')).toMatchSnapshot();
         });
       });
     });
@@ -668,7 +508,7 @@ describe('react:component-story', () => {
 
   describe('using eslint', () => {
     beforeEach(async () => {
-      appTree = await createTestUILib('test-ui-lib', false);
+      appTree = await createTestUILib('test-ui-lib');
       await componentStoryGenerator(appTree, {
         componentPath: 'lib/test-ui-lib.tsx',
         project: 'test-ui-lib',
@@ -676,49 +516,29 @@ describe('react:component-story', () => {
     });
 
     it('should properly set up the story', () => {
-      expect(formatFile`${appTree.read(storyFilePath, 'utf-8')}`)
-        .toContain(formatFile`
-        import { ComponentStory, ComponentMeta } from '@storybook/react';
-        import { TestUiLib } from './test-ui-lib';
-        
-        export default {
-          component: TestUiLib,
-          title: 'TestUiLib',
-        } as ComponentMeta<typeof TestUiLib>;
-        
-        const Template: ComponentStory<typeof TestUiLib> = (args) => <TestUiLib {...args} />;
-        
-        export const Primary = Template.bind({});
-        Primary.args = {};
-        `);
+      expect(appTree.read(storyFilePath, 'utf-8')).toMatchSnapshot();
     });
   });
 });
 
-export async function createTestUILib(
-  libName: string,
-  useEsLint = false
-): Promise<Tree> {
-  let appTree = createTreeWithEmptyV1Workspace();
+export async function createTestUILib(libName: string): Promise<Tree> {
+  let appTree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
   await libraryGenerator(appTree, {
     name: libName,
-    linter: useEsLint ? Linter.EsLint : Linter.TsLint,
+    linter: Linter.EsLint,
     component: true,
     skipFormat: true,
     skipTsConfig: false,
     style: 'css',
     unitTestRunner: 'jest',
-    standaloneConfig: false,
   });
 
-  if (useEsLint) {
-    const currentWorkspaceJson = getProjects(appTree);
+  const currentWorkspaceJson = getProjects(appTree);
 
-    const projectConfig = currentWorkspaceJson.get(libName);
-    projectConfig.targets.lint.options.linter = 'eslint';
+  const projectConfig = currentWorkspaceJson.get(libName);
+  projectConfig.targets.lint.options.linter = 'eslint';
 
-    updateProjectConfiguration(appTree, libName, projectConfig);
-  }
+  updateProjectConfiguration(appTree, libName, projectConfig);
 
   return appTree;
 }

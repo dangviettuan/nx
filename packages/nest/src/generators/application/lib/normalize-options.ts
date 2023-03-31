@@ -1,4 +1,4 @@
-import type { Tree } from '@nrwl/devkit';
+import { extractLayoutDirectory, Tree } from '@nrwl/devkit';
 import { getWorkspaceLayout, joinPathFragments, names } from '@nrwl/devkit';
 import { Linter } from '@nrwl/linter';
 import type { Schema as NodeApplicationGeneratorOptions } from '@nrwl/node/src/generators/application/schema';
@@ -8,14 +8,20 @@ export function normalizeOptions(
   tree: Tree,
   options: ApplicationGeneratorOptions
 ): NormalizedOptions {
-  const appDirectory = options.directory
-    ? `${names(options.directory).fileName}/${names(options.name).fileName}`
+  const { layoutDirectory, projectDirectory } = extractLayoutDirectory(
+    options.directory
+  );
+
+  const appDirectory = projectDirectory
+    ? `${names(projectDirectory).fileName}/${names(options.name).fileName}`
     : names(options.name).fileName;
 
-  const appProjectRoot = joinPathFragments(
-    getWorkspaceLayout(tree).appsDir,
-    appDirectory
-  );
+  const appProjectRoot = options.rootProject
+    ? '.'
+    : joinPathFragments(
+        layoutDirectory ?? getWorkspaceLayout(tree).appsDir,
+        appDirectory
+      );
 
   return {
     ...options,
@@ -39,5 +45,8 @@ export function toNodeApplicationGeneratorOptions(
     tags: options.tags,
     unitTestRunner: options.unitTestRunner,
     setParserOptionsProject: options.setParserOptionsProject,
+    rootProject: options.rootProject,
+    bundler: 'webpack', // Some features require webpack plugins such as TS transformers
+    isNest: true,
   };
 }

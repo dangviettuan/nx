@@ -1,18 +1,18 @@
 import {
   formatFiles,
+  getProjects,
   joinPathFragments,
   logger,
   ProjectConfiguration,
   readJson,
-  readProjectConfiguration,
   stripIndents,
   Tree,
   updateJson,
   updateProjectConfiguration,
 } from '@nrwl/devkit';
+import { forEachExecutorOptions } from '@nrwl/devkit/src/generators/executor-options-utils';
 import { extname } from 'path';
 import { JestExecutorOptions } from '../../executors/jest/schema';
-import { forEachExecutorOptions } from '@nrwl/workspace/src/utilities/executor-options-utils';
 
 const allowedExt = ['.ts', '.js'];
 
@@ -112,11 +112,13 @@ export async function updateJestConfigExt(tree: Tree) {
     tree.rename('jest.config.js', 'jest.config.ts');
   }
 
+  const projects = getProjects(tree);
+
   forEachExecutorOptions<JestExecutorOptions>(
     tree,
     '@nrwl/jest:jest',
     (options, projectName, target, configuration) => {
-      const projectConfig = readProjectConfiguration(tree, projectName);
+      const projectConfig = projects.get(projectName);
 
       if (!options.jestConfig || !isJestConfigValid(tree, options)) {
         return;
@@ -131,7 +133,10 @@ export async function updateJestConfigExt(tree: Tree) {
       for (const fileName of rootFiles) {
         if (fileName === 'tsconfig.json') {
           const filePath = joinPathFragments(projectConfig.root, fileName);
-          const tsConfig = readJson(tree, filePath);
+          const tsConfig = readJson(tree, filePath, {
+            allowTrailingComma: true,
+            disallowComments: false,
+          });
 
           if (tsConfig.references) {
             for (const { path } of tsConfig.references) {

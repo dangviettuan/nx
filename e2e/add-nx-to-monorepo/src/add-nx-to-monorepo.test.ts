@@ -2,23 +2,22 @@ import {
   createNonNxProjectDirectory,
   runCLI,
   runCommand,
-  tmpProjPath,
   updateFile,
   getPackageManagerCommand,
   getSelectedPackageManager,
   getPublishedVersion,
 } from '@nrwl/e2e/utils';
-import { Workspaces } from 'nx/src/config/workspaces';
 
 describe('add-nx-to-monorepo', () => {
-  const packageManagerCommand = getPackageManagerCommand({
+  const pmc = getPackageManagerCommand({
     packageManager: getSelectedPackageManager(),
-  }).runUninstalledPackage;
+  });
 
   it('should not throw', () => {
-    if (packageManagerCommand) {
+    if (pmc.runUninstalledPackage) {
       // Arrange
       createNonNxProjectDirectory();
+      runCommand(pmc.install);
       updateFile(
         'packages/package-a/package.json',
         JSON.stringify({
@@ -42,26 +41,20 @@ describe('add-nx-to-monorepo', () => {
 
       // Act
       const output = runCommand(
-        `${packageManagerCommand} add-nx-to-monorepo@${getPublishedVersion()} --nx-cloud false`
+        `${
+          pmc.runUninstalledPackage
+        } add-nx-to-monorepo@${getPublishedVersion()} -y`
       );
       // Assert
       expect(output).toContain('🎉 Done!');
-      expect(readWorkspaceConfig().projects['package-a']).toBeTruthy();
-      expect(readWorkspaceConfig().projects['package-b']).toBeTruthy();
-      expect(readWorkspaceConfig().targetDefaults).toEqual({
-        build: { dependsOn: ['^build'] },
-      });
-      expect(
-        readWorkspaceConfig().tasksRunnerOptions['default'].options
-          .cacheableOperations
-      ).toEqual(['build', 'test', 'lint']);
     }
   });
 
   it('should build', () => {
-    if (packageManagerCommand) {
+    if (pmc.runUninstalledPackage) {
       // Arrange
       createNonNxProjectDirectory();
+      runCommand(pmc.runUninstalledPackage);
       updateFile(
         'packages/package-a/package.json',
         JSON.stringify({
@@ -74,7 +67,9 @@ describe('add-nx-to-monorepo', () => {
 
       // Act
       runCommand(
-        `${packageManagerCommand} add-nx-to-monorepo@${getPublishedVersion()} --nx-cloud false`
+        `${
+          pmc.runUninstalledPackage
+        } add-nx-to-monorepo@${getPublishedVersion()} -y`
       );
       const output = runCLI('build package-a');
       // Assert
@@ -82,6 +77,3 @@ describe('add-nx-to-monorepo', () => {
     }
   });
 });
-
-const readWorkspaceConfig = () =>
-  new Workspaces(tmpProjPath()).readWorkspaceConfiguration();

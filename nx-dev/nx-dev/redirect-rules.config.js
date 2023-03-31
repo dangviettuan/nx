@@ -57,7 +57,9 @@ const schemaUrls = {
   '/angular/ng-packagr-lite': '/packages/angular/executors/ng-packagr-lite',
   '/angular/package': '/packages/angular/executors/package',
   '/angular/webpack-browser': '/packages/angular/executors/webpack-browser',
-  '/angular/webpack-server': '/packages/angular/executors/webpack-server',
+  '/angular/webpack-server': '/packages/angular/executors/webpack-dev-server',
+  '/packages/angular/executors/webpack-server':
+    '/packages/angular/executors/webpack-dev-server',
   '/react/application': '/packages/react/generators/application',
   '/react/component': '/packages/react/generators/component',
   '/react/component-cypress-spec':
@@ -81,6 +83,8 @@ const schemaUrls = {
     '/packages/storybook/generators/migrate-stories-to-6-2',
   '/storybook/executors-build': '/packages/storybook/executors/build',
   '/storybook/executors-storybook': '/packages/storybook/executors/storybook',
+  '/storybook/extra-topics-for-angular-projects':
+    '/storybook/overview-angular#more-documentation',
   '/linter/eslint': '/packages/linter/executors/eslint',
   '/linter/lint': '/packages/linter/executors/lint',
   '/linter/workspace-rule': '/packages/linter/generators/workspace-rule',
@@ -146,7 +150,7 @@ const schemaUrls = {
  * Guide specific rules (added 2022-01-04)
  */
 const guideUrls = {
-  '/core-concepts/configuration': '/configuration/projectjson',
+  '/core-concepts/configuration': '/reference/project-configuration',
   '/core-concepts/mental-model': '/using-nx/mental-model',
   '/core-concepts/updating-nx': '/using-nx/updating-nx',
   '/core-concepts/ci-overview': '/using-nx/ci-overview',
@@ -158,6 +162,9 @@ const guideUrls = {
   '/using-nx/nx-devkit': '/extending-nx/nx-devkit',
   '/structure/project-graph-plugins': '/extending-nx/project-graph-plugins',
   '/guides/lerna-and-nx': '/migration/lerna-and-nx',
+  '/cypress/v10-migration-guide': '/cypress/v11-migration-guide',
+  '/cypress/generators/migrate-to-cypress-10':
+    '/cypress/generators/migrate-to-cypress-11',
 };
 
 /**
@@ -177,30 +184,35 @@ const diataxis = {
   '/using-nx/caching': '/concepts/how-caching-works',
   '/using-nx/dte': '/core-features/distribute-task-execution',
   '/using-nx/affected': '/concepts/affected',
-  '/using-nx/ci-overview': '/recipes/ci-setup',
+  '/using-nx/ci-overview': '/recipes/ci/ci-setup',
   '/using-nx/updating-nx': '/core-features/automate-updating-dependencies',
   '/using-nx/nx-nodejs-typescript-version-matrix':
     '/workspace/nx-nodejs-typescript-version-matrix',
   '/extending-nx/nx-devkit': '/plugin-features/create-your-own-plugin',
   '/extending-nx/project-inference-plugins':
-    '/recipe/project-inference-plugins',
-  '/extending-nx/project-graph-plugins': '/recipe/project-graph-plugins',
-  '/migration/lerna-and-nx': '/recipe/lerna-and-nx',
-  '/migration/adding-to-monorepo': '/recipe/adding-to-monorepo',
-  '/migration/migration-cra': '/recipe/migration-cra',
-  '/migration/migration-angular': '/recipe/migration-angular',
-  '/migration/migration-angularjs': '/recipe/migration-angularjs',
-  '/migration/preserving-git-histories': '/recipe/preserving-git-histories',
-  '/migration/manual': '/recipe/manual',
+    '/recipes/advanced-plugins/project-inference-plugins',
+  '/extending-nx/project-graph-plugins':
+    '/recipes/advanced-plugins/project-graph-plugins',
+  '/migration/lerna-and-nx': '/recipes/adopting-nx/lerna-and-nx',
+  '/migration/adding-to-monorepo': '/recipes/adopting-nx/adding-to-monorepo',
+  '/migration/migration-cra': '/recipes/adopting-nx/migration-cra',
+  '/migration/migration-angular': '/recipes/adopting-nx/migration-angular',
+  '/migration/migration-angularjs': '/recipes/adopting-nx/migration-angularjs',
+  '/migration/preserving-git-histories':
+    '/recipes/adopting-nx/preserving-git-histories',
+  '/migration/manual': '/recipes/adopting-nx/manual',
   '/executors/using-builders': '/plugin-features/use-task-executors',
-  '/executors/run-commands-builder': '/recipe/run-commands-executor',
-  '/executors/creating-custom-builders': '/recipe/creating-custom-executors',
+  '/executors/run-commands-builder': '/recipes/executors/run-commands-executor',
+  '/executors/creating-custom-builders':
+    '/recipes/executors/creating-custom-executors',
   '/generators/using-generators': '/plugin-features/use-code-generators',
-  '/generators/workspace-generators': '/recipe/workspace-generators',
-  '/generators/composing-generators': '/recipe/composing-generators',
-  '/generators/generator-options': '/recipe/generator-options',
-  '/generators/creating-files': '/recipe/creating-files',
-  '/generators/modifying-files': '/recipe/modifying-files',
+  '/generators/workspace-generators':
+    '/recipes/generators/workspace-generators',
+  '/generators/composing-generators':
+    '/recipes/generators/composing-generators',
+  '/generators/generator-options': '/recipes/generators/generator-options',
+  '/generators/creating-files': '/recipes/generators/creating-files',
+  '/generators/modifying-files': '/recipes/generators/modifying-files',
   '/structure/applications-and-libraries':
     'more-concepts/applications-and-libraries',
   '/structure/creating-libraries': '/more-concepts/creating-libraries',
@@ -210,49 +222,55 @@ const diataxis = {
     '/more-concepts/buildable-and-publishable-libraries',
   '/structure/monorepo-tags': '/core-features/enforce-project-boundaries',
   '/structure/dependency-graph': '/core-features/explore-graph',
-  '/structure/project-graph-plugins': '/recipe/project-graph-plugins',
-  '/ci/monorepo-ci-azure': '/recipe/monorepo-ci-azure',
-  '/ci/monorepo-ci-circle-ci': '/recipe/monorepo-ci-circle-ci',
-  '/ci/monorepo-ci-github-actions': '/recipe/monorepo-ci-github-actions',
-  '/ci/monorepo-ci-jenkins': '/recipe/monorepo-ci-jenkins',
-  '/ci/monorepo-ci-gitlab': '/recipe/monorepo-ci-gitlab',
+  '/structure/project-graph-plugins':
+    '/recipes/advanced-plugins/project-graph-plugins',
+  '/ci/monorepo-ci-azure': '/recipes/ci/monorepo-ci-azure',
+  '/ci/monorepo-ci-circle-ci': '/recipes/ci/monorepo-ci-circle-ci',
+  '/ci/monorepo-ci-github-actions': '/recipes/ci/monorepo-ci-github-actions',
+  '/ci/monorepo-ci-jenkins': '/recipes/ci/monorepo-ci-jenkins',
+  '/ci/monorepo-ci-gitlab': '/recipes/ci/monorepo-ci-gitlab',
   '/ci/monorepo-ci-bitbucket-pipelines':
-    '/recipe/monorepo-ci-bitbucket-pipelines',
+    '/recipes/ci/monorepo-ci-bitbucket-pipelines',
   '/ci/distributed-builds': '/concepts/dte', // 👀
   '/ci/incremental-builds': '/more-concepts/incremental-builds',
   '/ci/setup-incremental-builds-angular':
-    '/recipe/setup-incremental-builds-angular',
+    '/recipes/other/setup-incremental-builds-angular',
   '/guides/turbo-and-nx': '/more-concepts/turbo-and-nx',
   '/guides/why-monorepos': '/more-concepts/why-monorepos',
-  '/guides/adding-assets-react': '/recipe/adding-assets-react',
+  '/guides/adding-assets-react': '/recipes/other/adding-assets-react',
   '/guides/environment-variables': '/reference/environment-variables',
   '/guides/monorepo-nx-enterprise': '/more-concepts/monorepo-nx-enterprise',
-  '/guides/performance-profiling': '/recipe/performance-profiling',
-  '/guides/eslint': '/recipe/eslint',
-  '/guides/customize-webpack': '/recipe/customize-webpack',
+  '/guides/performance-profiling': '/recipes/other/performance-profiling',
+  '/guides/eslint': '/recipes/other/eslint',
+  '/guides/customize-webpack':
+    '/packages/webpack/documents/webpack-config-setup',
   '/guides/nx-daemon': '/more-concepts/nx-daemon',
-  '/guides/js-and-ts': '/recipe/js-and-ts',
-  '/guides/browser-support': '/recipe/browser-support',
-  '/guides/react-native': '/recipe/react-native',
-  '/guides/deploy-nextjs-to-vercel': '/recipe/deploy-nextjs-to-vercel',
-  '/guides/webpack-5': '/recipe/webpack-5',
-  '/guides/using-tailwind-css-in-react': '/recipe/using-tailwind-css-in-react',
-  '/guides/react-18': '/recipe/react-18',
+  '/guides/js-and-ts': '/recipes/other/js-and-ts',
+  '/guides/browser-support': '/recipes/other/browser-support',
+  '/guides/react-native': '/recipes/other/react-native',
+  '/guides/deploy-nextjs-to-vercel': '/recipes/other/deploy-nextjs-to-vercel',
+  '/guides/using-tailwind-css-in-react':
+    '/recipes/other/using-tailwind-css-in-react',
+  '/guides/react-18': '/recipes/other/react-18',
   '/guides/using-tailwind-css-with-angular-projects':
-    '/recipe/using-tailwind-css-with-angular-projects',
-  '/guides/misc-ngrx': '/recipe/misc-ngrx',
-  '/guides/misc-data-persistence': '/recipe/misc-data-persistence',
+    '/recipes/other/using-tailwind-css-with-angular-projects',
+  '/guides/misc-ngrx': '/recipes/other/misc-ngrx',
+  '/guides/misc-data-persistence': '/recipes/other/misc-data-persistence',
   '/guides/nx-devkit-angular-devkit': '/more-concepts/nx-devkit-angular-devkit',
-  '/module-federation/faster-builds': '/recipe/faster-builds',
+  '/module-federation/faster-builds':
+    '/recipes/module-federation/faster-builds',
   '/module-federation/micro-frontend-architecture':
     '/more-concepts/micro-frontend-architecture',
   '/module-federation/dynamic-module-federation-with-angular':
-    '/recipe/dynamic-module-federation-with-angular',
-  '/examples/nx-examples': '/recipe/nx-examples',
-  '/examples/react-nx': '/recipe/react-nx',
-  '/examples/apollo-react': '/recipe/apollo-react',
-  '/examples/caching': '/recipe/caching',
-  '/examples/dte': '/recipe/dte',
+    '/recipes/module-federation/dynamic-module-federation-with-angular',
+  '/examples/nx-examples': '/recipes/other/nx-examples',
+  '/examples/react-nx': '/recipes/other/react-nx',
+  '/examples/apollo-react': '/recipes/other/apollo-react',
+  '/examples/caching': '/recipes/other/caching',
+  '/examples/dte': '/recipes/other/dte',
+  '/recipe/workspace-generators': '/recipes/generators/local-generators',
+  '/recipes/other/customize-webpack':
+    '/packages/webpack/documents/webpack-config-setup',
 };
 
 /**
@@ -301,6 +319,193 @@ const cliUrls = {
   '/cli/connect-to-nx-cloud': '/nx/connect-to-nx-cloud',
   '/cli/reset': '/nx/reset',
 };
+/**
+ * Recipes
+ */
+const recipesUrls = {
+  '/recipe/adding-to-monorepo': '/recipes/adopting-nx/adding-to-monorepo',
+};
+
+/**
+ * Nx Cloud
+ */
+const nxCloudUrls = {
+  '/nx-cloud/set-up/add-nx-cloud': '/core-features/share-your-cache',
+  '/nx-cloud/set-up/set-up-caching': '/core-features/share-your-cache',
+  '/nx-cloud/set-up/set-up-dte': '/core-features/distribute-task-execution',
+};
+
+/**
+ * Tutorial Updates (updated 2023-01-13)
+ */
+const tutorialBaseUrls = {
+  '/(l|latest)/(a|angular)/tutorial/1-code-generation':
+    '/angular-tutorial/1-code-generation',
+  '/(l|latest)/(a|node)/tutorial/1-code-generation':
+    '/getting-started/node-server-tutorial',
+  '/(l|latest)/(r|react)/tutorial/1-code-generation':
+    '/react-tutorial/1-code-generation',
+};
+const oldReactTutorialPaths = [
+  '/react-tutorial/01-create-application',
+  '/react-tutorial/02-add-e2e-test',
+  '/react-tutorial/03-display-todos',
+  '/react-tutorial/04-connect-to-api',
+  '/react-tutorial/05-add-node-app',
+  '/react-tutorial/06-proxy',
+  '/react-tutorial/07-share-code',
+  '/react-tutorial/08-create-libs',
+  '/react-tutorial/09-dep-graph',
+  '/react-tutorial/10-computation-caching',
+  '/react-tutorial/11-test-affected-projects',
+  '/react-tutorial/12-summary',
+];
+const reactRedirectDestination = '/react-tutorial/1-code-generation';
+const reactTutorialRedirects = oldReactTutorialPaths.reduce((acc, path) => {
+  acc[path] = reactRedirectDestination;
+  return acc;
+}, {});
+const oldNodeTutorialPaths = [
+  '/node-tutorial/01-create-application',
+  '/node-tutorial/02-display-todos',
+  '/node-tutorial/03-share-code',
+  '/node-tutorial/04-create-libs',
+  '/node-tutorial/05-dep-graph',
+  '/node-tutorial/06-computation-caching',
+  '/node-tutorial/07-test-affected-projects',
+  '/node-tutorial/4-workspace-optimization',
+  '/node-tutorial/08-summary',
+];
+
+const extraNodeRedirects = {
+  '/getting-started/node-tutorial': '/getting-started/node-server-tutorial',
+  '/node-tutorial/1-code-generation': '/node-server-tutorial/1-code-generation',
+  '/node-tutorial/2-project-graph': '/node-server-tutorial/2-project-graph',
+  '/node-tutorial/3-task-running': '/node-server-tutorial/3-task-running',
+  '/node-tutorial/4-task-pipelines': '/node-server-tutorial/4-task-pipelines',
+  '/node-tutorial/5-docker-target': '/node-server-tutorial/5-docker-target',
+  '/node-tutorial/6-summary': '/node-server-tutorial/6-summary',
+};
+const nodeRedirectDestination = '/getting-started/node-server-tutorial';
+const nodeTutorialRedirects = oldNodeTutorialPaths.reduce((acc, path) => {
+  acc[path] = nodeRedirectDestination;
+  return acc;
+}, {});
+const tutorialRedirects = Object.assign(
+  tutorialBaseUrls,
+  reactTutorialRedirects,
+  nodeTutorialRedirects,
+  extraNodeRedirects
+);
+
+const oldAngularTutorialPaths = [
+  '/angular-tutorial/01-create-application',
+  '/angular-tutorial/02-add-e2e-test',
+  '/angular-tutorial/03-display-todos',
+  '/angular-tutorial/04-connect-to-api',
+  '/angular-tutorial/05-add-node-app',
+  '/angular-tutorial/06-proxy',
+  '/angular-tutorial/07-share-code',
+  '/angular-tutorial/08-create-libs',
+  '/angular-tutorial/09-dep-graph',
+  '/angular-tutorial/10-computation-caching',
+  '/angular-tutorial/11-test-affected-projects',
+  '/angular-tutorial/12-summary',
+];
+
+const angularRedirectDestination = '/angular-tutorial/1-code-generation';
+for (const path of oldAngularTutorialPaths) {
+  tutorialRedirects[path] = angularRedirectDestination;
+}
+
+const packagesIndexes = {
+  '/nx': '/packages/nx',
+  '/workspace': '/packages/workspace',
+  '/devkit': '/packages/devkit',
+  '/nx-plugin': '/packages/nx-plugin',
+  '/angular': '/packages/angular',
+  '/cypress': '/packages/cypress',
+  '/detox': '/packages/detox',
+  '/esbuild': '/packages/esbuild',
+  '/eslint-plugin-nx': '/packages/eslint',
+  '/expo': '/packages/expo',
+  '/express': '/packages/express',
+  '/jest': '/packages/jest',
+  '/js': '/packages/js',
+  '/linter': '/packages/linter',
+  '/nest': '/packages/nest',
+  '/next': '/packages/next',
+  '/node': '/packages/node',
+  '/react': '/packages/react',
+  '/react-native': '/packages/react',
+  '/rollup': '/packages/rollup',
+  '/storybook': '/packages/storybook',
+  '/vite': '/packages/vite',
+  '/web': '/packages/web',
+  '/webpack': '/packages/webpack',
+};
+
+const packagesDocuments = {
+  '/nx/create-nx-workspace': '/packages/nx/documents/create-nx-workspace',
+  '/nx/init': '/packages/nx/documents/init',
+  '/nx/generate': '/packages/nx/documents/generate',
+  '/nx/run': '/packages/nx/documents/run',
+  '/nx/daemon': '/packages/nx/documents/daemon',
+  '/nx/dep-graph': '/packages/nx/documents/dep-graph',
+  '/nx/run-many': '/packages/nx/documents/run-many',
+  '/nx/affected': '/packages/nx/documents/affected',
+  '/nx/affected-dep-graph': '/packages/nx/documents/affected-dep-graph',
+  '/nx/affected-apps': '/packages/nx/documents/affected-apps',
+  '/nx/affected-libs': '/packages/nx/documents/affected-libs',
+  '/nx/print-affected': '/packages/nx/documents/print-affected',
+  '/nx/format-check': '/packages/nx/documents/format-check',
+  '/nx/format-write': '/packages/nx/documents/format-write',
+  '/nx/migrate': '/packages/nx/documents/migrate',
+  '/nx/report': '/packages/nx/documents/report',
+  '/nx/list': '/packages/nx/documents/list',
+  '/nx/workspace-lint': '/packages/nx/documents/workspace-lint',
+  '/nx/workspace-generator': '/packages/nx/documents/workspace-generator',
+  '/nx/connect-to-nx-cloud': '/packages/nx/documents/connect-to-nx-cloud',
+  '/nx/reset': '/packages/nx/documents/reset',
+  '/nx/repair': '/packages/nx/documents/repair',
+  '/nx/exec': '/packages/nx/documents/exec',
+  '/nx/watch': '/packages/nx/documents/watch',
+  '/workspace/nx-nodejs-typescript-version-matrix':
+    '/packages/workspace/documents/nx-nodejs-typescript-version-matrix',
+  '/devkit/index': '/packages/devkit/documents/nrwl_devkit',
+  '/devkit/ngcli_adapter': '/packages/devkit/documents/ngcli_adapter',
+  '/angular-nx-version-matrix':
+    '/packages/angular/documents/angular-nx-version-matrix',
+  '/cypress/cypress-component-testing':
+    '/packages/cypress/documents/cypress-component-testing',
+  '/cypress/v11-migration-guide':
+    '/packages/cypress/documents/v11-migration-guide',
+  '/storybook/overview-react': '/packages/storybook/documents/overview-react',
+  '/storybook/overview-angular':
+    '/packages/storybook/documents/overview-angular',
+  '/storybook/best-practices': '/packages/storybook/documents/best-practices',
+  '/storybook/storybook-composition-setup':
+    '/packages/storybook/documents/storybook-composition-setup',
+  '/storybook/angular-storybook-compodoc':
+    '/packages/storybook/documents/angular-storybook-compodoc',
+  '/storybook/angular-storybook-targets':
+    '/packages/storybook/documents/angular-storybook-targets',
+  '/storybook/angular-configuring-styles':
+    '/packages/storybook/documents/angular-configuring-styles',
+  '/storybook/angular-browser-target':
+    '/packages/storybook/documents/angular-browser-target',
+  '/storybook/migrate-webpack-final-angular':
+    '/packages/storybook/documents/migrate-webpack-final-angular',
+  '/storybook/upgrade-storybook-v6-angular':
+    '/packages/storybook/documents/upgrade-storybook-v6-angular',
+  '/storybook/migrate-webpack-final-react':
+    '/packages/storybook/documents/migrate-webpack-final-react',
+  '/storybook/upgrade-storybook-v6-react':
+    '/packages/storybook/documents/upgrade-storybook-v6-react',
+  '/packages/storybook/documents/migrate-storybook-7':
+    '/packages/storybook/generators/migrate-7',
+  '/linter/eslint-plugin-nx': '/packages/linter/documents/eslint-plugin-nx',
+};
 
 /**
  * Public export API
@@ -310,5 +515,10 @@ module.exports = {
   diataxis,
   guideUrls,
   overviewUrls,
+  recipesUrls,
+  nxCloudUrls,
   schemaUrls,
+  tutorialRedirects,
+  packagesIndexes,
+  packagesDocuments,
 };

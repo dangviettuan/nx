@@ -1,5 +1,6 @@
 import {
   convertNxGenerator,
+  extractLayoutDirectory,
   formatFiles,
   getWorkspaceLayout,
   joinPathFragments,
@@ -36,15 +37,18 @@ function addMainFile(tree: Tree, options: NormalizedSchema) {
  * This is only a minimal backend to get started.
  */
 
-import * as express from 'express';
+import express from 'express';
+import * as path from 'path';
 
 const app = express();
+
+app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
 app.get('/api', (req, res) => {
   res.send({ message: 'Welcome to ${options.name}!' });
 });
 
-const port = process.env.port || 3333;
+const port = process.env.PORT || 3333;
 const server = app.listen(port, () => {
   console.log(\`Listening at http://localhost:\${port}/api\`);
 });
@@ -56,12 +60,18 @@ server.on('error', console.error);
     toJS(tree);
   }
 }
-
+// TODO (nicholas): Remove After Nx 16
+// @deprecated Use `nx g @nrwl/node:app --framework=express instead.
 export async function applicationGenerator(tree: Tree, schema: Schema) {
+  console.warn(
+    'As of Nx 16 using `nx g @nrwl/express:app` has been deprecated! Use `nx g @nrwl/node:app --framework=express instead.'
+  );
+
   const options = normalizeOptions(tree, schema);
   const initTask = await initGenerator(tree, { ...options, skipFormat: true });
   const applicationTask = await nodeApplicationGenerator(tree, {
     ...schema,
+    bundler: 'webpack',
     skipFormat: true,
   });
   addMainFile(tree, options);
@@ -81,10 +91,14 @@ export default applicationGenerator;
 export const applicationSchematic = convertNxGenerator(applicationGenerator);
 
 function normalizeOptions(host: Tree, options: Schema): NormalizedSchema {
-  const appDirectory = options.directory
-    ? `${names(options.directory).fileName}/${names(options.name).fileName}`
+  const { layoutDirectory, projectDirectory } = extractLayoutDirectory(
+    options.directory
+  );
+  const appDirectory = projectDirectory
+    ? `${names(projectDirectory).fileName}/${names(options.name).fileName}`
     : names(options.name).fileName;
-  const { appsDir } = getWorkspaceLayout(host);
+
+  const appsDir = layoutDirectory ?? getWorkspaceLayout(host).appsDir;
   const appProjectRoot = joinPathFragments(appsDir, appDirectory);
 
   return {

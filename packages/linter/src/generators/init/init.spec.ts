@@ -7,7 +7,7 @@ describe('@nrwl/linter:init', () => {
   let tree: Tree;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
   });
 
   describe('--linter', () => {
@@ -18,6 +18,10 @@ describe('@nrwl/linter:init', () => {
         });
 
         expect(tree.read('.eslintrc.json', 'utf-8')).toMatchSnapshot();
+        expect(tree.read('.eslintignore', 'utf-8')).toMatchInlineSnapshot(`
+          "node_modules
+          "
+        `);
       });
 
       it('should add the root eslint config to the lint targetDefaults for lint', async () => {
@@ -26,7 +30,11 @@ describe('@nrwl/linter:init', () => {
         });
 
         expect(readJson(tree, 'nx.json').targetDefaults.lint).toEqual({
-          inputs: ['default', '{workspaceRoot}/.eslintrc.json'],
+          inputs: [
+            'default',
+            '{workspaceRoot}/.eslintrc.json',
+            '{workspaceRoot}/.eslintignore',
+          ],
         });
       });
 
@@ -38,16 +46,6 @@ describe('@nrwl/linter:init', () => {
         });
 
         expect(tree.exists('.eslintrc.json')).toBe(false);
-      });
-    });
-
-    describe('tslint', () => {
-      it('should generate the global tslint config', async () => {
-        await lintInitGenerator(tree, {
-          linter: Linter.TsLint,
-        });
-
-        expect(tree.read('tslint.json', 'utf-8')).toMatchSnapshot();
       });
     });
   });

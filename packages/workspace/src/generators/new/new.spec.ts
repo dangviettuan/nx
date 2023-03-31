@@ -1,11 +1,18 @@
+import { readJson, Tree, writeJson } from '@nrwl/devkit';
 import { createTree } from '@nrwl/devkit/testing';
-import { readJson, Tree, writeJson, PackageManager } from '@nrwl/devkit';
-import { newGenerator, Schema } from './new';
 import { Linter } from '../../utils/lint';
+import {
+  angularCliVersion,
+  nxVersion,
+  typescriptVersion,
+} from '../../utils/versions';
 import { Preset } from '../utils/presets';
+import { newGenerator, NormalizedSchema } from './new';
 
-const defaultOptions: Omit<Schema, 'name' | 'directory' | 'appName'> = {
-  cli: 'nx',
+const defaultOptions: Omit<
+  NormalizedSchema,
+  'name' | 'directory' | 'appName' | 'isCustomPreset'
+> = {
   preset: Preset.Apps,
   skipInstall: false,
   linter: Linter.EsLint,
@@ -17,17 +24,6 @@ describe('new', () => {
 
   beforeEach(() => {
     tree = createTree();
-  });
-
-  it('should generate an empty workspace.json', async () => {
-    await newGenerator(tree, {
-      ...defaultOptions,
-      name: 'my-workspace',
-      directory: 'my-workspace',
-      npmScope: 'npmScope',
-      appName: 'app',
-    });
-    expect(readJson(tree, 'my-workspace/workspace.json')).toMatchSnapshot();
   });
 
   it('should generate an empty nx.json', async () => {
@@ -42,45 +38,62 @@ describe('new', () => {
   });
 
   describe('--preset', () => {
-    describe.each([[Preset.Empty], [Preset.Angular], [Preset.React]])(
-      '%s',
-      (preset) => {
-        it('should generate necessary npm dependencies', async () => {
-          await newGenerator(tree, {
-            ...defaultOptions,
-            name: 'my-workspace',
-            directory: 'my-workspace',
-            npmScope: 'npmScope',
-            appName: 'app',
-            preset,
-          });
+    it('should generate necessary npm dependencies for empty preset', async () => {
+      await newGenerator(tree, {
+        ...defaultOptions,
+        name: 'my-workspace',
+        directory: 'my-workspace',
+        npmScope: 'npmScope',
+        appName: 'app',
+        preset: Preset.Empty,
+      });
 
-          expect(readJson(tree, 'my-workspace/package.json')).toMatchSnapshot();
-        });
-      }
-    );
-  });
+      expect(readJson(tree, 'my-workspace/package.json')).toMatchSnapshot();
+    });
 
-  describe('--packageManager', () => {
-    describe.each([['npm'], ['yarn'], ['pnpm']])(
-      '%s',
-      (packageManager: PackageManager) => {
-        it('should set the packageManager in nx.json', async () => {
-          await newGenerator(tree, {
-            ...defaultOptions,
-            name: 'my-workspace',
-            directory: 'my-workspace',
-            npmScope: 'npmScope',
-            appName: 'app',
-            cli: 'angular',
-            packageManager,
-          });
+    it('should generate necessary npm dependencies for react preset', async () => {
+      await newGenerator(tree, {
+        ...defaultOptions,
+        name: 'my-workspace',
+        directory: 'my-workspace',
+        npmScope: 'npmScope',
+        appName: 'app',
+        preset: Preset.ReactMonorepo,
+        bundler: 'vite',
+      });
 
-          const nxJson = readJson(tree, 'my-workspace/nx.json');
-          expect(nxJson.cli.packageManager).toEqual(packageManager);
-        });
-      }
-    );
+      const { devDependencies } = readJson(tree, 'my-workspace/package.json');
+      expect(devDependencies).toStrictEqual({
+        '@nrwl/react': nxVersion,
+        '@nrwl/cypress': nxVersion,
+        '@nrwl/vite': nxVersion,
+        '@nrwl/workspace': nxVersion,
+        nx: nxVersion,
+      });
+    });
+
+    it('should generate necessary npm dependencies for angular preset', async () => {
+      await newGenerator(tree, {
+        ...defaultOptions,
+        name: 'my-workspace',
+        directory: 'my-workspace',
+        npmScope: 'npmScope',
+        appName: 'app',
+        preset: Preset.AngularMonorepo,
+      });
+
+      const { devDependencies, dependencies } = readJson(
+        tree,
+        'my-workspace/package.json'
+      );
+      expect(dependencies).toStrictEqual({ '@nrwl/angular': nxVersion });
+      expect(devDependencies).toStrictEqual({
+        '@angular-devkit/core': angularCliVersion,
+        '@nrwl/workspace': nxVersion,
+        nx: nxVersion,
+        typescript: typescriptVersion,
+      });
+    });
   });
 
   it('should not modify any existing files', async () => {

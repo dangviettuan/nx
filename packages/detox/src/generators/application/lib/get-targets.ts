@@ -1,68 +1,78 @@
-export function reactNativeBuildTarget(platform: 'ios' | 'android') {
+export function reactNativeBuildTarget(platform: 'ios.sim' | 'android.emu') {
   return {
     options: {
-      detoxConfiguration: `${platform}.sim.debug`,
+      detoxConfiguration: `${platform}.debug`,
     },
     configurations: {
       production: {
-        detoxConfiguration: `${platform}.sim.release`,
+        detoxConfiguration: `${platform}.release`,
       },
     },
   };
 }
 
-export function expoBuildTarget(platform: string) {
+export function expoBuildTarget(platform: 'ios.sim' | 'android.emu') {
   return {
     options: {
-      detoxConfiguration: `${platform}.sim.debug`,
+      detoxConfiguration: `${platform}.debug`,
     },
     configurations: {
       local: {
-        detoxConfiguration: `${platform}.sim.local`,
+        detoxConfiguration: `${platform}.local`,
       },
       bare: {
-        detoxConfiguration: `${platform}.sim.debug`,
+        detoxConfiguration: `${platform}.debug`,
       },
       production: {
-        detoxConfiguration: `${platform}.sim.release`,
+        detoxConfiguration: `${platform}.release`,
       },
     },
   };
 }
 
-export function reactNativeTestTarget(platform: string, name: string) {
+export function reactNativeTestTarget(
+  platform: 'ios.sim' | 'android.emu',
+  e2eName: string
+) {
+  const buildPlatform = platform === 'ios.sim' ? 'ios' : 'android';
+
   return {
     options: {
-      detoxConfiguration: `${platform}.sim.debug`,
-      buildTarget: `${name}:build-ios`,
+      detoxConfiguration: `${platform}.debug`,
+      buildTarget: `${e2eName}:build-${buildPlatform}}`,
     },
     configurations: {
       production: {
-        detoxConfiguration: `${platform}.sim.release`,
-        buildTarget: `${name}:build-ios:production`,
+        detoxConfiguration: `${platform}.release`,
+        buildTarget: `${e2eName}:build-${buildPlatform}:production`,
       },
     },
   };
 }
 
-export function expoTestTarget(platform: string, name: string) {
+export function expoTestTarget(
+  platform: 'ios.sim' | 'android.emu',
+  e2eName: string
+) {
+  const buildPlatform = platform === 'ios.sim' ? 'ios' : 'android';
+
   return {
     options: {
-      detoxConfiguration: `${platform}.sim.eas`,
-      buildTarget: `${name}:build-ios`,
+      detoxConfiguration: `${platform}.eas`,
+      buildTarget: `${e2eName}:build-${buildPlatform}`,
     },
     configurations: {
       local: {
-        detoxConfiguration: `${platform}.sim.local`,
-        buildTarget: `${name}:build-ios:local`,
+        detoxConfiguration: `${platform}.local`,
+        buildTarget: `${e2eName}:build-${buildPlatform}:local`,
       },
       bare: {
-        detoxConfiguration: `${platform}.sim.debug`,
-        buildTarget: `${name}:build-ios:bare`,
+        detoxConfiguration: `${platform}.debug`,
+        buildTarget: `${e2eName}:build-${buildPlatform}:bare`,
       },
       production: {
-        detoxConfiguration: `${platform}.sim.release`,
-        buildTarget: `${name}:build-ios:production`,
+        detoxConfiguration: `${platform}.release`,
+        buildTarget: `${e2eName}:build-${buildPlatform}:production`,
       },
     },
   };

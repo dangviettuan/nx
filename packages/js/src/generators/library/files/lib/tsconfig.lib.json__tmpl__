@@ -3,8 +3,8 @@
   "compilerOptions": {
     "outDir": "<%= offsetFromRoot %>dist/out-tsc",
     "declaration": true,
-    "types": []
+    "types": ["node"]
   },
-  "include": ["**/*.ts"<% if (js) { %>, "**/*.js"<% } %>],
-  "exclude": ["jest.config.ts", "**/*.spec.ts", "**/*.test.ts"<% if (js) { %>, "**/*.spec.js", "**/*.test.js"<% } %>]
+  "include": ["src/**/*.ts"<% if (js) { %>, "src/**/*.js"<% } %>],
+  "exclude": ["jest.config.ts", "src/**/*.spec.ts", "src/**/*.test.ts"<% if (js) { %>, "src/**/*.spec.js", "src/**/*.test.js"<% } %>]
 }

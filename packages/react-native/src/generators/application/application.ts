@@ -1,23 +1,26 @@
-import { runTasksInSerial } from '@nrwl/workspace/src/utilities/run-tasks-in-serial';
-import { Schema } from './schema';
-import { runPodInstall } from '../../utils/pod-install-task';
-import { runChmod } from '../../utils/chmod-task';
-import { runSymlink } from '../../utils/symlink-task';
-import { addLinting } from '../../utils/add-linting';
-import { addJest } from '../../utils/add-jest';
+import { join } from 'path';
+
 import {
   convertNxGenerator,
-  Tree,
   formatFiles,
   GeneratorCallback,
   joinPathFragments,
+  runTasksInSerial,
+  Tree,
 } from '@nrwl/devkit';
+
+import { runPodInstall } from '../../utils/pod-install-task';
+import { runSymlink } from '../../utils/symlink-task';
+import { addLinting } from '../../utils/add-linting';
+import { addJest } from '../../utils/add-jest';
+import { chmodAndroidGradlewFilesTask } from '../../utils/chmod-android-gradle-files';
+
 import { normalizeOptions } from './lib/normalize-options';
 import initGenerator from '../init/init';
-import { join } from 'path';
 import { addProject } from './lib/add-project';
 import { createApplicationFiles } from './lib/create-application-files';
 import { addDetox } from './lib/add-detox';
+import { Schema } from './schema';
 
 export async function reactNativeApplicationGenerator(
   host: Tree,
@@ -42,7 +45,8 @@ export async function reactNativeApplicationGenerator(
     options.unitTestRunner,
     options.projectName,
     options.appProjectRoot,
-    options.js
+    options.js,
+    options.skipPackageJson
   );
   const detoxTask = await addDetox(host, options);
   const symlinkTask = runSymlink(host.root, options.appProjectRoot);
@@ -50,13 +54,8 @@ export async function reactNativeApplicationGenerator(
     join(host.root, options.iosProjectRoot),
     options.install
   );
-  const chmodTaskGradlew = runChmod(
-    join(host.root, options.androidProjectRoot, 'gradlew'),
-    0o775
-  );
-  const chmodTaskGradlewBat = runChmod(
-    join(host.root, options.androidProjectRoot, 'gradlew.bat'),
-    0o775
+  const chmodTaskGradlew = chmodAndroidGradlewFilesTask(
+    join(host.root, options.androidProjectRoot)
   );
 
   if (!options.skipFormat) {
@@ -70,8 +69,7 @@ export async function reactNativeApplicationGenerator(
     detoxTask,
     symlinkTask,
     podInstallTask,
-    chmodTaskGradlew,
-    chmodTaskGradlewBat
+    chmodTaskGradlew
   );
 }
 

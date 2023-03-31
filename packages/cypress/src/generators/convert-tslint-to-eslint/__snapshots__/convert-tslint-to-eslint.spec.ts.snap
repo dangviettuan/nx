@@ -6,8 +6,8 @@ Object {
   "devDependencies": Object {
     "@nrwl/eslint-plugin-nx": "0.0.1",
     "@nrwl/linter": "0.0.1",
-    "@typescript-eslint/eslint-plugin": "~5.33.1",
-    "@typescript-eslint/parser": "~5.33.1",
+    "@typescript-eslint/eslint-plugin": "^5.36.1",
+    "@typescript-eslint/parser": "^5.36.1",
     "eslint": "~8.15.0",
     "eslint-config-prettier": "8.1.0",
     "eslint-plugin-cypress": "^2.10.3",
@@ -19,6 +19,8 @@ Object {
 
 exports[`convert-tslint-to-eslint should work for Cypress applications 2`] = `
 Object {
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "e2e-app-1",
   "projectType": "application",
   "root": "apps/e2e-app-1",
   "targets": Object {
@@ -166,7 +168,18 @@ Object {
           },
         ],
         "@typescript-eslint/member-ordering": "error",
-        "@typescript-eslint/naming-convention": "error",
+        "@typescript-eslint/naming-convention": Array [
+          "error",
+          Object {
+            "format": Array [
+              "camelCase",
+              "UPPER_CASE",
+            ],
+            "leadingUnderscore": "forbid",
+            "selector": "variable",
+            "trailingUnderscore": "forbid",
+          },
+        ],
         "@typescript-eslint/no-empty-function": "off",
         "@typescript-eslint/no-empty-interface": "error",
         "@typescript-eslint/no-inferrable-types": Array [
@@ -201,29 +214,7 @@ Object {
         "no-caller": "error",
         "no-console": Array [
           "error",
-          Object {
-            "allow": Array [
-              "log",
-              "warn",
-              "dir",
-              "timeLog",
-              "assert",
-              "clear",
-              "count",
-              "countReset",
-              "group",
-              "groupEnd",
-              "table",
-              "dirxml",
-              "error",
-              "groupCollapsed",
-              "_buffer",
-              "_counters",
-              "_timers",
-              "_groupDepth",
-              "Console",
-            ],
-          },
+          Object {},
         ],
         "no-debugger": "error",
         "no-empty": "off",

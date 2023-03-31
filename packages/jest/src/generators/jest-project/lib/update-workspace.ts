@@ -1,4 +1,4 @@
-import { JestProjectSchema } from '../schema';
+import { NormalizedJestProjectSchema } from '../schema';
 import {
   readProjectConfiguration,
   Tree,
@@ -7,15 +7,17 @@ import {
   normalizePath,
 } from '@nrwl/devkit';
 
-export function updateWorkspace(tree: Tree, options: JestProjectSchema) {
+export function updateWorkspace(
+  tree: Tree,
+  options: NormalizedJestProjectSchema
+) {
   const projectConfig = readProjectConfiguration(tree, options.project);
   projectConfig.targets.test = {
     executor: '@nrwl/jest:jest',
     outputs: [
-      joinPathFragments(
-        normalizePath('coverage'),
-        normalizePath(projectConfig.root)
-      ),
+      options.rootProject
+        ? joinPathFragments('{workspaceRoot}', 'coverage', '{projectName}')
+        : joinPathFragments('{workspaceRoot}', 'coverage', '{projectRoot}'),
     ],
     options: {
       jestConfig: joinPathFragments(
@@ -23,6 +25,12 @@ export function updateWorkspace(tree: Tree, options: JestProjectSchema) {
         `jest.config.${options.js ? 'js' : 'ts'}`
       ),
       passWithNoTests: true,
+    },
+    configurations: {
+      ci: {
+        ci: true,
+        codeCoverage: true,
+      },
     },
   };
 

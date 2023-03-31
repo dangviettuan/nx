@@ -1,6 +1,6 @@
 import { installedCypressVersion } from '@nrwl/cypress/src/utils/cypress-version';
 import { logger, readJson, Tree } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { createApp, createLib } from '../../utils/testing-generators';
 import { componentGenerator } from './component';
 // need to mock cypress otherwise it'll use the nx installed version from package.json
@@ -16,9 +16,9 @@ describe('component', () => {
   beforeEach(async () => {
     mockedInstalledCypressVersion.mockReturnValue(10);
     projectName = 'my-lib';
-    appTree = createTreeWithEmptyV1Workspace();
-    await createApp(appTree, 'my-app', false);
-    await createLib(appTree, projectName, false);
+    appTree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
+    await createApp(appTree, 'my-app');
+    await createLib(appTree, projectName);
     jest.spyOn(logger, 'warn').mockImplementation(() => {});
     jest.spyOn(logger, 'debug').mockImplementation(() => {});
   });
@@ -105,6 +105,23 @@ describe('component', () => {
     expect(
       appTree.exists('apps/my-app/src/app/hello/hello.module.css')
     ).toBeFalsy();
+  });
+
+  describe('--classComponent', () => {
+    it('should add the override keyword to the render() method', async () => {
+      await componentGenerator(appTree, {
+        name: 'hello',
+        style: 'css',
+        project: projectName,
+        classComponent: true,
+      });
+
+      const tsxFileContent = appTree.read(
+        `libs/my-lib/src/lib/hello/hello.tsx/`,
+        'utf-8'
+      );
+      expect(tsxFileContent).toMatch(/override\srender\(\)/);
+    });
   });
 
   describe('--export', () => {
@@ -312,6 +329,7 @@ describe('component', () => {
         .read('libs/my-lib/src/lib/hello/hello.tsx')
         .toString();
       expect(content).toContain('<style jsx>');
+      expect(content).not.toContain("styles['container']");
     });
 
     it('should add dependencies to package.json', async () => {

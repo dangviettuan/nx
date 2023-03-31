@@ -17,7 +17,6 @@ export interface NextServerOptions {
   dir: string;
   staticMarkup: boolean;
   quiet: boolean;
-  conf: any;
   port: number;
   path: string;
   hostname: string;
@@ -36,6 +35,8 @@ export interface NextBuildBuilderOptions {
   assets?: any[];
   nextConfig?: string;
   buildLibsFromSource?: boolean;
+  includeDevDependenciesInPackageJson?: boolean;
+  generateLockfile?: boolean;
   watch?: boolean;
 }
 

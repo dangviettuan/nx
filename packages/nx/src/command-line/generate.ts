@@ -1,9 +1,8 @@
 import * as chalk from 'chalk';
 import { prompt } from 'enquirer';
-import { readJsonFile } from 'nx/src/utils/fileutils';
+import { readJsonFile } from '../utils/fileutils';
 
 import { readNxJson } from '../config/configuration';
-import { NxJsonConfiguration } from '../config/nx-json';
 import { ProjectsConfigurations } from '../config/workspace-json-project-json';
 import { Workspaces } from '../config/workspaces';
 import { FileChange, flushChanges, FsTree } from '../generators/tree';
@@ -11,7 +10,7 @@ import {
   createProjectGraphAsync,
   readProjectsConfigurationFromProjectGraph,
 } from '../project-graph/project-graph';
-import { logger } from '../utils/logger';
+import { logger, NX_PREFIX } from '../utils/logger';
 import {
   combineOptionsForGenerator,
   handleErrors,
@@ -21,6 +20,8 @@ import {
 import { getLocalWorkspacePlugins } from '../utils/plugins/local-plugins';
 import { printHelp } from '../utils/print-help';
 import { workspaceRoot } from '../utils/workspace-root';
+import { NxJsonConfiguration } from '../config/nx-json';
+import { findInstalledPlugins } from '../utils/plugins/installed-plugins';
 
 export interface GenerateOptions {
   collectionName: string;
@@ -30,6 +31,7 @@ export interface GenerateOptions {
   dryRun: boolean;
   interactive: boolean;
   defaults: boolean;
+  quiet: boolean;
 }
 
 export function printChanges(fileChanges: FileChange[]) {
@@ -50,23 +52,33 @@ async function promptForCollection(
   interactive: boolean,
   projectsConfiguration: ProjectsConfigurations
 ): Promise<string> {
-  const packageJson = readJsonFile(`${workspaceRoot}/package.json`);
-  const localPlugins = getLocalWorkspacePlugins(projectsConfiguration);
+  const localPlugins = await getLocalWorkspacePlugins(projectsConfiguration);
 
   const installedCollections = Array.from(
-    new Set([
-      ...Object.keys(packageJson.dependencies || {}),
-      ...Object.keys(packageJson.devDependencies || {}),
-    ])
+    new Set(findInstalledPlugins().map((x) => x.name))
   );
 
   const choicesMap = new Set<string>();
+
+  const deprecatedChoices = new Set<string>();
+
   for (const collectionName of installedCollections) {
     try {
-      const { resolvedCollectionName, normalizedGeneratorName } =
-        ws.readGenerator(collectionName, generatorName);
-
-      choicesMap.add(`${resolvedCollectionName}:${normalizedGeneratorName}`);
+      const {
+        resolvedCollectionName,
+        normalizedGeneratorName,
+        generatorConfiguration: { ['x-deprecated']: deprecated, hidden },
+      } = ws.readGenerator(collectionName, generatorName);
+      if (hidden) {
+        continue;
+      }
+      if (deprecated) {
+        deprecatedChoices.add(
+          `${resolvedCollectionName}:${normalizedGeneratorName}`
+        );
+      } else {
+        choicesMap.add(`${resolvedCollectionName}:${normalizedGeneratorName}`);
+      }
     } catch {}
   }
 
@@ -77,15 +89,25 @@ async function promptForCollection(
   }[] = [];
   for (const [name] of localPlugins) {
     try {
-      const { resolvedCollectionName, normalizedGeneratorName } =
-        ws.readGenerator(name, generatorName);
+      const {
+        resolvedCollectionName,
+        normalizedGeneratorName,
+        generatorConfiguration: { ['x-deprecated']: deprecated, hidden },
+      } = ws.readGenerator(name, generatorName);
+      if (hidden) {
+        continue;
+      }
       const value = `${resolvedCollectionName}:${normalizedGeneratorName}`;
       if (!choicesMap.has(value)) {
-        choicesFromLocalPlugins.push({
-          name: value,
-          message: chalk.bold(value),
-          value,
-        });
+        if (deprecated) {
+          deprecatedChoices.add(value);
+        } else {
+          choicesFromLocalPlugins.push({
+            name: value,
+            message: chalk.bold(value),
+            value,
+          });
+        }
       }
     } catch {}
   }
@@ -145,6 +167,13 @@ async function promptForCollection(
     return customCollection
       ? `${customCollection}:${generatorName}`
       : generator;
+  } else if (deprecatedChoices.size > 0) {
+    throw new Error(
+      [
+        `All installed generators named "${generatorName}" are deprecated. To run one, provide its full \`collection:generator\` id.`,
+        [...deprecatedChoices].map((x) => `  - ${x}`),
+      ].join('\n')
+    );
   } else {
     throw new Error(`Could not find any generators named "${generatorName}"`);
   }
@@ -217,6 +246,7 @@ async function convertToGenerateOptions(
     dryRun: generatorOptions.dryRun as boolean,
     interactive,
     defaults: generatorOptions.defaults as boolean,
+    quiet: generatorOptions.quiet,
   };
 
   delete generatorOptions.d;
@@ -229,6 +259,7 @@ async function convertToGenerateOptions(
   delete generatorOptions.generator;
   delete generatorOptions['--'];
   delete generatorOptions['$0'];
+  delete generatorOptions.quiet;
 
   return res;
 }
@@ -266,58 +297,6 @@ export function printGenHelp(
   );
 }
 
-export async function newWorkspace(cwd: string, args: { [k: string]: any }) {
-  const ws = new Workspaces(null);
-
-  return handleErrors(false, async () => {
-    const opts = await convertToGenerateOptions(args, ws, null, 'new');
-    const { normalizedGeneratorName, schema, implementationFactory } =
-      ws.readGenerator(opts.collectionName, opts.generatorName);
-
-    logger.info(
-      `NX Generating ${opts.collectionName}:${normalizedGeneratorName}`
-    );
-
-    const combinedOpts = await combineOptionsForGenerator(
-      opts.generatorOptions,
-      opts.collectionName,
-      normalizedGeneratorName,
-      null,
-      schema,
-      opts.interactive,
-      null,
-      null,
-      false
-    );
-
-    if (ws.isNxGenerator(opts.collectionName, normalizedGeneratorName)) {
-      const host = new FsTree(cwd, false);
-      const implementation = implementationFactory();
-      const task = await implementation(host, combinedOpts);
-      const changes = host.listChanges();
-
-      printChanges(changes);
-      if (!opts.dryRun) {
-        flushChanges(cwd, changes);
-        if (task) {
-          await task();
-        }
-      } else {
-        logger.warn(`\nNOTE: The "dryRun" flag means no changes were made.`);
-      }
-    } else {
-      return (await import('../adapter/ngcli-adapter')).generate(
-        cwd,
-        {
-          ...opts,
-          generatorOptions: combinedOpts,
-        },
-        false
-      );
-    }
-  });
-}
-
 export async function generate(cwd: string, args: { [k: string]: any }) {
   if (args['verbose']) {
     process.env.NX_VERBOSE_LOGGING = 'true';
@@ -325,26 +304,40 @@ export async function generate(cwd: string, args: { [k: string]: any }) {
   const verbose = process.env.NX_VERBOSE_LOGGING === 'true';
 
   const ws = new Workspaces(workspaceRoot);
-  const nxJson = readNxJson();
+  const nxJsonConfiguration = readNxJson();
   const projectGraph = await createProjectGraphAsync({ exitOnError: true });
-  const projectsConfiguration =
+  const projectsConfigurations =
     readProjectsConfigurationFromProjectGraph(projectGraph);
 
-  const workspaceConfiguration = {
-    ...nxJson,
-    ...projectsConfiguration,
-  };
   return handleErrors(verbose, async () => {
     const opts = await convertToGenerateOptions(
       args,
       ws,
-      readDefaultCollection(nxJson),
+      readDefaultCollection(nxJsonConfiguration),
       'generate',
-      projectsConfiguration
+      projectsConfigurations
     );
-    const { normalizedGeneratorName, schema, implementationFactory, aliases } =
-      ws.readGenerator(opts.collectionName, opts.generatorName);
 
+    const {
+      normalizedGeneratorName,
+      schema,
+      implementationFactory,
+      generatorConfiguration: {
+        aliases,
+        hidden,
+        ['x-deprecated']: deprecated,
+        ['x-use-standalone-layout']: isStandalonePreset,
+      },
+    } = ws.readGenerator(opts.collectionName, opts.generatorName);
+
+    if (deprecated) {
+      logger.warn(
+        [
+          `${NX_PREFIX}: ${opts.collectionName}:${normalizedGeneratorName} is deprecated`,
+          `${deprecated}`,
+        ].join('/n')
+      );
+    }
     logger.info(
       `NX Generating ${opts.collectionName}:${normalizedGeneratorName}`
     );
@@ -358,10 +351,15 @@ export async function generate(cwd: string, args: { [k: string]: any }) {
       opts.generatorOptions,
       opts.collectionName,
       normalizedGeneratorName,
-      workspaceConfiguration,
+      projectsConfigurations,
+      nxJsonConfiguration,
       schema,
       opts.interactive,
-      ws.calculateDefaultProjectName(cwd, workspaceConfiguration),
+      ws.calculateDefaultProjectName(
+        cwd,
+        projectsConfigurations,
+        nxJsonConfiguration
+      ),
       ws.relativeCwd(cwd),
       verbose
     );
@@ -369,10 +367,21 @@ export async function generate(cwd: string, args: { [k: string]: any }) {
     if (ws.isNxGenerator(opts.collectionName, normalizedGeneratorName)) {
       const host = new FsTree(workspaceRoot, verbose);
       const implementation = implementationFactory();
+
+      // @todo(v17): Remove this, isStandalonePreset property is defunct.
+      if (normalizedGeneratorName === 'preset' && !isStandalonePreset) {
+        host.write('apps/.gitkeep', '');
+        host.write('libs/.gitkeep', '');
+      }
+
       const task = await implementation(host, combinedOpts);
+      host.lock();
+
       const changes = host.listChanges();
 
-      printChanges(changes);
+      if (!opts.quiet) {
+        printChanges(changes);
+      }
       if (!opts.dryRun) {
         flushChanges(workspaceRoot, changes);
         if (task) {

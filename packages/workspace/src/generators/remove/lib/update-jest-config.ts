@@ -7,17 +7,15 @@ import {
 import { getSourceNodes } from '../../../utilities/typescript/get-source-nodes';
 
 import { Schema } from '../schema';
-import {
+import type {
   ArrayLiteralExpression,
-  createSourceFile,
-  isArrayLiteralExpression,
-  isPropertyAssignment,
-  isStringLiteral,
   PropertyAssignment,
-  ScriptTarget,
   StringLiteral,
 } from 'typescript';
 import { join } from 'path';
+import { ensureTypescript } from '../../../utilities/typescript';
+
+let tsModule: typeof import('typescript');
 
 function isUsingUtilityFunction(host: Tree) {
   return host.read('jest.config.ts').toString().includes('getJestProjects()');
@@ -31,6 +29,16 @@ export function updateJestConfig(
   schema: Schema,
   projectConfig: ProjectConfiguration
 ) {
+  if (!tsModule) {
+    tsModule = ensureTypescript();
+  }
+  const {
+    createSourceFile,
+    ScriptTarget,
+    isPropertyAssignment,
+    isArrayLiteralExpression,
+    isStringLiteral,
+  } = tsModule;
   const projectToRemove = schema.projectName;
 
   if (

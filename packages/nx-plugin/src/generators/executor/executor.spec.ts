@@ -2,7 +2,7 @@ import { Tree, readJson, readProjectConfiguration } from '@nrwl/devkit';
 import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { executorGenerator } from './executor';
 import { pluginGenerator } from '../plugin/plugin';
-import { libraryGenerator } from '@nrwl/js';
+import { libraryGenerator as jsLibraryGenerator } from '@nrwl/js';
 
 describe('NxPlugin Executor Generator', () => {
   let tree: Tree;
@@ -10,7 +10,7 @@ describe('NxPlugin Executor Generator', () => {
 
   beforeEach(async () => {
     projectName = 'my-plugin';
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
 
     await pluginGenerator(tree, {
       name: projectName,
@@ -93,9 +93,9 @@ describe('NxPlugin Executor Generator', () => {
   });
 
   it('should create executors.json if it is not present', async () => {
-    await libraryGenerator(tree, {
+    await jsLibraryGenerator(tree, {
       name: 'test-js-lib',
-      buildable: true,
+      bundler: 'tsc',
     });
     const libConfig = readProjectConfiguration(tree, 'test-js-lib');
     await executorGenerator(tree, {

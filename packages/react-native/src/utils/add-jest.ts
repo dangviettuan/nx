@@ -6,7 +6,8 @@ export async function addJest(
   unitTestRunner: 'jest' | 'none',
   projectName: string,
   appProjectRoot: string,
-  js: boolean
+  js: boolean,
+  skipPackageJson: boolean
 ) {
   if (unitTestRunner !== 'jest') {
     return () => {};
@@ -19,6 +20,8 @@ export async function addJest(
     skipSerializers: true,
     setupFile: 'none',
     compiler: 'babel',
+    skipPackageJson,
+    skipFormat: true,
   });
 
   // overwrite the jest.config.ts file because react native needs to have special transform property
@@ -30,7 +33,7 @@ export async function addJest(
   moduleFileExtensions: ['ts', 'js', 'html', 'tsx', 'jsx'],
   setupFilesAfterEnv: ['<rootDir>/test-setup.${js ? 'js' : 'ts'}'],
   moduleNameMapper: {
-    '\\.svg': '@nrwl/react-native/plugins/jest/svg-mock'
+    '\\\\.svg$': '@nrwl/react-native/plugins/jest/svg-mock'
   }
 };`;
   host.write(configPath, content);

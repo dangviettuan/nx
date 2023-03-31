@@ -12,6 +12,8 @@ import { Task, TaskGraph } from '../config/task-graph';
 import { ProjectGraph } from '../config/project-graph';
 import { NxJsonConfiguration } from '../config/nx-json';
 import { hashTask } from '../hasher/hash-task';
+import { findAllProjectNodeDependencies } from '../utils/project-graph-utils';
+import { reverse } from '../project-graph/operators';
 
 export interface Batch {
   executorName: string;
@@ -21,7 +23,7 @@ export interface Batch {
 export class TasksSchedule {
   private notScheduledTaskGraph = this.taskGraph;
   private reverseTaskDeps = calculateReverseDeps(this.taskGraph);
-
+  private reverseProjectGraph = reverse(this.projectGraph);
   private scheduledBatches: Batch[] = [];
 
   private scheduledTasks: string[] = [];
@@ -39,7 +41,7 @@ export class TasksSchedule {
 
   public async scheduleNextTasks() {
     if (process.env.NX_BATCH_MODE === 'true') {
-      this.scheduleBatches();
+      await this.scheduleBatches();
     }
     for (let root of this.notScheduledTaskGraph.roots) {
       if (this.canBeScheduled(root)) {
@@ -99,19 +101,43 @@ export class TasksSchedule {
       [taskId]
     );
     this.options.lifeCycle.scheduleTask(task);
-    this.scheduledTasks.push(taskId);
+    this.scheduledTasks = this.scheduledTasks
+      .concat(taskId)
+      // NOTE: sort task by most dependent on first
+      .sort((taskId1, taskId2) => {
+        // First compare the length of task dependencies.
+        const taskDifference =
+          this.reverseTaskDeps[taskId2].length -
+          this.reverseTaskDeps[taskId1].length;
+
+        if (taskDifference !== 0) {
+          return taskDifference;
+        }
+
+        // Tie-breaker for tasks with equal number of task dependencies.
+        // Most likely tasks with no dependencies such as test
+        const project1 = this.taskGraph.tasks[taskId1].target.project;
+        const project2 = this.taskGraph.tasks[taskId2].target.project;
+
+        return (
+          findAllProjectNodeDependencies(project2, this.reverseProjectGraph)
+            .length -
+          findAllProjectNodeDependencies(project1, this.reverseProjectGraph)
+            .length
+        );
+      });
   }
 
-  private scheduleBatches() {
+  private async scheduleBatches() {
     const batchMap: Record<string, TaskGraph> = {};
     for (const root of this.notScheduledTaskGraph.roots) {
       const rootTask = this.notScheduledTaskGraph.tasks[root];
-      const executorName = getExecutorNameForTask(
+      const executorName = await getExecutorNameForTask(
         rootTask,
         this.nxJson,
         this.projectGraph
       );
-      this.processTaskForBatches(batchMap, rootTask, executorName, true);
+      await this.processTaskForBatches(batchMap, rootTask, executorName, true);
     }
     for (const [executorName, taskGraph] of Object.entries(batchMap)) {
       this.scheduleBatch({ executorName, taskGraph });
@@ -128,19 +154,19 @@ export class TasksSchedule {
     this.scheduledBatches.push({ executorName, taskGraph });
   }
 
-  private processTaskForBatches(
+  private async processTaskForBatches(
     batches: Record<string, TaskGraph>,
     task: Task,
     rootExecutorName: string,
     isRoot: boolean
   ) {
-    const { batchImplementationFactory } = getExecutorForTask(
+    const { batchImplementationFactory } = await getExecutorForTask(
       task,
       this.workspaces,
       this.projectGraph,
       this.nxJson
     );
-    const executorName = getExecutorNameForTask(
+    const executorName = await getExecutorNameForTask(
       task,
       this.nxJson,
       this.projectGraph
@@ -162,7 +188,8 @@ export class TasksSchedule {
       } as TaskGraph));
 
     batch.tasks[task.id] = task;
-    batch.dependencies[task.id] = this.taskGraph.dependencies[task.id];
+    batch.dependencies[task.id] =
+      this.notScheduledTaskGraph.dependencies[task.id];
     if (isRoot) {
       batch.roots.push(task.id);
     }

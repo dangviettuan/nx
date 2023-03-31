@@ -1,39 +1,39 @@
 import {
-  Tree,
+  addDependenciesToPackageJson,
+  addProjectConfiguration,
   convertNxGenerator,
+  ensurePackage,
+  extractLayoutDirectory,
+  formatFiles,
+  generateFiles,
+  GeneratorCallback,
+  getWorkspaceLayout,
+  joinPathFragments,
   names,
   offsetFromRoot,
-  generateFiles,
-  toJS,
-  getWorkspaceLayout,
-  addProjectConfiguration,
-  formatFiles,
-  updateJson,
-  GeneratorCallback,
-  joinPathFragments,
   ProjectConfiguration,
-  addDependenciesToPackageJson,
+  runTasksInSerial,
+  toJS,
+  Tree,
+  updateJson,
 } from '@nrwl/devkit';
 import { getImportPath } from 'nx/src/utils/path';
 import { join } from 'path';
-import { runTasksInSerial } from '../../utilities/run-tasks-in-serial';
+
 import {
   getRelativePathToRootTsConfig,
+  getRootTsConfigFileName,
   getRootTsConfigPathInTree,
-} from '../../utilities/typescript';
-import { nxVersion } from '../../utils/versions';
-import { Schema } from './schema';
-
-// nx-ignore-next-line
-const { jestProjectGenerator } = require('@nrwl/jest');
-// nx-ignore-next-line
-const { lintProjectGenerator, Linter } = require('@nrwl/linter');
+} from '../../utilities/ts-config';
+import { nxVersion, typescriptVersion } from '../../utils/versions';
+import type { Schema } from './schema';
 
 export interface NormalizedSchema extends Schema {
   name: string;
   fileName: string;
   projectRoot: string;
   projectDirectory: string;
+  libsDir: string;
   parsedTags: string[];
   importPath?: string;
 }
@@ -48,13 +48,15 @@ function addProject(tree: Tree, options: NormalizedSchema) {
   };
 
   if (options.buildable) {
-    const { libsDir } = getWorkspaceLayout(tree);
     addDependenciesToPackageJson(tree, {}, { '@nrwl/js': nxVersion });
     projectConfiguration.targets.build = {
       executor: '@nrwl/js:tsc',
       outputs: ['{options.outputPath}'],
       options: {
-        outputPath: `dist/${libsDir}/${options.projectDirectory}`,
+        outputPath:
+          options.libsDir != '.'
+            ? `dist/${options.libsDir}/${options.projectDirectory}`
+            : `dist/${options.projectDirectory}`,
         main: `${options.projectRoot}/src/index` + (options.js ? '.js' : '.ts'),
         tsConfig: `${options.projectRoot}/tsconfig.lib.json`,
         assets: [`${options.projectRoot}/*.md`],
@@ -62,18 +64,14 @@ function addProject(tree: Tree, options: NormalizedSchema) {
     };
   }
 
-  addProjectConfiguration(
-    tree,
-    options.name,
-    projectConfiguration,
-    options.standaloneConfig
-  );
+  addProjectConfiguration(tree, options.name, projectConfiguration);
 }
 
-export function addLint(
+export async function addLint(
   tree: Tree,
   options: NormalizedSchema
 ): Promise<GeneratorCallback> {
+  const { lintProjectGenerator } = ensurePackage('@nrwl/linter', nxVersion);
   return lintProjectGenerator(tree, {
     project: options.name,
     linter: options.linter,
@@ -174,6 +172,7 @@ async function addJest(
   tree: Tree,
   options: NormalizedSchema
 ): Promise<GeneratorCallback> {
+  const { jestProjectGenerator } = ensurePackage('@nrwl/jest', nxVersion);
   return await jestProjectGenerator(tree, {
     ...options,
     project: options.name,
@@ -186,17 +185,24 @@ async function addJest(
   });
 }
 
+function addTypescript(tree: Tree, options: NormalizedSchema) {
+  // add tsconfig.base.json
+  if (!options.skipTsConfig && !getRootTsConfigFileName()) {
+    generateFiles(tree, joinPathFragments(__dirname, './files/root'), '.', {});
+  }
+
+  return !options.js
+    ? addDependenciesToPackageJson(tree, {}, { typescript: typescriptVersion })
+    : () => {};
+}
+
 export async function libraryGenerator(tree: Tree, schema: Schema) {
   const options = normalizeOptions(tree, schema);
-
-  createFiles(tree, options);
-
-  if (!options.skipTsConfig) {
-    updateRootTsConfig(tree, options);
-  }
-  addProject(tree, options);
-
   const tasks: GeneratorCallback[] = [];
+
+  addTypescript(tree, options);
+  createFiles(tree, options);
+  addProject(tree, options);
 
   if (options.linter !== 'none') {
     const lintCallback = await addLint(tree, options);
@@ -205,6 +211,9 @@ export async function libraryGenerator(tree: Tree, schema: Schema) {
   if (options.unitTestRunner === 'jest') {
     const jestCallback = await addJest(tree, options);
     tasks.push(jestCallback);
+  }
+  if (!options.skipTsConfig) {
+    updateRootTsConfig(tree, options);
   }
 
   if (!options.skipFormat) {
@@ -219,15 +228,16 @@ export const librarySchematic = convertNxGenerator(libraryGenerator);
 
 function normalizeOptions(tree: Tree, options: Schema): NormalizedSchema {
   const name = names(options.name).fileName;
-  const projectDirectory = options.directory
-    ? `${names(options.directory).fileName}/${name}`
-    : name;
+  const { layoutDirectory, projectDirectory } = extractLayoutDirectory(
+    options.directory ? `${names(options.directory).fileName}/${name}` : name
+  );
 
   if (!options.unitTestRunner) {
     options.unitTestRunner = 'jest';
   }
 
   if (!options.linter) {
+    const { Linter } = ensurePackage('@nrwl/linter', nxVersion);
     options.linter = Linter.EsLint;
   }
 
@@ -237,7 +247,8 @@ function normalizeOptions(tree: Tree, options: Schema): NormalizedSchema {
     pascalCaseFiles: options.pascalCaseFiles,
   });
 
-  const { libsDir, npmScope } = getWorkspaceLayout(tree);
+  const { libsDir: defaultLibsDir, npmScope } = getWorkspaceLayout(tree);
+  const libsDir = layoutDirectory ?? defaultLibsDir;
 
   const projectRoot = joinPathFragments(libsDir, projectDirectory);
 
@@ -256,6 +267,7 @@ function normalizeOptions(tree: Tree, options: Schema): NormalizedSchema {
     projectDirectory,
     parsedTags,
     importPath,
+    libsDir,
   };
 }
 

@@ -1,11 +1,12 @@
 import {
+  getProjects,
   ProjectConfiguration,
   readJson,
   readProjectConfiguration,
   Tree,
   updateProjectConfiguration,
 } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
 import { libraryGenerator } from '@nrwl/workspace';
 import { defaultExclude } from '../../utils/swc/add-swc-config';
 import update from './update-swcrc';
@@ -14,9 +15,9 @@ describe('Migration: adjust .swcrc', () => {
   let tree: Tree;
   let projectConfiguration: ProjectConfiguration;
 
-  beforeEach(() => {
-    tree = createTreeWithEmptyV1Workspace();
-    libraryGenerator(tree, {
+  beforeEach(async () => {
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
+    await libraryGenerator(tree, {
       name: 'swc',
       buildable: true,
       linter: 'none',

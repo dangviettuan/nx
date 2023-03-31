@@ -5,16 +5,6 @@
   "title": "Create a React Library for Nx",
   "description": "Create a React Library for an Nx workspace.",
   "type": "object",
-  "examples": [
-    {
-      "command": "nx g lib mylib --directory=myapp",
-      "description": "Generate `libs/myapp/mylib`"
-    },
-    {
-      "command": "nx g lib mylib --appProject=myapp",
-      "description": "Generate a library with routes and add them to `myapp`"
-    }
-  ],
   "properties": {
     "name": {
       "type": "string",
@@ -24,12 +14,14 @@
         "index": 0
       },
       "x-prompt": "What name would you like to use for the library?",
-      "pattern": "^[a-zA-Z].*$"
+      "pattern": "^[a-zA-Z].*$",
+      "x-priority": "important"
     },
     "directory": {
       "type": "string",
       "description": "A directory where the lib is placed.",
-      "alias": "dir"
+      "alias": "dir",
+      "x-priority": "important"
     },
     "style": {
       "description": "The file extension to be used for style files.",
@@ -75,7 +67,7 @@
     "linter": {
       "description": "The tool to use for running lint checks.",
       "type": "string",
-      "enum": ["eslint", "tslint"],
+      "enum": ["eslint"],
       "default": "eslint"
     },
     "unitTestRunner": {
@@ -154,8 +146,17 @@
     },
     "standaloneConfig": {
       "description": "Split the project configuration into `<projectRoot>/project.json` rather than including it inside `workspace.json`",
-      "type": "boolean"
+      "type": "boolean",
+      "default": true,
+      "x-deprecated": "Nx only supports standaloneConfig"
+    },
+    "skipPackageJson": {
+      "type": "boolean",
+      "default": false,
+      "description": "Do not add dependencies to `package.json`.",
+      "x-priority": "internal"
     }
   },
-  "required": ["name"]
+  "required": ["name"],
+  "examplesFile": "../../../docs/library-examples.md"
 }

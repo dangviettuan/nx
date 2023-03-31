@@ -4,6 +4,12 @@
   "cli": "nx",
   "title": "SCAM Pipe Generator Options Schema",
   "type": "object",
+  "examples": [
+    {
+      "command": "nx g @nrwl/angular:scam-pipe --project=my-lib --flat=false my-transformation",
+      "description": "Generates a `MyTransformationPipe` in a `my-transformation` folder in the `my-lib` project"
+    }
+  ],
   "description": "Creates a new, generic Angular pipe definition in the given or default project.",
   "additionalProperties": false,
   "properties": {
@@ -16,6 +22,9 @@
     "project": {
       "type": "string",
       "description": "The name of the project.",
+      "$default": {
+        "$source": "projectName"
+      },
       "x-dropdown": "projects"
     },
     "name": {
@@ -25,7 +34,8 @@
         "$source": "argv",
         "index": 0
       },
-      "x-prompt": "What name would you like to use for the pipe?"
+      "x-prompt": "What name would you like to use for the pipe?",
+      "x-priority": "important"
     },
     "skipTests": {
       "type": "boolean",
@@ -35,7 +45,8 @@
     "inlineScam": {
       "type": "boolean",
       "description": "Create the NgModule in the same file as the Pipe.",
-      "default": true
+      "default": true,
+      "x-priority": "important"
     },
     "flat": {
       "type": "boolean",
@@ -45,8 +56,9 @@
     "export": {
       "type": "boolean",
       "description": "Specifies if the SCAM should be exported from the project's entry point (normally `index.ts`). It only applies to libraries.",
-      "default": true
+      "default": true,
+      "x-priority": "important"
     }
   },
-  "required": ["name"]
+  "required": ["name", "project"]
 }

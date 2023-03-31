@@ -1,23 +1,13 @@
 {
+  "name": "linter",
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "packages/linter",
   "projectType": "library",
   "targets": {
-    "test": {
-      "executor": "@nrwl/jest:jest",
-      "options": {
-        "jestConfig": "packages/linter/jest.config.ts",
-        "passWithNoTests": true
-      },
-      "outputs": ["coverage/packages/linter"]
-    },
+    "test": {},
     "build-base": {
       "executor": "@nrwl/js:tsc",
       "options": {
-        "outputPath": "build/packages/linter",
-        "tsConfig": "packages/linter/tsconfig.lib.json",
-        "main": "packages/linter/index.ts",
-        "updateBuildableProjectDepsInPackageJson": false,
         "assets": [
           {
             "input": "packages/linter",
@@ -52,37 +42,16 @@
             "output": "/"
           }
         ]
-      },
-      "outputs": ["{options.outputPath}"]
+      }
     },
     "build": {
       "executor": "nx:run-commands",
-      "outputs": ["build/packages/linter"],
+      "outputs": ["{workspaceRoot}/build/packages/linter"],
       "options": {
         "command": "node ./scripts/copy-readme.js linter"
       }
     },
-    "lint": {
-      "executor": "@nrwl/linter:eslint",
-      "options": {
-        "lintFilePatterns": [
-          "packages/linter/**/*.ts",
-          "packages/linter/**/*.spec.ts",
-          "packages/linter/**/*_spec.ts",
-          "packages/linter/**/*.spec.tsx",
-          "packages/linter/**/*.spec.js",
-          "packages/linter/**/*.spec.jsx",
-          "packages/linter/**/*.d.ts",
-          "packages/linter/**/executors/**/schema.json",
-          "packages/linter/**/generators/**/schema.json",
-          "packages/linter/generators.json",
-          "packages/linter/executors.json",
-          "packages/linter/package.json",
-          "packages/linter/migrations.json"
-        ]
-      },
-      "outputs": ["{options.outputFile}"]
-    }
+    "lint": {}
   },
   "implicitDependencies": ["eslint-plugin-nx"]
 }

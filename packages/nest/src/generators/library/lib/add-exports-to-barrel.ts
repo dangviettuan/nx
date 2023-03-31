@@ -1,21 +1,23 @@
 import type { Tree } from '@nrwl/devkit';
-import {
-  addGlobal,
-  removeChange,
-} from '@nrwl/workspace/src/utilities/ast-utils';
-import * as ts from 'typescript';
+import { addGlobal, removeChange } from '@nrwl/js';
 import type { NormalizedOptions } from '../schema';
+import { ensureTypescript } from '@nrwl/js/src/utils/typescript/ensure-typescript';
+
+let tsModule: typeof import('typescript');
 
 export function addExportsToBarrelFile(
   tree: Tree,
   options: NormalizedOptions
 ): void {
+  if (!tsModule) {
+    tsModule = ensureTypescript();
+  }
   const indexPath = `${options.projectRoot}/src/index.ts`;
   const indexContent = tree.read(indexPath, 'utf-8');
-  let sourceFile = ts.createSourceFile(
+  let sourceFile = tsModule.createSourceFile(
     indexPath,
     indexContent,
-    ts.ScriptTarget.Latest,
+    tsModule.ScriptTarget.Latest,
     true
   );
 

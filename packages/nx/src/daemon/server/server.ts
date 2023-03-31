@@ -9,17 +9,23 @@ import {
 } from '../socket-utils';
 import { serverLogger } from './logger';
 import {
+  getOutputsWatcherSubscription,
+  getSourceWatcherSubscription,
   handleServerProcessTermination,
   resetInactivityTimeout,
   respondToClient,
   respondWithErrorAndExit,
   SERVER_INACTIVITY_TIMEOUT_MS,
+  storeOutputsWatcherSubscription,
+  storeProcessJsonSubscription,
+  storeSourceWatcherSubscription,
 } from './shutdown-utils';
 import {
   convertChangeEventsToLogMessage,
+  subscribeToOutputsChanges,
   subscribeToWorkspaceChanges,
-  SubscribeToWorkspaceChangesCallback,
-  WatcherSubscription,
+  FileWatcherCallback,
+  subscribeToServerProcessJsonChanges,
 } from './watcher';
 import { addUpdatedAndDeletedFiles } from './project-graph-incremental-recomputation';
 import { existsSync, statSync } from 'fs';
@@ -30,11 +36,25 @@ import { handleProcessInBackground } from './handle-process-in-background';
 import {
   handleOutputsHashesMatch,
   handleRecordOutputsHash,
-} from './handle-output-contents';
+} from './handle-outputs-tracking';
+import { consumeMessagesFromSocket } from '../../utils/consume-messages-from-socket';
+import {
+  disableOutputsTracking,
+  processFileChangesInOutputs,
+} from './outputs-tracking';
+import { handleRequestShutdown } from './handle-request-shutdown';
+import {
+  registeredFileWatcherSockets,
+  removeRegisteredFileWatcherSocket,
+} from './file-watching/file-watcher-sockets';
+import { nxVersion } from '../../utils/versions';
+import { readJsonFile } from '../../utils/fileutils';
+import { PackageJson } from '../../utils/package-json';
+import { getDaemonProcessIdSync, writeDaemonJsonProcessCache } from '../cache';
 
-let watcherSubscription: WatcherSubscription | undefined;
 let performanceObserver: PerformanceObserver | undefined;
-let watcherError: Error | undefined;
+let workspaceWatcherError: Error | undefined;
+let outputsWatcherError: Error | undefined;
 
 export type HandlerResult = {
   description: string;
@@ -42,7 +62,13 @@ export type HandlerResult = {
   response?: string;
 };
 
+let numberOfOpenConnections = 0;
+
 const server = createServer(async (socket) => {
+  numberOfOpenConnections += 1;
+  serverLogger.log(
+    `Established a connection. Number of open connections: ${numberOfOpenConnections}`
+  );
   resetInactivityTimeout(handleInactivityTimeout);
   if (!performanceObserver) {
     performanceObserver = new PerformanceObserver((list) => {
@@ -52,28 +78,40 @@ const server = createServer(async (socket) => {
     performanceObserver.observe({ entryTypes: ['measure'] });
   }
 
-  let message = '';
-  socket.on('data', async (data) => {
-    const chunk = data.toString();
-    if (chunk.length === 0 || chunk.codePointAt(chunk.length - 1) != 4) {
-      message += chunk;
-    } else {
-      message += chunk.substring(0, chunk.length - 1);
+  socket.on(
+    'data',
+    consumeMessagesFromSocket(async (message) => {
       await handleMessage(socket, message);
-    }
+    })
+  );
+
+  socket.on('error', (e) => {
+    serverLogger.log('Socket error');
+    console.error(e);
+  });
+
+  socket.on('close', () => {
+    numberOfOpenConnections -= 1;
+    serverLogger.log(
+      `Closed a connection. Number of open connections: ${numberOfOpenConnections}`
+    );
+
+    removeRegisteredFileWatcherSocket(socket);
   });
 });
+registerProcessTerminationListeners();
+registerProcessServerJsonTracking();
 
-async function handleMessage(socket, data) {
-  if (watcherError) {
+async function handleMessage(socket, data: string) {
+  if (workspaceWatcherError) {
     await respondWithErrorAndExit(
       socket,
       `File watcher error in the workspace '${workspaceRoot}'.`,
-      watcherError
+      workspaceWatcherError
     );
   }
 
-  if (lockFileChanged()) {
+  if (daemonIsOutdated()) {
     await respondWithErrorAndExit(socket, `Lock files changed`, {
       name: '',
       message: 'LOCK-FILES-CHANGED',
@@ -82,7 +120,7 @@ async function handleMessage(socket, data) {
 
   resetInactivityTimeout(handleInactivityTimeout);
 
-  const unparsedPayload = data.toString();
+  const unparsedPayload = data;
   let payload;
   try {
     payload = JSON.parse(unparsedPayload);
@@ -94,7 +132,12 @@ async function handleMessage(socket, data) {
     );
   }
 
-  if (payload.type === 'REQUEST_PROJECT_GRAPH') {
+  if (payload.type === 'PING') {
+    await handleResult(socket, {
+      response: JSON.stringify(true),
+      description: 'ping',
+    });
+  } else if (payload.type === 'REQUEST_PROJECT_GRAPH') {
     await handleResult(socket, await handleRequestProjectGraph());
   } else if (payload.type === 'PROCESS_IN_BACKGROUND') {
     await handleResult(socket, await handleProcessInBackground(payload));
@@ -102,6 +145,13 @@ async function handleMessage(socket, data) {
     await handleResult(socket, await handleRecordOutputsHash(payload));
   } else if (payload.type === 'OUTPUTS_HASHES_MATCH') {
     await handleResult(socket, await handleOutputsHashesMatch(payload));
+  } else if (payload.type === 'REQUEST_SHUTDOWN') {
+    await handleResult(
+      socket,
+      await handleRequestShutdown(server, numberOfOpenConnections)
+    );
+  } else if (payload.type === 'REGISTER_FILE_WATCHER') {
+    registeredFileWatcherSockets.push({ socket, config: payload.config });
   } else {
     await respondWithErrorAndExit(
       socket,
@@ -111,7 +161,7 @@ async function handleMessage(socket, data) {
   }
 }
 
-async function handleResult(socket: Socket, hr: HandlerResult) {
+export async function handleResult(socket: Socket, hr: HandlerResult) {
   if (hr.error) {
     await respondWithErrorAndExit(socket, hr.description, hr.error);
   } else {
@@ -120,48 +170,80 @@ async function handleResult(socket: Socket, hr: HandlerResult) {
 }
 
 function handleInactivityTimeout() {
-  handleServerProcessTermination({
-    server,
-    watcherSubscription,
-    reason: `${SERVER_INACTIVITY_TIMEOUT_MS}ms of inactivity`,
-  });
+  if (numberOfOpenConnections > 0) {
+    serverLogger.log(
+      `There are ${numberOfOpenConnections} open connections. Reset inactivity timer.`
+    );
+    resetInactivityTimeout(handleInactivityTimeout);
+  } else {
+    handleServerProcessTermination({
+      server,
+      reason: `${SERVER_INACTIVITY_TIMEOUT_MS}ms of inactivity`,
+    });
+  }
 }
 
-process
-  .on('SIGINT', () =>
-    handleServerProcessTermination({
-      server,
-      watcherSubscription,
-      reason: 'received process SIGINT',
-    })
-  )
-  .on('SIGTERM', () =>
-    handleServerProcessTermination({
-      server,
-      watcherSubscription,
-      reason: 'received process SIGTERM',
-    })
-  )
-  .on('SIGHUP', () =>
-    handleServerProcessTermination({
-      server,
-      watcherSubscription,
-      reason: 'received process SIGHUP',
+function registerProcessTerminationListeners() {
+  process
+    .on('SIGINT', () =>
+      handleServerProcessTermination({
+        server,
+        reason: 'received process SIGINT',
+      })
+    )
+    .on('SIGTERM', () =>
+      handleServerProcessTermination({
+        server,
+        reason: 'received process SIGTERM',
+      })
+    )
+    .on('SIGHUP', () =>
+      handleServerProcessTermination({
+        server,
+        reason: 'received process SIGHUP',
+      })
+    );
+}
+
+async function registerProcessServerJsonTracking() {
+  storeProcessJsonSubscription(
+    await subscribeToServerProcessJsonChanges(async () => {
+      if (getDaemonProcessIdSync() !== process.pid) {
+        await handleServerProcessTermination({
+          server,
+          reason: 'this process is no longer the current daemon',
+        });
+      }
     })
   );
+}
 
 let existingLockHash: string | undefined;
+const hasher = new HashingImpl();
 
-function lockFileChanged(): boolean {
-  const hash = new HashingImpl();
+function daemonIsOutdated(): boolean {
+  return nxVersionChanged() || lockFileHashChanged();
+}
+
+function nxVersionChanged(): boolean {
+  return nxVersion !== getInstalledNxVersion();
+}
+
+const nxPackageJsonPath = require.resolve('nx/package.json');
+function getInstalledNxVersion() {
+  const { version } = readJsonFile<PackageJson>(nxPackageJsonPath);
+  return version;
+}
+
+function lockFileHashChanged(): boolean {
   const lockHashes = [
     join(workspaceRoot, 'package-lock.json'),
     join(workspaceRoot, 'yarn.lock'),
     join(workspaceRoot, 'pnpm-lock.yaml'),
   ]
     .filter((file) => existsSync(file))
-    .map((file) => hash.hashFile(file));
-  const newHash = hash.hashArray(lockHashes);
+    .map((file) => hasher.hashFile(file));
+  const newHash = hasher.hashArray(lockHashes);
   if (existingLockHash && newHash != existingLockHash) {
     existingLockHash = newHash;
     return true;
@@ -176,11 +258,11 @@ function lockFileChanged(): boolean {
  * we need to recompute the cached serialized project graph so that it is readily
  * available for the next client request to the server.
  */
-const handleWorkspaceChanges: SubscribeToWorkspaceChangesCallback = async (
+const handleWorkspaceChanges: FileWatcherCallback = async (
   err,
   changeEvents
 ) => {
-  if (watcherError) {
+  if (workspaceWatcherError) {
     serverLogger.watcherLog(
       'Skipping handleWorkspaceChanges because of a previously recorded watcher error.'
     );
@@ -190,49 +272,88 @@ const handleWorkspaceChanges: SubscribeToWorkspaceChangesCallback = async (
   try {
     resetInactivityTimeout(handleInactivityTimeout);
 
-    if (lockFileChanged()) {
+    if (daemonIsOutdated()) {
       await handleServerProcessTermination({
         server,
-        watcherSubscription,
         reason: 'Lock file changed',
       });
       return;
     }
 
     if (err || !changeEvents || !changeEvents.length) {
-      serverLogger.watcherLog('Unexpected watcher error', err.message);
+      serverLogger.watcherLog(
+        'Unexpected workspace watcher error',
+        err.message
+      );
       console.error(err);
-      watcherError = err;
+      workspaceWatcherError = err;
       return;
     }
 
     serverLogger.watcherLog(convertChangeEventsToLogMessage(changeEvents));
 
-    const filesToHash = [];
+    const updatedFilesToHash = [];
+    const createdFilesToHash = [];
     const deletedFiles = [];
+
     for (const event of changeEvents) {
       if (event.type === 'delete') {
         deletedFiles.push(event.path);
       } else {
         try {
           const s = statSync(join(workspaceRoot, event.path));
-          if (!s.isDirectory()) {
-            filesToHash.push(event.path);
+          if (s.isFile()) {
+            if (event.type === 'update') {
+              updatedFilesToHash.push(event.path);
+            } else {
+              createdFilesToHash.push(event.path);
+            }
           }
         } catch (e) {
           // this can happen when the update file was deleted right after
         }
       }
     }
-    addUpdatedAndDeletedFiles(filesToHash, deletedFiles);
+
+    addUpdatedAndDeletedFiles(
+      createdFilesToHash,
+      updatedFilesToHash,
+      deletedFiles
+    );
   } catch (err) {
-    serverLogger.watcherLog(`Unexpected error`, err.message);
+    serverLogger.watcherLog(`Unexpected workspace error`, err.message);
     console.error(err);
-    watcherError = err;
+    workspaceWatcherError = err;
+  }
+};
+
+const handleOutputsChanges: FileWatcherCallback = async (err, changeEvents) => {
+  try {
+    if (err || !changeEvents || !changeEvents.length) {
+      serverLogger.watcherLog('Unexpected outputs watcher error', err.message);
+      console.error(err);
+      outputsWatcherError = err;
+      disableOutputsTracking();
+      return;
+    }
+    if (outputsWatcherError) {
+      return;
+    }
+    processFileChangesInOutputs(changeEvents);
+  } catch (err) {
+    serverLogger.watcherLog(`Unexpected outputs watcher error`, err.message);
+    console.error(err);
+    outputsWatcherError = err;
+    disableOutputsTracking();
   }
 };
 
 export async function startServer(): Promise<Server> {
+  // Persist metadata about the background process so that it can be cleaned up later if needed
+  await writeDaemonJsonProcessCache({
+    processId: process.pid,
+  });
+
   // See notes in socket-command-line-utils.ts on OS differences regarding clean up of existings connections.
   if (!isWindows) {
     killSocketOrPath();
@@ -244,44 +365,36 @@ export async function startServer(): Promise<Server> {
         try {
           serverLogger.log(`Started listening on: ${FULL_OS_SOCKET_PATH}`);
           // this triggers the storage of the lock file hash
-          lockFileChanged();
+          daemonIsOutdated();
 
-          if (!watcherSubscription) {
-            watcherSubscription = await subscribeToWorkspaceChanges(
-              server,
-              handleWorkspaceChanges
+          if (!getSourceWatcherSubscription()) {
+            storeSourceWatcherSubscription(
+              await subscribeToWorkspaceChanges(server, handleWorkspaceChanges)
             );
             serverLogger.watcherLog(
               `Subscribed to changes within: ${workspaceRoot}`
             );
           }
+
+          // temporary disable outputs tracking on linux
+          const outputsTrackingIsEnabled = process.platform != 'linux';
+          if (outputsTrackingIsEnabled) {
+            if (!getOutputsWatcherSubscription()) {
+              storeOutputsWatcherSubscription(
+                await subscribeToOutputsChanges(handleOutputsChanges)
+              );
+            }
+          } else {
+            disableOutputsTracking();
+          }
+
           return resolve(server);
         } catch (err) {
-          reject(err);
+          await handleWorkspaceChanges(err, []);
         }
       });
     } catch (err) {
       reject(err);
     }
-  });
-}
-
-export async function stopServer(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    server.close((err) => {
-      if (err) {
-        /**
-         * If the server is running in a detached background process then server.close()
-         * will throw this error even if server is actually alive. We therefore only reject
-         * in case of any other unexpected errors.
-         */
-        if (!err.message.startsWith('Server is not running')) {
-          return reject(err);
-        }
-      }
-
-      killSocketOrPath();
-      return resolve();
-    });
   });
 }

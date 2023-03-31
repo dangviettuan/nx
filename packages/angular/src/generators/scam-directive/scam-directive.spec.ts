@@ -5,7 +5,7 @@ import scamDirectiveGenerator from './scam-directive';
 describe('SCAM Directive Generator', () => {
   it('should create the inline scam directive correctly', async () => {
     // ARRANGE
-    const tree = createTreeWithEmptyWorkspace();
+    const tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
     addProjectConfiguration(tree, 'app1', {
       projectType: 'application',
       sourceRoot: 'apps/app1/src',
@@ -30,12 +30,10 @@ describe('SCAM Directive Generator', () => {
       import { CommonModule } from '@angular/common';
 
       @Directive({
-        selector: '[example]'
+        selector: '[projExample]',
       })
       export class ExampleDirective {
-
-        constructor() { }
-
+        constructor() {}
       }
 
       @NgModule({
@@ -43,13 +41,14 @@ describe('SCAM Directive Generator', () => {
         declarations: [ExampleDirective],
         exports: [ExampleDirective],
       })
-      export class ExampleDirectiveModule {}"
+      export class ExampleDirectiveModule {}
+      "
     `);
   });
 
   it('should create the separate scam directive correctly', async () => {
     // ARRANGE
-    const tree = createTreeWithEmptyWorkspace();
+    const tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
     addProjectConfiguration(tree, 'app1', {
       projectType: 'application',
       sourceRoot: 'apps/app1/src',
@@ -79,13 +78,14 @@ describe('SCAM Directive Generator', () => {
         declarations: [ExampleDirective],
         exports: [ExampleDirective],
       })
-      export class ExampleDirectiveModule {}"
+      export class ExampleDirectiveModule {}
+      "
     `);
   });
 
   it('should create the scam directive correctly and export it for a secondary entrypoint', async () => {
     // ARRANGE
-    const tree = createTreeWithEmptyWorkspace();
+    const tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
     addProjectConfiguration(tree, 'lib1', {
       projectType: 'library',
       sourceRoot: 'libs/lib1/src',
@@ -120,22 +120,24 @@ describe('SCAM Directive Generator', () => {
         declarations: [ExampleDirective],
         exports: [ExampleDirective],
       })
-      export class ExampleDirectiveModule {}"
+      export class ExampleDirectiveModule {}
+      "
     `);
     const secondaryEntryPointSource = tree.read(
       `libs/lib1/feature/src/index.ts`,
       'utf-8'
     );
     expect(secondaryEntryPointSource).toMatchInlineSnapshot(`
-      "export * from \\"./lib/example.directive\\";
-      export * from \\"./lib/example.module\\";"
+      "export * from './lib/example.directive';
+      export * from './lib/example.module';
+      "
     `);
   });
 
   describe('--path', () => {
     it('should not throw when the path does not exist under project', async () => {
       // ARRANGE
-      const tree = createTreeWithEmptyWorkspace();
+      const tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
       addProjectConfiguration(tree, 'app1', {
         projectType: 'application',
         sourceRoot: 'apps/app1/src',
@@ -161,12 +163,10 @@ describe('SCAM Directive Generator', () => {
         import { CommonModule } from '@angular/common';
 
         @Directive({
-          selector: '[example]'
+          selector: '[projExample]',
         })
         export class ExampleDirective {
-
-          constructor() { }
-
+          constructor() {}
         }
 
         @NgModule({
@@ -174,13 +174,14 @@ describe('SCAM Directive Generator', () => {
           declarations: [ExampleDirective],
           exports: [ExampleDirective],
         })
-        export class ExampleDirectiveModule {}"
+        export class ExampleDirectiveModule {}
+        "
       `);
     });
 
     it('should not matter if the path starts with a slash', async () => {
       // ARRANGE
-      const tree = createTreeWithEmptyWorkspace();
+      const tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
       addProjectConfiguration(tree, 'app1', {
         projectType: 'application',
         sourceRoot: 'apps/app1/src',
@@ -206,12 +207,10 @@ describe('SCAM Directive Generator', () => {
         import { CommonModule } from '@angular/common';
 
         @Directive({
-          selector: '[example]'
+          selector: '[projExample]',
         })
         export class ExampleDirective {
-
-          constructor() { }
-
+          constructor() {}
         }
 
         @NgModule({
@@ -219,13 +218,14 @@ describe('SCAM Directive Generator', () => {
           declarations: [ExampleDirective],
           exports: [ExampleDirective],
         })
-        export class ExampleDirectiveModule {}"
+        export class ExampleDirectiveModule {}
+        "
       `);
     });
 
     it('should throw when the path does not exist under project', async () => {
       // ARRANGE
-      const tree = createTreeWithEmptyWorkspace();
+      const tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
       addProjectConfiguration(tree, 'app1', {
         projectType: 'application',
         sourceRoot: 'apps/app1/src',

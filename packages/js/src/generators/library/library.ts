@@ -1,6 +1,9 @@
 import {
+  addDependenciesToPackageJson,
   addProjectConfiguration,
   convertNxGenerator,
+  ensurePackage,
+  extractLayoutDirectory,
   formatFiles,
   generateFiles,
   GeneratorCallback,
@@ -9,31 +12,39 @@ import {
   names,
   offsetFromRoot,
   ProjectConfiguration,
+  runTasksInSerial,
   toJS,
   Tree,
   updateJson,
-  readJson,
   writeJson,
 } from '@nrwl/devkit';
 import { getImportPath } from 'nx/src/utils/path';
-import { jestProjectGenerator } from '@nrwl/jest';
-import { Linter, lintProjectGenerator } from '@nrwl/linter';
-import { runTasksInSerial } from '@nrwl/workspace/src/utilities/run-tasks-in-serial';
+
 import {
   getRelativePathToRootTsConfig,
-  getRootTsConfigPathInTree,
-} from '@nrwl/workspace/src/utilities/typescript';
+  updateRootTsConfig,
+} from '../../utils/typescript/ts-config';
 import { join } from 'path';
 import { addMinimalPublishScript } from '../../utils/minimal-publish-script';
-import { LibraryGeneratorSchema } from '../../utils/schema';
+import { Bundler, LibraryGeneratorSchema } from '../../utils/schema';
 import { addSwcConfig } from '../../utils/swc/add-swc-config';
 import { addSwcDependencies } from '../../utils/swc/add-swc-dependencies';
+import {
+  esbuildVersion,
+  nxVersion,
+  typesNodeVersion,
+} from '../../utils/versions';
+import jsInitGenerator from '../init/init';
 
 export async function libraryGenerator(
   tree: Tree,
   schema: LibraryGeneratorSchema
 ) {
-  const { libsDir } = getWorkspaceLayout(tree);
+  const { layoutDirectory, projectDirectory } = extractLayoutDirectory(
+    schema.directory
+  );
+  schema.directory = projectDirectory;
+  const libsDir = layoutDirectory ?? getWorkspaceLayout(tree).libsDir;
   return projectGenerator(tree, schema, libsDir, join(__dirname, './files'));
 }
 
@@ -43,28 +54,65 @@ export async function projectGenerator(
   destinationDir: string,
   filesDir: string
 ) {
+  const tasks: GeneratorCallback[] = [];
+  tasks.push(
+    await jsInitGenerator(tree, {
+      ...schema,
+      skipFormat: true,
+    })
+  );
   const options = normalizeOptions(tree, schema, destinationDir);
 
   createFiles(tree, options, `${filesDir}/lib`);
 
   addProject(tree, options, destinationDir);
 
-  if (!schema.skipTsConfig) {
-    updateRootTsConfig(tree, options);
-  }
+  tasks.push(addProjectDependencies(tree, options));
 
-  const tasks: GeneratorCallback[] = [];
+  if (options.bundler === 'vite') {
+    const { viteConfigurationGenerator } = ensurePackage(
+      '@nrwl/vite',
+      nxVersion
+    );
+    const viteTask = await viteConfigurationGenerator(tree, {
+      project: options.name,
+      newProject: true,
+      uiFramework: 'none',
+      includeVitest: options.unitTestRunner === 'vitest',
+      includeLib: true,
+    });
+    tasks.push(viteTask);
+  }
+  if (options.bundler === 'rollup') {
+    ensureBabelRootConfigExists(tree);
+  }
 
   if (options.linter !== 'none') {
     const lintCallback = await addLint(tree, options);
     tasks.push(lintCallback);
   }
+
   if (options.unitTestRunner === 'jest') {
     const jestCallback = await addJest(tree, options);
     tasks.push(jestCallback);
-    if (options.compiler === 'swc') {
+    if (options.bundler === 'swc' || options.bundler === 'rollup') {
       replaceJestConfig(tree, options, `${filesDir}/jest-config`);
     }
+  } else if (
+    options.unitTestRunner === 'vitest' &&
+    options.bundler !== 'vite' // Test would have been set up already
+  ) {
+    const { vitestGenerator } = ensurePackage('@nrwl/vite', nxVersion);
+    const vitestTask = await vitestGenerator(tree, {
+      project: options.name,
+      uiFramework: 'none',
+      coverageProvider: 'c8',
+    });
+    tasks.push(vitestTask);
+  }
+
+  if (!schema.skipTsConfig) {
+    updateRootTsConfig(tree, options);
   }
 
   if (!options.skipFormat) {
@@ -96,40 +144,64 @@ function addProject(
     tags: options.parsedTags,
   };
 
-  if (options.buildable && options.config !== 'npm-scripts') {
-    const outputPath = `dist/${destinationDir}/${options.projectDirectory}`;
+  if (
+    options.bundler &&
+    options.bundler !== 'none' &&
+    options.config !== 'npm-scripts'
+  ) {
+    const outputPath = destinationDir
+      ? `dist/${destinationDir}/${options.projectDirectory}`
+      : `dist/${options.projectDirectory}`;
     projectConfiguration.targets.build = {
-      executor: `@nrwl/js:${options.compiler}`,
+      executor: getBuildExecutor(options.bundler),
       outputs: ['{options.outputPath}'],
       options: {
         outputPath,
         main: `${options.projectRoot}/src/index` + (options.js ? '.js' : '.ts'),
         tsConfig: `${options.projectRoot}/tsconfig.lib.json`,
-        assets: [`${options.projectRoot}/*.md`],
+        assets: [],
       },
     };
 
-    if (options.compiler === 'swc' && options.skipTypeCheck) {
+    if (options.bundler === 'esbuild') {
+      projectConfiguration.targets.build.options.generatePackageJson = true;
+    }
+
+    if (options.bundler === 'rollup') {
+      projectConfiguration.targets.build.options.project = `${options.projectRoot}/package.json`;
+      projectConfiguration.targets.build.options.compiler = 'swc';
+    }
+
+    if (options.bundler === 'swc' && options.skipTypeCheck) {
       projectConfiguration.targets.build.options.skipTypeCheck = true;
+    }
+
+    if (
+      !options.minimal &&
+      // TODO(jack): assets for rollup have validation that we need to fix (assets must be under <project-root>/src)
+      options.bundler !== 'rollup'
+    ) {
+      projectConfiguration.targets.build.options.assets ??= [];
+      projectConfiguration.targets.build.options.assets.push(
+        joinPathFragments(options.projectRoot, '*.md')
+      );
     }
 
     if (options.publishable) {
       const publishScriptPath = addMinimalPublishScript(tree);
 
       projectConfiguration.targets.publish = {
-        executor: '@nrwl/workspace:run-commands',
+        executor: 'nx:run-commands',
         options: {
           command: `node ${publishScriptPath} ${options.name} {args.ver} {args.tag}`,
         },
-        dependsOn: [{ projects: 'self', target: 'build' }],
+        dependsOn: ['build'],
       };
     }
   }
 
-  if (options.config === 'workspace') {
-    addProjectConfiguration(tree, options.name, projectConfiguration, false);
-  } else if (options.config === 'project') {
-    addProjectConfiguration(tree, options.name, projectConfiguration, true);
+  if (options.config === 'workspace' || options.config === 'project') {
+    addProjectConfiguration(tree, options.name, projectConfiguration);
   } else {
     addProjectConfiguration(
       tree,
@@ -144,10 +216,11 @@ function addProject(
   }
 }
 
-export function addLint(
+export async function addLint(
   tree: Tree,
   options: NormalizedSchema
 ): Promise<GeneratorCallback> {
+  const { lintProjectGenerator } = ensurePackage('@nrwl/linter', nxVersion);
   return lintProjectGenerator(tree, {
     project: options.name,
     linter: options.linter,
@@ -181,35 +254,11 @@ function updateTsConfig(tree: Tree, options: NormalizedSchema) {
   });
 }
 
-/**
- * Currently `@nrwl/js:library` TypeScript files can be compiled by most NX applications scaffolded via the Plugin system. However, `@nrwl/react:app` is an exception that due to its babel configuration, won't transpile external TypeScript files from packages/libs that do not contain a .babelrc.
- *
- * If a user doesn't explicitly set the flag, to prevent breaking the experience (they see the application failing, and they need to manually add the babelrc themselves), we want to detect whether they have the `@nrwl/web` plugin installed, and generate it automatically for them (even when they do not explicity request it).
- *
- * You can find more details on why this is necessary here:
- * https://github.com/nrwl/nx/pull/10055
- */
-function shouldAddBabelRc(tree: Tree, options: NormalizedSchema) {
-  if (typeof options.includeBabelRc === 'undefined') {
-    const webPluginName = '@nrwl/web';
-
-    const packageJson = readJson(tree, 'package.json');
-
-    const hasNxWebPlugin = Object.keys(
-      packageJson.devDependencies as Record<string, string>
-    ).includes(webPluginName);
-
-    return hasNxWebPlugin;
-  }
-
-  return options.includeBabelRc;
-}
-
 function addBabelRc(tree: Tree, options: NormalizedSchema) {
   const filename = '.babelrc';
 
   const babelrc = {
-    presets: [['@nrwl/web/babel', { useBuiltIns: 'usage' }]],
+    presets: [['@nrwl/js/babel', { useBuiltIns: 'usage' }]],
   };
 
   writeJson(tree, join(options.projectRoot, filename), babelrc);
@@ -229,14 +278,18 @@ function createFiles(tree: Tree, options: NormalizedSchema, filesDir: string) {
     tmpl: '',
     offsetFromRoot: offsetFromRoot(options.projectRoot),
     rootTsConfigPath: getRelativePathToRootTsConfig(tree, options.projectRoot),
-    buildable: options.buildable === true,
+    buildable: options.bundler && options.bundler !== 'none',
     hasUnitTestRunner: options.unitTestRunner !== 'none',
   });
 
-  if (options.compiler === 'swc') {
+  if (options.bundler === 'swc' || options.bundler === 'rollup') {
     addSwcDependencies(tree);
-    addSwcConfig(tree, options.projectRoot);
-  } else if (shouldAddBabelRc(tree, options)) {
+    addSwcConfig(
+      tree,
+      options.projectRoot,
+      options.bundler === 'swc' ? 'commonjs' : 'es6'
+    );
+  } else if (options.includeBabelRc) {
     addBabelRc(tree, options);
   }
 
@@ -262,8 +315,12 @@ function createFiles(tree: Tree, options: NormalizedSchema, filesDir: string) {
       };
       return json;
     });
-  } else if (!options.buildable) {
+  } else if (!options.bundler || options.bundler === 'none') {
     tree.delete(packageJsonPath);
+  }
+
+  if (options.minimal) {
+    tree.delete(join(options.projectRoot, 'README.md'));
   }
 
   updateTsConfig(tree, options);
@@ -273,6 +330,7 @@ async function addJest(
   tree: Tree,
   options: NormalizedSchema
 ): Promise<GeneratorCallback> {
+  const { jestProjectGenerator } = ensurePackage('@nrwl/jest', nxVersion);
   return await jestProjectGenerator(tree, {
     ...options,
     project: options.name,
@@ -281,7 +339,12 @@ async function addJest(
     skipSerializers: true,
     testEnvironment: options.testEnvironment,
     skipFormat: true,
-    compiler: options.compiler,
+    compiler:
+      options.bundler === 'swc' || options.bundler === 'tsc'
+        ? options.bundler
+        : options.bundler === 'rollup'
+        ? 'swc'
+        : undefined,
   });
 }
 
@@ -314,23 +377,58 @@ function normalizeOptions(
   options: LibraryGeneratorSchema,
   destinationDir: string
 ): NormalizedSchema {
+  /**
+   * We are deprecating the compiler and the buildable options.
+   * However, we want to keep the existing behavior for now.
+   *
+   * So, if the user has not provided a bundler, we will use the compiler option, if any.
+   *
+   * If the user has not provided a bundler and no compiler, but has set buildable to true,
+   * we will use tsc, since that is the compiler the old generator used to default to, if buildable was true
+   * and no compiler was provided.
+   *
+   * If the user has not provided a bundler and no compiler, and has not set buildable to true, then
+   * set the bundler to tsc, to preserve old default behaviour (buildable: true by default).
+   *
+   * If it's publishable, we need to build the code before publishing it, so again
+   * we default to `tsc`. In the previous version of this, it would set `buildable` to true
+   * and that would default to `tsc`.
+   *
+   * In the past, the only way to get a non-buildable library was to set buildable to false.
+   * Now, the only way to get a non-buildble library is to set bundler to none.
+   * By default, with nothing provided, libraries are buildable with `@nrwl/js:tsc`.
+   */
+
+  options.bundler = options.bundler ?? options.compiler ?? 'tsc';
+
   if (options.publishable) {
     if (!options.importPath) {
       throw new Error(
         `For publishable libs you have to provide a proper "--importPath" which needs to be a valid npm package name (e.g. my-awesome-lib or @myorg/my-lib)`
       );
     }
-    options.buildable = true;
+
+    if (options.bundler === 'none') {
+      options.bundler = 'tsc';
+    }
   }
 
+  // This is to preserve old behaviour, buildable: false
+  if (options.publishable === false && options.buildable === false) {
+    options.bundler = 'none';
+  }
+
+  const { Linter } = ensurePackage('@nrwl/linter', nxVersion);
   if (options.config === 'npm-scripts') {
     options.unitTestRunner = 'none';
     options.linter = Linter.None;
-    options.buildable = false;
+    options.bundler = 'none';
   }
-  options.compiler ??= 'tsc';
 
-  if (options.compiler === 'swc' && options.skipTypeCheck == null) {
+  if (
+    (options.bundler === 'swc' || options.bundler === 'rollup') &&
+    options.skipTypeCheck == null
+  ) {
     options.skipTypeCheck = false;
   }
 
@@ -339,7 +437,9 @@ function normalizeOptions(
     ? `${names(options.directory).fileName}/${name}`
     : name;
 
-  if (!options.unitTestRunner && options.config !== 'npm-scripts') {
+  if (!options.unitTestRunner && options.bundler === 'vite') {
+    options.unitTestRunner = 'vitest';
+  } else if (!options.unitTestRunner && options.config !== 'npm-scripts') {
     options.unitTestRunner = 'jest';
   }
 
@@ -364,6 +464,8 @@ function normalizeOptions(
   const importPath =
     options.importPath || getImportPath(npmScope, projectDirectory);
 
+  options.minimal ??= false;
+
   return {
     ...options,
     fileName,
@@ -384,27 +486,58 @@ function getCaseAwareFileName(options: {
   return options.pascalCaseFiles ? normalized.className : normalized.fileName;
 }
 
-function updateRootTsConfig(host: Tree, options: NormalizedSchema) {
-  updateJson(host, getRootTsConfigPathInTree(host), (json) => {
-    const c = json.compilerOptions;
-    c.paths = c.paths || {};
-    delete c.paths[options.name];
+function addProjectDependencies(
+  tree: Tree,
+  options: NormalizedSchema
+): GeneratorCallback {
+  if (options.bundler == 'esbuild') {
+    return addDependenciesToPackageJson(
+      tree,
+      {},
+      {
+        '@nrwl/esbuild': nxVersion,
+        '@types/node': typesNodeVersion,
+        esbuild: esbuildVersion,
+      }
+    );
+  }
 
-    if (c.paths[options.importPath]) {
-      throw new Error(
-        `You already have a library using the import path "${options.importPath}". Make sure to specify a unique one.`
-      );
-    }
+  if (options.bundler == 'rollup') {
+    return addDependenciesToPackageJson(
+      tree,
+      {},
+      { '@nrwl/rollup': nxVersion, '@types/node': typesNodeVersion }
+    );
+  }
 
-    c.paths[options.importPath] = [
-      joinPathFragments(
-        options.projectRoot,
-        './src',
-        'index.' + (options.js ? 'js' : 'ts')
-      ),
-    ];
+  // Vite is being installed in the next step if bundler is vite
 
-    return json;
+  // noop
+  return () => {};
+}
+
+function getBuildExecutor(bundler: Bundler) {
+  switch (bundler) {
+    case 'esbuild':
+      return `@nrwl/esbuild:esbuild`;
+    case 'rollup':
+      return `@nrwl/rollup:rollup`;
+    case 'swc':
+    case 'tsc':
+      return `@nrwl/js:${bundler}`;
+    case 'vite':
+      return `@nrwl/vite:build`;
+    case 'none':
+    default:
+      return undefined;
+  }
+}
+
+function ensureBabelRootConfigExists(tree: Tree) {
+  if (tree.exists('babel.config.json')) return;
+
+  writeJson(tree, 'babel.config.json', {
+    babelrcRoots: ['*'],
   });
 }
 

@@ -7,6 +7,7 @@ import { FileHasherBase } from './file-hasher-base';
 import { stripIndents } from '../utils/strip-indents';
 import ignore from 'ignore';
 import { normalizePath } from '../utils/path';
+import { getIgnoreObject } from '../utils/ignore';
 
 export class NodeBasedFileHasher extends FileHasherBase {
   ignoredGlobs = getIgnoredGlobs();
@@ -50,7 +51,7 @@ export class NodeBasedFileHasher extends FileHasherBase {
         }
         try {
           const s = statSync(absoluteChild);
-          if (!s.isDirectory()) {
+          if (s.isFile()) {
             this.fileHashes.set(
               normalizePath(relChild),
               this.hashFile(relChild)
@@ -65,9 +66,7 @@ export class NodeBasedFileHasher extends FileHasherBase {
 }
 
 function getIgnoredGlobs() {
-  const ig = ignore();
-  ig.add(readFileIfExisting(`${workspaceRoot}/.gitignore`));
-  ig.add(readFileIfExisting(`${workspaceRoot}/.nxignore`));
+  const ig = getIgnoreObject();
   ig.add(stripIndents`
       node_modules
       tmp
@@ -75,8 +74,4 @@ function getIgnoredGlobs() {
       build    
     `);
   return ig;
-}
-
-function readFileIfExisting(path: string) {
-  return existsSync(path) ? readFileSync(path, 'utf-8') : '';
 }

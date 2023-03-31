@@ -7,7 +7,7 @@ import {
   uniq,
   updateFile,
 } from '@nrwl/e2e/utils';
-import { classify } from '@nrwl/workspace/src/utils/strings';
+import { classify } from '@nrwl/devkit/src/utils/string-utils';
 
 describe('Move Angular Project', () => {
   let proj: string;
@@ -20,7 +20,7 @@ describe('Move Angular Project', () => {
     app1 = uniq('app1');
     app2 = uniq('app2');
     newPath = `subfolder/${app2}`;
-    runCLI(`generate @nrwl/angular:app ${app1}`);
+    runCLI(`generate @nrwl/angular:app ${app1} --no-interactive`);
   });
 
   afterAll(() => cleanupProject());
@@ -35,7 +35,6 @@ describe('Move Angular Project', () => {
 
     // just check the output
     expect(moveOutput).toContain(`DELETE apps/${app1}`);
-    expect(moveOutput).toContain(`CREATE apps/${newPath}/.browserslistrc`);
     expect(moveOutput).toContain(`CREATE apps/${newPath}/jest.config.ts`);
     expect(moveOutput).toContain(`CREATE apps/${newPath}/tsconfig.app.json`);
     expect(moveOutput).toContain(`CREATE apps/${newPath}/tsconfig.json`);
@@ -44,7 +43,6 @@ describe('Move Angular Project', () => {
     expect(moveOutput).toContain(`CREATE apps/${newPath}/src/favicon.ico`);
     expect(moveOutput).toContain(`CREATE apps/${newPath}/src/index.html`);
     expect(moveOutput).toContain(`CREATE apps/${newPath}/src/main.ts`);
-    expect(moveOutput).toContain(`CREATE apps/${newPath}/src/polyfills.ts`);
     expect(moveOutput).toContain(`CREATE apps/${newPath}/src/styles.css`);
     expect(moveOutput).toContain(`CREATE apps/${newPath}/src/test-setup.ts`);
     expect(moveOutput).toContain(
@@ -54,13 +52,6 @@ describe('Move Angular Project', () => {
       `CREATE apps/${newPath}/src/app/app.module.ts`
     );
     expect(moveOutput).toContain(`CREATE apps/${newPath}/src/assets/.gitkeep`);
-    expect(moveOutput).toContain(
-      `CREATE apps/${newPath}/src/environments/environment.prod.ts`
-    );
-    expect(moveOutput).toContain(
-      `CREATE apps/${newPath}/src/environments/environment.ts`
-    );
-    expect(moveOutput).toContain(`UPDATE workspace.json`);
   });
 
   /**
@@ -72,17 +63,17 @@ describe('Move Angular Project', () => {
     updateFile(
       `apps/${app1}-e2e/cypress.config.ts`,
       `
-import { defineConfig } from 'cypress';
-import { nxE2EPreset } from '@nrwl/cypress/plugins/cypress-preset';
-
-export default defineConfig({
-  e2e: {
-    ...nxE2EPreset(__dirname),
-    videosFolder: '../../dist/cypress/apps/${app1}-e2e/videos',
-    screenshotsFolder: '../../dist/cypress/apps/${app1}-e2e/screenshots',
-    },
-});
-`
+  import { defineConfig } from 'cypress';
+  import { nxE2EPreset } from '@nrwl/cypress/plugins/cypress-preset';
+  
+  export default defineConfig({
+    e2e: {
+      ...nxE2EPreset(__dirname),
+      videosFolder: '../../dist/cypress/apps/${app1}-e2e/videos',
+      screenshotsFolder: '../../dist/cypress/apps/${app1}-e2e/screenshots',
+      },
+  });
+  `
     );
     const moveOutput = runCLI(
       `generate @nrwl/angular:move --projectName=${app1}-e2e --destination=${newPath}-e2e`
@@ -108,19 +99,19 @@ export default defineConfig({
   it('should work for libraries', () => {
     const lib1 = uniq('mylib');
     const lib2 = uniq('mylib');
-    runCLI(`generate @nrwl/angular:lib ${lib1}`);
+    runCLI(`generate @nrwl/angular:lib ${lib1} --no-interactive`);
 
     /**
      * Create a library which imports the module from the other lib
      */
 
-    runCLI(`generate @nrwl/angular:lib ${lib2}`);
+    runCLI(`generate @nrwl/angular:lib ${lib2} --no-interactive`);
 
     updateFile(
       `libs/${lib2}/src/lib/${lib2}.module.ts`,
       `import { ${classify(lib1)}Module } from '@${proj}/${lib1}';
-
-        export class ExtendedModule extends ${classify(lib1)}Module { }`
+  
+          export class ExtendedModule extends ${classify(lib1)}Module { }`
     );
 
     const moveOutput = runCLI(
@@ -152,7 +143,7 @@ export default defineConfig({
     const lib2FilePath = `libs/${lib2}/src/lib/${lib2}.module.ts`;
     const lib2File = readFile(lib2FilePath);
     expect(lib2File).toContain(
-      `import { ${newModule} } from '@${proj}/shared-${lib1}';`
+      `import { ${newModule} } from '@${proj}/shared/${lib1}';`
     );
     expect(lib2File).toContain(`extends ${newModule}`);
   });

@@ -1,4 +1,4 @@
-import { ExternalLinkIcon, LinkIcon } from '@heroicons/react/solid';
+import { ArrowTopRightOnSquareIcon, LinkIcon } from '@heroicons/react/24/solid';
 import {
   getSchemaFromResult,
   getTitleForSchema,
@@ -60,8 +60,9 @@ function hasPatternProperties(s: JsonSchema1): boolean {
 }
 
 function hasAdditionalProperties(s: JsonSchema1): boolean {
-  return !(
-    typeof s.additionalProperties === 'boolean' && !s.additionalProperties
+  return (
+    typeof s.additionalProperties === 'boolean' ||
+    typeof s.additionalProperties === 'object'
   );
 }
 
@@ -101,7 +102,7 @@ const LinkType = ({
     return (
       <a href={schema.$ref} target="_blank" rel="noreferrer">
         external reference: {schema.$ref}{' '}
-        <ExternalLinkIcon className="inline h-4 w-4" />
+        <ArrowTopRightOnSquareIcon className="inline h-4 w-4" />
       </a>
     );
   }

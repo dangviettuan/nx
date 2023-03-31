@@ -1,24 +1,24 @@
 import { Tree } from '@nrwl/devkit';
-import { createTreeWithEmptyV1Workspace } from '@nrwl/devkit/testing';
+import { createTreeWithEmptyWorkspace } from '@nrwl/devkit/testing';
+import { Linter } from '@nrwl/linter';
 import { moveGenerator } from '@nrwl/workspace/generators';
+import { UnitTestRunner } from '../../../utils/test-runners';
+import { generateTestLibrary } from '../../utils/testing';
 import { Schema } from '../schema';
 import { updateModuleName } from './update-module-name';
-import libraryGenerator from '../../library/library';
-import { Linter } from '@nrwl/linter';
-import { UnitTestRunner } from '../../../utils/test-runners';
 
 describe('updateModuleName Rule', () => {
   let tree: Tree;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyV1Workspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
   });
 
   it('should handle nesting resulting in the same project name', async () => {
     const updatedModulePath = '/libs/my/first/src/lib/my-first.module.ts';
-    await libraryGenerator(tree, {
+    await generateTestLibrary(tree, {
       name: 'my-first',
-      simpleModuleName: true,
+      simpleName: true,
     });
     const schema: Schema = {
       projectName: 'my-first',
@@ -31,7 +31,7 @@ describe('updateModuleName Rule', () => {
 
     expect(tree.exists(updatedModulePath)).toBe(true);
     const moduleFile = tree.read(updatedModulePath).toString('utf-8');
-    expect(moduleFile).toContain(`export class MyFirstModule { }`);
+    expect(moduleFile).toContain(`export class MyFirstModule {}`);
   });
 
   describe('move to subfolder', () => {
@@ -49,21 +49,21 @@ describe('updateModuleName Rule', () => {
     };
 
     beforeEach(async () => {
-      await libraryGenerator(tree, {
+      await generateTestLibrary(tree, {
         name: 'my-first',
         buildable: false,
         linter: Linter.EsLint,
         publishable: false,
-        simpleModuleName: true,
+        simpleName: true,
         skipFormat: false,
         unitTestRunner: UnitTestRunner.Jest,
       });
-      await libraryGenerator(tree, {
+      await generateTestLibrary(tree, {
         name: 'my-second',
         buildable: false,
         linter: Linter.EsLint,
         publishable: false,
-        simpleModuleName: true,
+        simpleName: true,
         skipFormat: false,
         unitTestRunner: UnitTestRunner.Jest,
       });
@@ -132,7 +132,7 @@ describe('updateModuleName Rule', () => {
 
       const importerFile = tree.read(secondModulePath).toString('utf-8');
       expect(importerFile).toContain(
-        `import { SharedMyFirstModule } from '@proj/shared-my-first';`
+        `import { SharedMyFirstModule } from '@proj/shared/my-first';`
       );
       expect(importerFile).toContain(
         `export class MySecondModule extends SharedMyFirstModule {}`
@@ -164,12 +164,12 @@ describe('updateModuleName Rule', () => {
 
     beforeEach(async () => {
       // fake a mid-move tree:
-      await libraryGenerator(tree, {
+      await generateTestLibrary(tree, {
         name: 'my-destination',
         buildable: false,
         linter: Linter.EsLint,
         publishable: false,
-        simpleModuleName: true,
+        simpleName: true,
         skipFormat: false,
         unitTestRunner: UnitTestRunner.Jest,
       });
@@ -209,12 +209,12 @@ describe('updateModuleName Rule', () => {
       tree.delete(modulePath);
       tree.delete(moduleSpecPath);
 
-      await libraryGenerator(tree, {
+      await generateTestLibrary(tree, {
         name: 'my-importer',
         buildable: false,
         linter: Linter.EsLint,
         publishable: false,
-        simpleModuleName: true,
+        simpleName: true,
         skipFormat: false,
         unitTestRunner: UnitTestRunner.Jest,
       });

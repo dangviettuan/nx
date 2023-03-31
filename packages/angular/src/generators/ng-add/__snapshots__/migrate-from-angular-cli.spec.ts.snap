@@ -1,83 +1,5 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`workspace --preserve-angular-cli-layout should create nx.json 1`] = `
-Object {
-  "affected": Object {
-    "defaultBase": "main",
-  },
-  "implicitDependencies": Object {
-    ".eslintrc.json": "*",
-    "package.json": Object {
-      "dependencies": "*",
-      "devDependencies": "*",
-    },
-  },
-  "targetDefaults": Object {
-    "build": Object {
-      "dependsOn": Array [
-        "^build",
-      ],
-    },
-  },
-  "tasksRunnerOptions": Object {
-    "default": Object {
-      "options": Object {
-        "cacheableOperations": Array [
-          "build",
-          "lint",
-          "test",
-          "e2e",
-        ],
-      },
-      "runner": "nx/tasks-runners/default",
-    },
-  },
-  "workspaceLayout": Object {
-    "appsDir": "",
-    "libsDir": "",
-  },
-}
-`;
-
-exports[`workspace --preserve-angular-cli-layout should support multiple projects 1`] = `
-Object {
-  "affected": Object {
-    "defaultBase": "main",
-  },
-  "implicitDependencies": Object {
-    ".eslintrc.json": "*",
-    "package.json": Object {
-      "dependencies": "*",
-      "devDependencies": "*",
-    },
-  },
-  "targetDefaults": Object {
-    "build": Object {
-      "dependsOn": Array [
-        "^build",
-      ],
-    },
-  },
-  "tasksRunnerOptions": Object {
-    "default": Object {
-      "options": Object {
-        "cacheableOperations": Array [
-          "build",
-          "lint",
-          "test",
-          "e2e",
-        ],
-      },
-      "runner": "nx/tasks-runners/default",
-    },
-  },
-  "workspaceLayout": Object {
-    "appsDir": "projects",
-    "libsDir": "projects",
-  },
-}
-`;
-
 exports[`workspace move to nx layout should create a root eslint config 1`] = `
 Object {
   "ignorePatterns": Array [
@@ -162,18 +84,35 @@ Object {
     "defaultBase": "main",
   },
   "defaultProject": "myApp",
-  "implicitDependencies": Object {
-    ".eslintrc.json": "*",
-    "package.json": Object {
-      "dependencies": "*",
-      "devDependencies": "*",
-    },
+  "namedInputs": Object {
+    "default": Array [
+      "{projectRoot}/**/*",
+      "sharedGlobals",
+    ],
+    "production": Array [
+      "default",
+      "!{projectRoot}/tsconfig.spec.json",
+      "!{projectRoot}/**/*.spec.[jt]s",
+      "!{projectRoot}/karma.conf.js",
+      "!{projectRoot}/.eslintrc.json",
+    ],
+    "sharedGlobals": Array [],
   },
   "npmScope": "my-org",
   "targetDefaults": Object {
     "build": Object {
       "dependsOn": Array [
         "^build",
+      ],
+      "inputs": Array [
+        "production",
+        "^production",
+      ],
+    },
+    "e2e": Object {
+      "inputs": Array [
+        "default",
+        "^production",
       ],
     },
     "lint": Object {
@@ -182,14 +121,21 @@ Object {
         "{workspaceRoot}/.eslintrc.json",
       ],
     },
+    "test": Object {
+      "inputs": Array [
+        "default",
+        "^production",
+        "{workspaceRoot}/karma.conf.js",
+      ],
+    },
   },
   "tasksRunnerOptions": Object {
     "default": Object {
       "options": Object {
         "cacheableOperations": Array [
           "build",
-          "lint",
           "test",
+          "lint",
           "e2e",
         ],
       },

@@ -1,7 +1,9 @@
-import { spawn } from 'child_process';
+import { execSync } from 'child_process';
 import { platform } from 'os';
 import * as chalk from 'chalk';
 import { GeneratorCallback, logger } from '@nrwl/devkit';
+import { rmdirSync, existsSync } from 'fs-extra';
+import { join } from 'path';
 
 const podInstallErrorMessage = `
 Running ${chalk.bold('pod install')} failed, see above.
@@ -21,7 +23,8 @@ ${chalk.bold('sudo xcode-select --switch /Applications/Xcode.app')}
  */
 export function runPodInstall(
   iosDirectory: string,
-  install: boolean = true
+  install: boolean = true,
+  buildFolder?: string
 ): GeneratorCallback {
   return () => {
     if (platform() !== 'darwin') {
@@ -36,27 +39,30 @@ export function runPodInstall(
 
     logger.info(`Running \`pod install\` from "${iosDirectory}"`);
 
-    return podInstall(iosDirectory);
+    return podInstall(iosDirectory, buildFolder);
   };
 }
 
-export function podInstall(iosDirectory: string): Promise<void> {
+export function podInstall(
+  iosDirectory: string,
+  buildFolder?: string
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    const process = spawn('pod', ['install'], {
+    const result = execSync('pod install', {
       cwd: iosDirectory,
-      stdio: [0, 1, 2],
     });
-
-    process.on('close', (code: number) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(podInstallErrorMessage));
+    logger.info(result.toString());
+    if (result.toString().includes('Pod installation complete')) {
+      // Remove build folder after pod install
+      if (buildFolder) {
+        buildFolder = join(iosDirectory, buildFolder);
+        if (existsSync(buildFolder)) {
+          rmdirSync(buildFolder, { recursive: true });
+        }
       }
-    });
-
-    process.on('error', () => {
+      resolve();
+    } else {
       reject(new Error(podInstallErrorMessage));
-    });
+    }
   });
 }

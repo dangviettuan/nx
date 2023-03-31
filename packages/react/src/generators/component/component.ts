@@ -9,27 +9,23 @@ import {
   joinPathFragments,
   logger,
   names,
+  runTasksInSerial,
   toJS,
   Tree,
 } from '@nrwl/devkit';
-import { runTasksInSerial } from '@nrwl/workspace/src/utilities/run-tasks-in-serial';
-import * as ts from 'typescript';
+
 import { addStyledModuleDependencies } from '../../rules/add-styled-dependencies';
 import { assertValidStyle } from '../../utils/assertion';
 import { addImport } from '../../utils/ast-utils';
+import { getInSourceVitestTestsTemplate } from '../../utils/get-in-source-vitest-tests-template';
 import {
   reactRouterDomVersion,
   typesReactRouterDomVersion,
 } from '../../utils/versions';
+import { getComponentTests } from './get-component-tests';
+import { NormalizedSchema } from './noramlized-schema';
 import { Schema } from './schema';
-
-interface NormalizedSchema extends Schema {
-  projectSourceRoot: string;
-  fileName: string;
-  className: string;
-  styledModule: null | string;
-  hasStyles: boolean;
-}
+import { ensureTypescript } from '@nrwl/js/src/utils/typescript/ensure-typescript';
 
 export async function componentGenerator(host: Tree, schema: Schema) {
   const options = await normalizeOptions(host, schema);
@@ -62,15 +58,21 @@ function createComponentFiles(host: Tree, options: NormalizedSchema) {
     options.directory
   );
 
+  const componentTests = getComponentTests(options);
   generateFiles(host, joinPathFragments(__dirname, './files'), componentDir, {
     ...options,
+    componentTests,
+    inSourceVitestTests: getInSourceVitestTestsTemplate(componentTests),
     tmpl: '',
   });
 
   for (const c of host.listChanges()) {
     let deleteFile = false;
 
-    if (options.skipTests && /.*spec.tsx/.test(c.path)) {
+    if (
+      (options.skipTests || options.inSourceTests) &&
+      /.*spec.tsx/.test(c.path)
+    ) {
       deleteFile = true;
     }
 
@@ -102,7 +104,12 @@ function createComponentFiles(host: Tree, options: NormalizedSchema) {
   }
 }
 
+let tsModule: typeof import('typescript');
+
 function addExportsToBarrel(host: Tree, options: NormalizedSchema) {
+  if (!tsModule) {
+    tsModule = ensureTypescript();
+  }
   const workspace = getProjects(host);
   const isApp = workspace.get(options.project).projectType === 'application';
 
@@ -113,10 +120,10 @@ function addExportsToBarrel(host: Tree, options: NormalizedSchema) {
     );
     const indexSource = host.read(indexFilePath, 'utf-8');
     if (indexSource !== null) {
-      const indexSourceFile = ts.createSourceFile(
+      const indexSourceFile = tsModule.createSourceFile(
         indexFilePath,
         indexSource,
-        ts.ScriptTarget.Latest,
+        tsModule.ScriptTarget.Latest,
         true
       );
       const changes = applyChangesToString(
@@ -166,6 +173,7 @@ async function normalizeOptions(
   options.classComponent = options.classComponent ?? false;
   options.routing = options.routing ?? false;
   options.globalCss = options.globalCss ?? false;
+  options.inSourceTests = options.inSourceTests ?? false;
 
   return {
     ...options,

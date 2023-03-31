@@ -1,7 +1,8 @@
 {
   "name": "@nrwl/nx-plugin",
   "version": "0.0.1",
-  "description": "Plugin for creating plugins for Nx :)",
+  "private": false,
+  "description": "This plugin is used to create Nx plugins! It contains generators for generating common plugin features like generators, executors, migrations and more.",
   "repository": {
     "type": "git",
     "url": "https://github.com/nrwl/nx.git",
@@ -12,7 +13,7 @@
     "Nx",
     "CLI"
   ],
-  "main": "./index.js",
+  "main": "./index",
   "types": "./index.d.ts",
   "author": "Nrwl",
   "license": "MIT",
@@ -31,10 +32,12 @@
     "@nrwl/jest": "file:../jest",
     "@nrwl/js": "file:../js",
     "@nrwl/linter": "file:../linter",
+    "@phenomnomnominal/tsquery": "4.1.1",
     "dotenv": "~10.0.0",
-    "fs-extra": "^10.1.0",
-    "rxjs": "^6.5.4",
-    "semver": "7.3.4",
+    "fs-extra": "^11.1.0",
     "tslib": "^2.3.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

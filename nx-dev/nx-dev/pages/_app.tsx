@@ -1,5 +1,4 @@
 import { sendPageViewEvent } from '@nrwl/nx-dev/feature-analytics';
-import { AnnouncementBanner } from '@nrwl/nx-dev/ui-common';
 import { DefaultSeo } from 'next-seo';
 import { AppProps } from 'next/app';
 import Head from 'next/head';
@@ -34,36 +33,48 @@ export default function CustomApp({
             {
               url: 'https://nx.dev/images/nx-media.jpg',
               width: 800,
-              height: 400,
+              height: 421,
               alt: 'Nx: Smart, Fast and Extensible Build System',
               type: 'image/jpeg',
             },
           ],
-          site_name: 'Nx',
+          siteName: 'Nx',
+          type: 'website',
         }}
         twitter={{
-          handle: '@nrwl_io',
           site: '@nxdevtools',
           cardType: 'summary_large_image',
         }}
       />
       <Head>
-        <meta name="msapplication-TileColor" content="#da532c" />
-        <meta name="theme-color" content="#ffffff" />
+        <meta name="apple-mobile-web-app-title" content="Nx" />
+        <meta name="application-name" content="Nx" />
+        <meta
+          name="msapplication-TileColor"
+          content="#DA532C"
+          key="windows-tile-color"
+        />
+        <meta
+          name="theme-color"
+          media="(prefers-color-scheme: light)"
+          content="#F8FAFC"
+        />
+        <meta
+          name="theme-color"
+          media="(prefers-color-scheme: dark)"
+          content="#0F172A"
+        />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
       <a
         id="skip-to-content-link"
         href="#main"
         tabIndex={0}
-        className="bg-green-nx-base absolute top-3 left-8 -translate-y-24 rounded-md px-4 py-2 text-white transition focus:translate-y-0"
+        className="absolute top-3 left-8 -translate-y-24 rounded-md bg-green-400 px-4 py-2 text-white transition focus:translate-y-0"
       >
         Skip to content
       </a>
-      <div className="documentation-app bg-white text-gray-700 antialiased">
-        <AnnouncementBanner />
-        <Component {...pageProps} />
-      </div>
+      <Component {...pageProps} />
       {/* Global Site Tag (gtag.js) - Google Analytics */}
       <Script
         id="gtag-script-dependency"
@@ -87,7 +98,7 @@ export default function CustomApp({
       {/* HubSpot Analytics */}
       <Script
         id="hs-script-loader"
-        strategy="worker"
+        strategy="afterInteractive"
         src="https://js.hs-scripts.com/2757427.js"
       />
       {/* Hotjar Analytics */}

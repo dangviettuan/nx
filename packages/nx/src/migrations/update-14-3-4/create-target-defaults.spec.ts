@@ -1,21 +1,21 @@
 import { createTreeWithEmptyWorkspace } from '../../generators/testing-utils/create-tree-with-empty-workspace';
 import type { Tree } from '../../generators/tree';
 import {
-  readWorkspaceConfiguration,
-  updateWorkspaceConfiguration,
+  readNxJson,
+  updateNxJson,
 } from '../../generators/utils/project-configuration';
-import createTargetDefaults from 'nx/src/migrations/update-14-3-4/create-target-defaults';
+import createTargetDefaults from './create-target-defaults';
 
 describe('createTargetDefaults', () => {
   let tree: Tree;
 
   beforeEach(() => {
-    tree = createTreeWithEmptyWorkspace();
+    tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
   });
 
   it('should work', async () => {
-    const config = readWorkspaceConfiguration(tree);
-    config.targetDependencies = {
+    const nxJson = readNxJson(tree);
+    nxJson.targetDependencies = {
       a: [],
       b: [
         'bb',
@@ -23,10 +23,10 @@ describe('createTargetDefaults', () => {
         { target: 'c', projects: 'dependencies' },
       ],
     };
-    updateWorkspaceConfiguration(tree, config);
+    updateNxJson(tree, nxJson);
     await createTargetDefaults(tree);
 
-    const updated = readWorkspaceConfiguration(tree);
+    const updated = readNxJson(tree);
     expect(updated.targetDefaults).toEqual({
       a: { dependsOn: [] },
       b: {
@@ -34,5 +34,10 @@ describe('createTargetDefaults', () => {
       },
     });
     expect(updated.targetDependencies).toBeUndefined();
+  });
+
+  it('should not error when nxJson does not exist', async () => {
+    tree.delete('nx.json');
+    await expect(createTargetDefaults(tree)).resolves.not.toThrow();
   });
 });
